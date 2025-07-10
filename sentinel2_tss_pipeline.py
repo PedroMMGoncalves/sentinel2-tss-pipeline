@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unified Sentinel-2 Processing and TSS Estimation Pipeline
+Sentinel-2 Processing and TSS Estimation Pipeline
 ========================================================
 
 Complete pipeline that combines:
@@ -15,7 +15,7 @@ Features:
 - Enhanced memory management and progress tracking
 - Professional GUI interface optimized for Spyder
 
-Author: Unified S2-TSS Processing Pipeline v1.0
+Author: Pedro Gonçalves v1.0
 """
 
 import os
