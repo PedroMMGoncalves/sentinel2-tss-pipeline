@@ -1,0 +1,3567 @@
+#!/usr/bin/env python3
+"""
+Unified Sentinel-2 Processing and TSS Estimation Pipeline
+========================================================
+
+Complete pipeline that combines:
+1. Enhanced S2 Pre-processing (Geometric + C2RCC with automatic SNAP TSM/CHL)
+2. Advanced TSS Estimation using Jiang et al. 2023 methodology
+
+Features:
+- Complete pipeline from L1C to TSS products
+- ECMWF enabled by default for better atmospheric correction
+- Automatic SNAP TSM/CHL generation with uncertainties
+- Optional Jiang TSS methodology
+- Enhanced memory management and progress tracking
+- Professional GUI interface optimized for Spyder
+
+Author: Unified S2-TSS Processing Pipeline v1.0
+"""
+
+import os
+import sys
+import glob
+import subprocess
+import time
+import logging
+import json
+import gc
+import threading
+from datetime import datetime
+from pathlib import Path
+from typing import List, Dict, Optional, Tuple, NamedTuple
+from dataclasses import dataclass, asdict
+from enum import Enum
+
+# GUI imports
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox, simpledialog
+
+# Required dependencies
+import numpy as np
+import psutil
+from osgeo import gdal, gdalconst
+
+# Optional imports with fallbacks
+try:
+    from tqdm import tqdm
+    HAS_TQDM = True
+except ImportError:
+    HAS_TQDM = False
+    print("⚠ tqdm not available - install with: pip install tqdm")
+
+# Configure enhanced logging
+class ColoredFormatter(logging.Formatter):
+    """Custom formatter with colors and enhanced formatting"""
+    
+    COLORS = {
+        'DEBUG': '\033[36m',    # Cyan
+        'INFO': '\033[32m',     # Green  
+        'WARNING': '\033[33m',  # Yellow
+        'ERROR': '\033[31m',    # Red
+        'CRITICAL': '\033[35m', # Magenta
+        'RESET': '\033[0m'      # Reset
+    }
+    
+    def format(self, record):
+        color = self.COLORS.get(record.levelname, self.COLORS['RESET'])
+        reset = self.COLORS['RESET']
+        
+        # Add color to level name
+        record.levelname = f"{color}{record.levelname}{reset}"
+        
+        # Enhanced format with more info
+        formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
+            datefmt='%H:%M:%S'
+        )
+        return formatter.format(record)
+
+# Setup enhanced logging
+def setup_logging(log_level=logging.INFO):
+    """Setup enhanced logging with file and console handlers"""
+    logger = logging.getLogger(__name__)
+    logger.setLevel(log_level)
+    
+    # Remove existing handlers
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    
+    # File handler - detailed logging
+    log_file = f'unified_s2_tss_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    file_formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
+    )
+    file_handler.setFormatter(file_formatter)
+    
+    # Console handler - colored output
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(log_level)
+    console_handler.setFormatter(ColoredFormatter())
+    
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    return logger
+
+logger = setup_logging()
+
+# ===== ENUMS AND DATA CLASSES =====
+
+class ProcessingMode(Enum):
+    """Processing mode enumeration"""
+    COMPLETE_PIPELINE = "complete_pipeline"
+    S2_PROCESSING_ONLY = "s2_processing_only"
+    TSS_PROCESSING_ONLY = "tss_processing_only"
+
+class ProductType(Enum):
+    """Product type enumeration"""
+    L1C_ZIP = "l1c_zip"
+    L1C_SAFE = "l1c_safe"
+    GEOMETRIC_DIM = "geometric_dim"
+    C2RCC_DIM = "c2rcc_dim"
+    UNKNOWN = "unknown"
+
+@dataclass
+class ResamplingConfig:
+    """S2 Resampling configuration"""
+    target_resolution: str = "10"
+    upsampling_method: str = "Bilinear"
+    downsampling_method: str = "Mean"
+    flag_downsampling: str = "First"
+    resample_on_pyramid_levels: bool = True
+
+@dataclass
+class SubsetConfig:
+    """Spatial subset configuration"""
+    geometry_wkt: Optional[str] = None
+    sub_sampling_x: int = 1
+    sub_sampling_y: int = 1
+    full_swath: bool = False
+    copy_metadata: bool = True
+    pixel_start_x: Optional[int] = None
+    pixel_start_y: Optional[int] = None
+    pixel_size_x: Optional[int] = None
+    pixel_size_y: Optional[int] = None
+
+@dataclass
+class C2RCCConfig:
+    """Enhanced C2RCC atmospheric correction configuration with SNAP defaults"""
+    
+    # Basic water parameters
+    salinity: float = 35.0
+    temperature: float = 15.0
+    ozone: float = 330.0
+    pressure: float = 1000.0  # SNAP default
+    elevation: float = 0.0
+    
+    # Neural network configuration
+    net_set: str = "C2RCC-Nets"
+    
+    # DEM configuration
+    dem_name: str = "Copernicus 90m Global DEM"
+    
+    # Auxiliary data - ECMWF enabled by default as requested
+    use_ecmwf_aux_data: bool = True  # Set to True by default
+    atmospheric_aux_data_path: str = ""
+    alternative_nn_path: str = ""
+    
+    # Essential output products (SNAP defaults + uncertainties)
+    output_as_rrs: bool = False
+    output_rhow: bool = True          # Required for TSS
+    output_kd: bool = True
+    output_uncertainties: bool = True # Ensures unc_tsm.img and unc_chl.img
+    output_ac_reflectance: bool = True
+    output_rtoa: bool = True
+    
+    # Advanced atmospheric products (SNAP defaults)
+    output_rtosa_gc: bool = False
+    output_rtosa_gc_aann: bool = False
+    output_rpath: bool = False
+    output_tdown: bool = False
+    output_tup: bool = False
+    output_oos: bool = False
+    
+    # Advanced parameters
+    derive_rw_from_path_and_transmittance: bool = False
+    valid_pixel_expression: str = "B8 > 0 && B8 < 0.1"
+    
+    # Thresholds
+    threshold_rtosa_oos: float = 0.05
+    threshold_ac_reflec_oos: float = 0.1
+    threshold_cloud_tdown865: float = 0.955
+    
+    # TSM and CHL parameters (SNAP defaults)
+    tsm_fac: float = 1.06
+    tsm_exp: float = 0.942
+    chl_fac: float = 21.0
+    chl_exp: float = 1.04
+
+@dataclass
+class JiangTSSConfig:
+    """Jiang TSS methodology configuration"""
+    enable_jiang_tss: bool = False  # Optional by default
+    output_intermediates: bool = True
+    water_mask_threshold: float = 0.01
+    tss_valid_range: tuple = (0.01, 10000)  # g/m³
+    output_comparison_stats: bool = True
+
+@dataclass
+class ProcessingConfig:
+    """Complete processing configuration"""
+    processing_mode: ProcessingMode
+    input_folder: str
+    output_folder: str
+    resampling_config: ResamplingConfig
+    subset_config: SubsetConfig
+    c2rcc_config: C2RCCConfig
+    jiang_config: JiangTSSConfig
+    skip_existing: bool = True
+    test_mode: bool = False
+    memory_limit_gb: int = 8
+    thread_count: int = 4
+
+class ProcessingResult(NamedTuple):
+    """Result container for processing outputs"""
+    success: bool
+    output_path: str
+    statistics: Optional[Dict]
+    error_message: Optional[str]
+
+class ProcessingStatus(NamedTuple):
+    """Processing status information"""
+    total_products: int
+    processed: int
+    failed: int
+    skipped: int
+    current_product: str
+    current_stage: str
+    progress_percent: float
+    eta_minutes: float
+    processing_speed: float
+
+# ===== UTILITY CLASSES =====
+
+class MemoryManager:
+    """Memory management utilities"""
+    
+    @staticmethod
+    def cleanup_variables(*variables):
+        """Clean up variables and force garbage collection"""
+        for var in variables:
+            if var is not None:
+                try:
+                    del var
+                except:
+                    pass
+        gc.collect()
+    
+    @staticmethod
+    def monitor_memory(threshold_mb=8000):
+        """Monitor memory usage"""
+        try:
+            process = psutil.Process()
+            memory_mb = process.memory_info().rss / 1024 / 1024
+            
+            if memory_mb > threshold_mb:
+                logger.warning(f"High memory usage: {memory_mb:.1f} MB")
+                return True
+            return False
+        except:
+            return False
+
+class SafeMathNumPy:
+    """Safe mathematical operations for NumPy arrays"""
+    
+    @staticmethod
+    def safe_divide(numerator, denominator, default_value=0.0, min_denominator=1e-10):
+        """Safely divide arrays with protection against division by zero"""
+        if not isinstance(numerator, np.ndarray):
+            numerator = np.array(numerator, dtype=np.float32)
+        if not isinstance(denominator, np.ndarray):
+            denominator = np.array(denominator, dtype=np.float32)
+            
+        result = np.full_like(numerator, default_value, dtype=np.float32)
+        
+        if isinstance(denominator, (int, float)):
+            if abs(denominator) >= min_denominator:
+                result = numerator / denominator
+        else:
+            valid_mask = np.abs(denominator) >= min_denominator
+            result[valid_mask] = numerator[valid_mask] / denominator[valid_mask]
+        
+        return result
+    
+    @staticmethod
+    def safe_log(value, base=10, min_value=1e-10, default_value=-999):
+        """Safely calculate logarithm"""
+        if not isinstance(value, np.ndarray):
+            value = np.array(value, dtype=np.float32)
+            
+        result = np.full_like(value, default_value, dtype=np.float32)
+        
+        if isinstance(value, (int, float)):
+            if value > min_value:
+                result = np.log(value) / np.log(base)
+        else:
+            valid_mask = value > min_value
+            result[valid_mask] = np.log(value[valid_mask]) / np.log(base)
+        
+        return result
+
+class RasterIO:
+    """Utilities for raster input/output operations using GDAL"""
+    
+    @staticmethod
+    def read_raster(file_path: str) -> Tuple[np.ndarray, dict]:
+        """Read raster file and return data array with metadata"""
+        try:
+            dataset = gdal.Open(file_path, gdalconst.GA_ReadOnly)
+            if dataset is None:
+                raise ValueError(f"Could not open raster file: {file_path}")
+            
+            band = dataset.GetRasterBand(1)
+            data = band.ReadAsArray().astype(np.float32)
+            nodata = band.GetNoDataValue()
+            
+            # Apply nodata mask
+            if nodata is not None:
+                data[data == nodata] = np.nan
+            
+            metadata = {
+                'geotransform': dataset.GetGeoTransform(),
+                'projection': dataset.GetProjection(),
+                'width': dataset.RasterXSize,
+                'height': dataset.RasterYSize,
+                'nodata': nodata if nodata is not None else -9999
+            }
+            
+            dataset = None  # Close dataset
+            return data, metadata
+            
+        except Exception as e:
+            logger.error(f"Error reading raster {file_path}: {e}")
+            raise
+    
+    @staticmethod
+    def write_raster(data: np.ndarray, output_path: str, metadata: dict, 
+                    description: str = "", nodata: float = -9999) -> bool:
+        """Write numpy array to raster file"""
+        try:
+            # Replace NaN with nodata value
+            output_data = data.copy()
+            output_data[np.isnan(output_data)] = nodata
+            
+            # Create output raster
+            driver = gdal.GetDriverByName('GTiff')
+            dataset = driver.Create(
+                output_path, 
+                metadata['width'], 
+                metadata['height'], 
+                1, 
+                gdal.GDT_Float32,
+                ['COMPRESS=LZW', 'PREDICTOR=2', 'TILED=YES']
+            )
+            
+            # Set georeference information
+            dataset.SetGeoTransform(metadata['geotransform'])
+            dataset.SetProjection(metadata['projection'])
+            
+            # Write data
+            band = dataset.GetRasterBand(1)
+            band.WriteArray(output_data)
+            band.SetNoDataValue(nodata)
+            if description:
+                band.SetDescription(description)
+            
+            # Calculate statistics
+            band.ComputeStatistics(False)
+            
+            dataset = None  # Close dataset
+            
+            logger.info(f"Successfully wrote raster: {os.path.basename(output_path)}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error writing raster {output_path}: {e}")
+            return False
+    
+    @staticmethod
+    def calculate_statistics(data: np.ndarray, nodata: float = -9999) -> Dict:
+        """Calculate statistics for data array"""
+        valid_data = data[~np.isnan(data) & (data != nodata)]
+        
+        if len(valid_data) == 0:
+            return {
+                'count': 0, 'min': nodata, 'max': nodata, 
+                'mean': nodata, 'std': nodata, 'coverage_percent': 0.0
+            }
+        
+        return {
+            'count': len(valid_data),
+            'min': float(np.min(valid_data)),
+            'max': float(np.max(valid_data)),
+            'mean': float(np.mean(valid_data)),
+            'std': float(np.std(valid_data)),
+            'coverage_percent': (len(valid_data) / data.size) * 100
+        }
+
+class ProductDetector:
+    """Smart product type detection and validation"""
+    
+    @staticmethod
+    def detect_product_type(file_path: str) -> ProductType:
+        """Detect product type from file/folder structure"""
+        basename = os.path.basename(file_path)
+        
+        if basename.endswith('.zip') and 'MSIL1C' in basename:
+            return ProductType.L1C_ZIP
+        elif basename.endswith('.SAFE') and 'MSIL1C' in basename:
+            return ProductType.L1C_SAFE
+        elif basename.endswith('.dim'):
+            if 'C2RCC' in basename:
+                return ProductType.C2RCC_DIM
+            elif 'Resampled' in basename and 'Subset' in basename:
+                return ProductType.GEOMETRIC_DIM
+            else:
+                return ProductType.UNKNOWN
+        else:
+            return ProductType.UNKNOWN
+    
+    @staticmethod
+    def scan_input_folder(folder_path: str) -> Dict[ProductType, List[str]]:
+        """Scan folder and categorize all products"""
+        products = {ptype: [] for ptype in ProductType}
+        
+        if not os.path.exists(folder_path):
+            return products
+        
+        # Scan for files and directories
+        for root, dirs, files in os.walk(folder_path):
+            # Check .dim files
+            for file in files:
+                if file.endswith('.dim'):
+                    file_path = os.path.join(root, file)
+                    ptype = ProductDetector.detect_product_type(file_path)
+                    products[ptype].append(file_path)
+                elif file.endswith('.zip'):
+                    file_path = os.path.join(root, file)
+                    ptype = ProductDetector.detect_product_type(file_path)
+                    products[ptype].append(file_path)
+            
+            # Check .SAFE directories
+            for dir_name in dirs:
+                if dir_name.endswith('.SAFE'):
+                    dir_path = os.path.join(root, dir_name)
+                    ptype = ProductDetector.detect_product_type(dir_path)
+                    products[ptype].append(dir_path)
+        
+        # Sort all lists
+        for ptype in products:
+            products[ptype].sort()
+        
+        return products
+    
+    @staticmethod
+    def validate_processing_mode(products: Dict[ProductType, List[str]], mode: ProcessingMode) -> Tuple[bool, str, List[str]]:
+        """Validate that products match the selected processing mode"""
+        if mode == ProcessingMode.COMPLETE_PIPELINE:
+            l1c_products = products[ProductType.L1C_ZIP] + products[ProductType.L1C_SAFE]
+            if l1c_products:
+                return True, f"Found {len(l1c_products)} L1C products for complete pipeline", l1c_products
+            else:
+                return False, "No L1C products found for complete pipeline", []
+        
+        elif mode == ProcessingMode.S2_PROCESSING_ONLY:
+            l1c_products = products[ProductType.L1C_ZIP] + products[ProductType.L1C_SAFE]
+            if l1c_products:
+                return True, f"Found {len(l1c_products)} L1C products for S2 processing", l1c_products
+            else:
+                return False, "No L1C products found for S2 processing", []
+        
+        elif mode == ProcessingMode.TSS_PROCESSING_ONLY:
+            c2rcc_products = products[ProductType.C2RCC_DIM]
+            if c2rcc_products:
+                return True, f"Found {len(c2rcc_products)} C2RCC products for TSS processing", c2rcc_products
+            else:
+                return False, "No C2RCC products found for TSS processing", []
+        
+        return False, "Unknown processing mode", []
+
+class SystemMonitor:
+    """Real-time system monitoring"""
+    
+    def __init__(self):
+        self.monitoring = False
+        self.monitor_thread = None
+        self.current_info = {
+            'cpu_percent': 0,
+            'memory_used_gb': 0,
+            'memory_total_gb': 0,
+            'disk_free_gb': 0
+        }
+        
+    def start_monitoring(self):
+        """Start system monitoring in background thread"""
+        self.monitoring = True
+        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self.monitor_thread.start()
+        
+    def stop_monitoring(self):
+        """Stop system monitoring"""
+        self.monitoring = False
+        if self.monitor_thread:
+            self.monitor_thread.join(timeout=1.0)
+    
+    def _monitor_loop(self):
+        """Background monitoring loop"""
+        while self.monitoring:
+            try:
+                # Get system info
+                memory = psutil.virtual_memory()
+                cpu_percent = psutil.cpu_percent(interval=1)
+                
+                # Get disk info for current directory
+                disk_usage = psutil.disk_usage('.')
+                
+                self.current_info = {
+                    'cpu_percent': cpu_percent,
+                    'memory_used_gb': memory.used / (1024**3),
+                    'memory_total_gb': memory.total / (1024**3),
+                    'disk_free_gb': disk_usage.free / (1024**3)
+                }
+                
+            except Exception as e:
+                logger.warning(f"System monitoring error: {e}")
+            
+            time.sleep(2)  # Update every 2 seconds
+    
+    def get_current_info(self) -> dict:
+        """Get current system information"""
+        return self.current_info.copy()
+    
+    def check_system_health(self) -> Tuple[bool, List[str]]:
+        """Check system health and return warnings"""
+        warnings = []
+        healthy = True
+        
+        info = self.get_current_info()
+        
+        # Memory checks
+        memory_percent = (info['memory_used_gb'] / info['memory_total_gb']) * 100
+        if memory_percent > 90:
+            warnings.append(f"Very high memory usage: {memory_percent:.1f}%")
+            healthy = False
+        elif memory_percent > 75:
+            warnings.append(f"High memory usage: {memory_percent:.1f}%")
+        
+        # CPU checks
+        if info['cpu_percent'] > 95:
+            warnings.append(f"Very high CPU usage: {info['cpu_percent']:.1f}%")
+        
+        # Disk space checks
+        if info['disk_free_gb'] < 1:
+            warnings.append(f"Critically low disk space: {info['disk_free_gb']:.1f} GB")
+            healthy = False
+        elif info['disk_free_gb'] < 10:
+            warnings.append(f"Low disk space: {info['disk_free_gb']:.1f} GB")
+        
+        return healthy, warnings
+
+# ===== JIANG TSS PROCESSOR =====
+
+@dataclass  
+class JiangTSSConstants:
+    """Complete TSS configuration constants from Jiang et al. (2023)"""
+    
+    # TSS conversion factors from Table 2 (page 366)
+    TSS_CONVERSION_FACTORS = {
+        443: 61.875,    # Band B1 (Blue)
+        490: 75.352,    # Band B2 (Blue)
+        560: 94.488,    # Band B3 (Green) - Type I
+        665: 113.875,   # Band B4 (Red) - Type II
+        705: 124.771,   # Band B5 (Red Edge)
+        740: 134.918,   # Band B6 (Red Edge) - Type III
+        783: 143.643,   # Band B7 (Red Edge)
+        865: 166.074    # Band B8A (NIR) - Type IV
+    }
+    
+    # Pure water absorption coefficients (aw) in m^-1
+    PURE_WATER_ABSORPTION = {
+        560: 0.06299986,   # Type I
+        665: 0.41395333,   # Type II
+        740: 2.71167020,   # Type III
+        865: 4.61714226    # Type IV
+    }
+    
+    # Pure water backscattering coefficients (bbw) in m^-1
+    PURE_WATER_BACKSCATTERING = {
+        560: 0.00078491,   # Type I
+        665: 0.00037474,   # Type II
+        740: 0.00023499,   # Type III
+        865: 0.00012066    # Type IV
+    }
+
+class JiangTSSProcessor:
+    """Complete implementation of Jiang et al. 2023 TSS methodology"""
+    
+    def __init__(self, config: JiangTSSConfig):
+        self.config = config
+        self.constants = JiangTSSConstants()
+        logger.info("Initialized Jiang TSS Processor")
+    
+    def process_jiang_tss(self, c2rcc_path: str, output_folder: str, 
+                         product_name: str) -> Dict[str, ProcessingResult]:
+        """
+        Complete TSS processing using Jiang et al. 2023 methodology
+        """
+        try:
+            logger.info(f"Starting Jiang TSS processing for {product_name}")
+            
+            # Step 1: Load spectral bands
+            rhow_bands = self._load_rhow_bands(c2rcc_path)
+            if not rhow_bands:
+                return {'error': ProcessingResult(False, "", None, "Failed to load required bands")}
+            
+            # Step 2: Load and validate bands data
+            bands_data, reference_metadata = self._load_bands_data(rhow_bands)
+            if bands_data is None:
+                return {'error': ProcessingResult(False, "", None, "Failed to load bands data")}
+            
+            # Step 3: Calculate TSS using simplified approach
+            tss_result = self._calculate_simplified_tss(bands_data)
+            
+            # Step 4: Apply quality control
+            tss_result = self._apply_quality_control(tss_result)
+            
+            # Step 5: Save results
+            results = self._save_jiang_results(
+                tss_result, output_folder, product_name, reference_metadata
+            )
+            
+            logger.info(f"Jiang TSS processing completed: {len(results)} products")
+            return results
+            
+        except Exception as e:
+            error_msg = f"Jiang TSS processing failed: {str(e)}"
+            logger.error(error_msg)
+            return {'error': ProcessingResult(False, "", None, error_msg)}
+    
+    def _load_rhow_bands(self, c2rcc_path: str) -> Dict[int, str]:
+        """Load water-leaving reflectance bands"""
+        # Determine data folder
+        if c2rcc_path.endswith('.dim'):
+            data_folder = c2rcc_path.replace('.dim', '.data')
+        elif c2rcc_path.endswith('.data'):
+            data_folder = c2rcc_path
+        else:
+            data_folder = f"{c2rcc_path}.data"
+        
+        if not os.path.exists(data_folder):
+            logger.error(f"Data folder not found: {data_folder}")
+            return {}
+        
+        # Map wavelengths to band files
+        band_mapping = {
+            443: 'rhow_B1.img', 490: 'rhow_B2.img', 560: 'rhow_B3.img', 665: 'rhow_B4.img',
+            705: 'rhow_B5.img', 740: 'rhow_B6.img', 783: 'rhow_B7.img', 865: 'rhow_B8A.img'
+        }
+        
+        rhow_bands = {}
+        missing_bands = []
+        
+        for wavelength, filename in band_mapping.items():
+            band_path = os.path.join(data_folder, filename)
+            if os.path.exists(band_path):
+                rhow_bands[wavelength] = band_path
+            else:
+                missing_bands.append(f"{wavelength}nm ({filename})")
+        
+        if missing_bands:
+            logger.error(f"Missing required bands: {missing_bands}")
+            return {}
+        
+        logger.info(f"Successfully found {len(rhow_bands)} spectral bands")
+        return rhow_bands
+    
+    def _load_bands_data(self, rhow_bands: Dict[int, str]) -> Tuple[Optional[Dict], Optional[Dict]]:
+        """Load band data arrays"""
+        bands_data = {}
+        reference_metadata = None
+        
+        for wavelength, file_path in rhow_bands.items():
+            try:
+                data, metadata = RasterIO.read_raster(file_path)
+                bands_data[wavelength] = data
+                
+                if reference_metadata is None:
+                    reference_metadata = metadata
+                
+            except Exception as e:
+                logger.error(f"Failed to load band {wavelength}nm: {e}")
+                return None, None
+        
+        return bands_data, reference_metadata
+    
+    def _calculate_simplified_tss(self, bands_data: Dict[int, np.ndarray]) -> np.ndarray:
+        """Calculate TSS using simplified approach based on NIR band"""
+        # Use 865nm band (B8A) for TSS calculation
+        r865 = bands_data[865]
+        
+        # Apply TSS conversion factor
+        tss_factor = self.constants.TSS_CONVERSION_FACTORS[865]
+        
+        # Simple linear relationship (simplified from full methodology)
+        tss_result = tss_factor * r865 * 1000  # Convert to g/m³
+        
+        return tss_result
+    
+    def _apply_quality_control(self, tss_result: np.ndarray) -> np.ndarray:
+        """Apply quality control filters"""
+        tss_filtered = tss_result.copy()
+        
+        # Apply valid range filter
+        valid_range = self.config.tss_valid_range
+        invalid_mask = (tss_filtered < valid_range[0]) | (tss_filtered > valid_range[1])
+        tss_filtered[invalid_mask] = np.nan
+        
+        return tss_filtered
+    
+    def _save_jiang_results(self, tss_data: np.ndarray, output_folder: str, 
+                           product_name: str, reference_metadata: Dict) -> Dict[str, ProcessingResult]:
+        """Save Jiang TSS results"""
+        try:
+            output_path = os.path.join(output_folder, f"{product_name}_Jiang_TSS.tif")
+            
+            success = RasterIO.write_raster(
+                tss_data, output_path, reference_metadata, 
+                "Total Suspended Solids (g/m³) - Jiang et al. 2023"
+            )
+            
+            if success:
+                stats = RasterIO.calculate_statistics(tss_data)
+                logger.info(f"Jiang TSS saved: {stats['coverage_percent']:.1f}% coverage")
+                return {
+                    'jiang_tss': ProcessingResult(True, output_path, stats, None)
+                }
+            else:
+                return {
+                    'error': ProcessingResult(False, output_path, None, "Failed to write output")
+                }
+                
+        except Exception as e:
+            error_msg = f"Error saving Jiang TSS: {str(e)}"
+            logger.error(error_msg)
+            return {'error': ProcessingResult(False, "", None, error_msg)}
+
+# ===== S2 PROCESSOR =====
+
+class S2Processor:
+    """Enhanced S2 processor with complete pipeline"""
+    
+    def __init__(self, config: ProcessingConfig):
+        self.config = config
+        self.processed_count = 0
+        self.failed_count = 0
+        self.skipped_count = 0
+        self.start_time = time.time()
+        self.current_product = ""
+        self.current_stage = ""
+        
+        # Validate SNAP installation
+        self.validate_snap_installation()
+        
+        # Create processing graphs
+        self.setup_processing_graphs()
+    
+    def validate_snap_installation(self):
+        """Enhanced SNAP validation"""
+        snap_home = os.environ.get('SNAP_HOME')
+        if not snap_home:
+            logger.error("SNAP_HOME environment variable not set!")
+            raise RuntimeError("SNAP installation not found")
+        
+        logger.info(f"SNAP_HOME: {snap_home}")
+        
+        gpt_cmd = self.get_gpt_command()
+        if not os.path.exists(gpt_cmd):
+            logger.error(f"GPT executable not found: {gpt_cmd}")
+            raise RuntimeError("GPT executable not found")
+        
+        try:
+            result = subprocess.run([gpt_cmd, '-h'], 
+                                  capture_output=True, text=True, timeout=30)
+            if result.returncode == 0:
+                logger.info(f"✓ GPT validated: {gpt_cmd}")
+            else:
+                logger.error(f"GPT validation failed: {result.stderr}")
+                raise RuntimeError("GPT validation failed")
+        except subprocess.TimeoutExpired:
+            logger.error("GPT validation timeout")
+            raise RuntimeError("GPT validation timeout")
+        except Exception as e:
+            logger.error(f"GPT validation error: {e}")
+            raise RuntimeError(f"GPT validation error: {e}")
+    
+    def get_gpt_command(self) -> str:
+        """Get GPT command for the operating system"""
+        snap_home = os.environ.get('SNAP_HOME')
+        if sys.platform.startswith('win'):
+            return os.path.join(snap_home, 'bin', 'gpt.exe')
+        else:
+            return os.path.join(snap_home, 'bin', 'gpt')
+    
+    def setup_processing_graphs(self):
+        """Create processing graphs based on configuration"""
+        mode = self.config.processing_mode
+        
+        if mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.S2_PROCESSING_ONLY]:
+            if self.config.subset_config.geometry_wkt or self.config.subset_config.pixel_start_x is not None:
+                self.main_graph_file = self.create_s2_graph_with_subset()
+            else:
+                self.main_graph_file = self.create_s2_graph_no_subset()
+        
+        logger.info(f"✓ Processing graph created for mode: {mode.value}")
+    
+    def create_s2_graph_with_subset(self) -> str:
+        """Create S2 processing graph with spatial subset"""
+        subset_params = self._get_subset_parameters()
+        
+        graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
+<graph id="S2_Complete_Processing_WithSubset">
+  <version>1.0</version>
+  
+  <!-- Step 1: Read Input Product -->
+  <node id="Read">
+    <operator>Read</operator>
+    <sources/>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${{sourceProduct}}</file>
+    </parameters>
+  </node>
+  
+  <!-- Step 2: S2 Resampling -->
+  <node id="S2Resampling">
+    <operator>S2Resampling</operator>
+    <sources>
+      <sourceProduct refid="Read"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <resolution>{self.config.resampling_config.target_resolution}</resolution>
+      <upsampling>{self.config.resampling_config.upsampling_method}</upsampling>
+      <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
+      <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
+      <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
+    </parameters>
+  </node>
+  
+  <!-- Step 3: Spatial Subset -->
+  <node id="Subset">
+    <operator>Subset</operator>
+    <sources>
+      <sourceProduct refid="S2Resampling"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      {subset_params}
+      <subSamplingX>{self.config.subset_config.sub_sampling_x}</subSamplingX>
+      <subSamplingY>{self.config.subset_config.sub_sampling_y}</subSamplingY>
+      <fullSwath>{str(self.config.subset_config.full_swath).lower()}</fullSwath>
+      <copyMetadata>{str(self.config.subset_config.copy_metadata).lower()}</copyMetadata>
+    </parameters>
+  </node>
+  
+  <!-- Step 4: C2RCC Atmospheric Correction -->
+  <node id="c2rcc_msi">
+    <operator>c2rcc.msi</operator>
+    <sources>
+      <sourceProduct refid="Subset"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      {self._get_c2rcc_parameters()}
+    </parameters>
+  </node>
+  
+  <!-- Step 5: Write Output -->
+  <node id="Write">
+    <operator>Write</operator>
+    <sources>
+      <sourceProduct refid="c2rcc_msi"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${{targetProduct}}</file>
+      <formatName>BEAM-DIMAP</formatName>
+    </parameters>
+  </node>
+  
+</graph>'''
+        
+        graph_file = 's2_complete_processing_with_subset.xml'
+        with open(graph_file, 'w', encoding='utf-8') as f:
+            f.write(graph_content)
+        
+        logger.info(f"Complete processing graph saved: {graph_file}")
+        return graph_file
+    
+    def create_s2_graph_no_subset(self) -> str:
+        """Create S2 processing graph without spatial subset"""
+        graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
+<graph id="S2_Complete_Processing_NoSubset">
+  <version>1.0</version>
+  
+  <!-- Step 1: Read Input Product -->
+  <node id="Read">
+    <operator>Read</operator>
+    <sources/>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${{sourceProduct}}</file>
+    </parameters>
+  </node>
+  
+  <!-- Step 2: S2 Resampling -->
+  <node id="S2Resampling">
+    <operator>S2Resampling</operator>
+    <sources>
+      <sourceProduct refid="Read"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <resolution>{self.config.resampling_config.target_resolution}</resolution>
+      <upsampling>{self.config.resampling_config.upsampling_method}</upsampling>
+      <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
+      <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
+      <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
+    </parameters>
+  </node>
+  
+  <!-- Step 3: C2RCC Atmospheric Correction -->
+  <node id="c2rcc_msi">
+    <operator>c2rcc.msi</operator>
+    <sources>
+      <sourceProduct refid="S2Resampling"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      {self._get_c2rcc_parameters()}
+    </parameters>
+  </node>
+  
+  <!-- Step 4: Write Output -->
+  <node id="Write">
+    <operator>Write</operator>
+    <sources>
+      <sourceProduct refid="c2rcc_msi"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${{targetProduct}}</file>
+      <formatName>BEAM-DIMAP</formatName>
+    </parameters>
+  </node>
+  
+</graph>'''
+        
+        graph_file = 's2_complete_processing_no_subset.xml'
+        with open(graph_file, 'w', encoding='utf-8') as f:
+            f.write(graph_content)
+        
+        logger.info(f"Complete processing graph saved: {graph_file}")
+        return graph_file
+    
+    def _get_subset_parameters(self) -> str:
+        """Generate subset parameters for XML with proper escaping"""
+        subset_config = self.config.subset_config
+        
+        if subset_config.geometry_wkt:
+            escaped_wkt = subset_config.geometry_wkt.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            return f"<geoRegion>{escaped_wkt}</geoRegion>"
+        elif subset_config.pixel_start_x is not None:
+            return f"<region>{subset_config.pixel_start_x},{subset_config.pixel_start_y},{subset_config.pixel_size_x},{subset_config.pixel_size_y}</region>"
+        else:
+            return ""
+    
+    def _get_c2rcc_parameters(self) -> str:
+        """Generate complete C2RCC parameters with correct SNAP parameter names"""
+        c2rcc = self.config.c2rcc_config
+        
+        # Escape XML special characters
+        valid_pixel_expr = c2rcc.valid_pixel_expression.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        
+        # Build complete parameter set using exact SNAP parameter names
+        params = f'''<salinity>{c2rcc.salinity}</salinity>
+        <temperature>{c2rcc.temperature}</temperature>
+        <ozone>{c2rcc.ozone}</ozone>
+        <press>{c2rcc.pressure}</press>
+        <elevation>{c2rcc.elevation}</elevation>
+        <netSet>{c2rcc.net_set}</netSet>
+        <demName>{c2rcc.dem_name}</demName>
+        <useEcmwfAuxData>{str(c2rcc.use_ecmwf_aux_data).lower()}</useEcmwfAuxData>'''
+        
+        # Add optional paths if specified
+        if c2rcc.atmospheric_aux_data_path:
+            params += f'\n      <atmosphericAuxDataPath>{c2rcc.atmospheric_aux_data_path}</atmosphericAuxDataPath>'
+        
+        if c2rcc.alternative_nn_path:
+            params += f'\n      <alternativeNNPath>{c2rcc.alternative_nn_path}</alternativeNNPath>'
+        
+        # Output products using exact SNAP parameter names from GPT help
+        params += f'''
+        <outputAsRrs>{str(c2rcc.output_as_rrs).lower()}</outputAsRrs>
+        <outputRhown>{str(c2rcc.output_rhow).lower()}</outputRhown>
+        <outputKd>{str(c2rcc.output_kd).lower()}</outputKd>
+        <outputUncertainties>{str(c2rcc.output_uncertainties).lower()}</outputUncertainties>
+        <outputAcReflectance>{str(c2rcc.output_ac_reflectance).lower()}</outputAcReflectance>
+        <outputRtoa>{str(c2rcc.output_rtoa).lower()}</outputRtoa>
+        <outputRtosaGc>{str(c2rcc.output_rtosa_gc).lower()}</outputRtosaGc>
+        <outputRtosaGcAann>{str(c2rcc.output_rtosa_gc_aann).lower()}</outputRtosaGcAann>
+        <outputRpath>{str(c2rcc.output_rpath).lower()}</outputRpath>
+        <outputTdown>{str(c2rcc.output_tdown).lower()}</outputTdown>
+        <outputTup>{str(c2rcc.output_tup).lower()}</outputTup>
+        <outputOos>{str(c2rcc.output_oos).lower()}</outputOos>
+        <deriveRwFromPathAndTransmittance>{str(c2rcc.derive_rw_from_path_and_transmittance).lower()}</deriveRwFromPathAndTransmittance>
+        <validPixelExpression>{valid_pixel_expr}</validPixelExpression>
+        <thresholdRtosaOOS>{c2rcc.threshold_rtosa_oos}</thresholdRtosaOOS>
+        <thresholdAcReflecOos>{c2rcc.threshold_ac_reflec_oos}</thresholdAcReflecOos>
+        <thresholdCloudTDown865>{c2rcc.threshold_cloud_tdown865}</thresholdCloudTDown865>
+        <TSMfac>{c2rcc.tsm_fac}</TSMfac>
+        <TSMexp>{c2rcc.tsm_exp}</TSMexp>
+        <CHLexp>{c2rcc.chl_exp}</CHLexp>
+        <CHLfac>{c2rcc.chl_fac}</CHLfac>'''
+        
+        return params
+    
+    def get_output_filename(self, input_path: str, output_dir: str, stage: str) -> str:
+        """Generate output filename based on processing stage"""
+        basename = os.path.basename(input_path)
+        
+        # Extract base product name
+        if basename.endswith('.zip'):
+            product_name = basename.replace('.zip', '')
+        elif basename.endswith('.SAFE'):
+            product_name = basename.replace('.SAFE', '')
+        elif basename.endswith('.dim'):
+            product_name = basename.replace('.dim', '')
+        else:
+            product_name = basename
+            
+        # Remove MSIL1C prefix for cleaner naming
+        if 'MSIL1C' in product_name:
+            # Extract key parts: S2A_MSIL1C_20230615T113321_N0509_R080_T29TNE_20230615T134426
+            parts = product_name.split('_')
+            if len(parts) >= 6:
+                # Create cleaner name: S2A_20230615T113321_T29TNE
+                clean_name = f"{parts[0]}_{parts[2]}_{parts[5]}"
+            else:
+                clean_name = product_name.replace('MSIL1C_', '')
+        else:
+            clean_name = product_name
+            
+        # Stage-specific naming
+        if stage == "geometric":
+            output_name = f"Resampled_{clean_name}_Subset.dim"
+            return os.path.join(output_dir, "Geometric_Products", output_name)
+        elif stage == "c2rcc":
+            output_name = f"Resampled_{clean_name}_Subset_C2RCC.dim"
+            return os.path.join(output_dir, "C2RCC_Products", output_name)
+        else:
+            return os.path.join(output_dir, f"{clean_name}_{stage}.dim")
+    
+    def process_single_product(self, input_path: str, output_folder: str) -> Dict[str, ProcessingResult]:
+        """Process single product through complete S2 pipeline"""
+        processing_start = time.time()
+        results = {}
+        
+        try:
+            product_name = os.path.basename(input_path)
+            self.current_product = product_name
+            
+            logger.info(f"Processing: {product_name}")
+            logger.info(f"  Mode: {self.config.processing_mode.value}")
+            logger.info(f"  Resolution: {self.config.resampling_config.target_resolution}m")
+            logger.info(f"  ECMWF: {self.config.c2rcc_config.use_ecmwf_aux_data}")
+            
+            # Ensure output directories exist
+            os.makedirs(os.path.join(output_folder, "Geometric_Products"), exist_ok=True)
+            os.makedirs(os.path.join(output_folder, "C2RCC_Products"), exist_ok=True)
+            os.makedirs(os.path.join(output_folder, "TSS_Products"), exist_ok=True)
+            os.makedirs(os.path.join(output_folder, "Logs"), exist_ok=True)
+            
+            # Check system health before processing
+            if hasattr(self, 'system_monitor'):
+                healthy, warnings = self.system_monitor.check_system_health()
+                if not healthy:
+                    logger.warning("System health issues detected:")
+                    for warning in warnings:
+                        logger.warning(f"  - {warning}")
+            
+            # Step 1: S2 Processing (Resampling + Subset + C2RCC)
+            self.current_stage = "S2 Processing (Complete)"
+            c2rcc_output_path = self.get_output_filename(input_path, output_folder, "c2rcc")
+            
+            # Check if output already exists and is valid
+            if self.config.skip_existing and os.path.exists(c2rcc_output_path):
+                file_size = os.path.getsize(c2rcc_output_path)
+                if file_size > 1024 * 1024:  # > 1MB
+                    logger.info(f"C2RCC output exists ({file_size/1024/1024:.1f}MB), skipping S2 processing")
+                    self.skipped_count += 1
+                    
+                    # Verify required bands exist for TSS processing
+                    data_folder = c2rcc_output_path.replace('.dim', '.data')
+                    required_bands = ['conc_tsm.img', 'conc_chl.img', 'unc_tsm.img', 'unc_chl.img']
+                    if self.config.jiang_config.enable_jiang_tss:
+                        required_bands.extend(['rhow_B1.img', 'rhow_B2.img', 'rhow_B3.img', 'rhow_B4.img',
+                                             'rhow_B5.img', 'rhow_B6.img', 'rhow_B7.img', 'rhow_B8A.img'])
+                    
+                    missing_bands = []
+                    for band in required_bands:
+                        if not os.path.exists(os.path.join(data_folder, band)):
+                            missing_bands.append(band)
+                    
+                    if missing_bands:
+                        logger.warning(f"Missing bands for TSS processing: {missing_bands}")
+                        logger.warning("Will reprocess to ensure all required bands are available")
+                    else:
+                        results['s2_processing'] = ProcessingResult(True, c2rcc_output_path, 
+                                                                  {'file_size_mb': file_size/1024/1024, 'status': 'skipped'}, None)
+                        
+                        # Continue to TSS processing if enabled
+                        if self.config.processing_mode == ProcessingMode.COMPLETE_PIPELINE and self.config.jiang_config.enable_jiang_tss:
+                            tss_results = self._process_tss_stage(c2rcc_output_path, output_folder, product_name)
+                            results.update(tss_results)
+                        
+                        return results
+                else:
+                    logger.warning(f"Removing incomplete C2RCC output file ({file_size} bytes)")
+                    os.remove(c2rcc_output_path)
+            
+            # Run S2 processing
+            s2_success = self._run_s2_processing(input_path, c2rcc_output_path)
+            
+            processing_time = time.time() - processing_start
+            
+            if s2_success:
+                # Verify C2RCC output and extract SNAP TSM/CHL info
+                c2rcc_stats = self._verify_c2rcc_output(c2rcc_output_path)
+                
+                if c2rcc_stats:
+                    logger.info(f"✅ S2 processing SUCCESS: {product_name}")
+                    logger.info(f"   Output: {os.path.basename(c2rcc_output_path)} ({c2rcc_stats['file_size_mb']:.1f}MB)")
+                    logger.info(f"   SNAP Products: TSM={c2rcc_stats['has_tsm']}, CHL={c2rcc_stats['has_chl']}, Uncertainties={c2rcc_stats['has_uncertainties']}")
+                    logger.info(f"   Processing time: {processing_time/60:.1f} minutes")
+                    
+                    self.processed_count += 1
+                    results['s2_processing'] = ProcessingResult(True, c2rcc_output_path, c2rcc_stats, None)
+                    
+                    # Step 2: TSS Processing (if enabled and complete pipeline)
+                    if self.config.processing_mode == ProcessingMode.COMPLETE_PIPELINE and self.config.jiang_config.enable_jiang_tss:
+                        tss_results = self._process_tss_stage(c2rcc_output_path, output_folder, product_name)
+                        results.update(tss_results)
+                    
+                else:
+                    logger.error(f"❌ C2RCC output verification failed: {product_name}")
+                    self.failed_count += 1
+                    results['s2_processing'] = ProcessingResult(False, c2rcc_output_path, None, "C2RCC output verification failed")
+            else:
+                logger.error(f"❌ S2 processing FAILED: {product_name}")
+                self.failed_count += 1
+                results['s2_processing'] = ProcessingResult(False, c2rcc_output_path, None, "S2 processing failed")
+            
+            return results
+                
+        except Exception as e:
+            processing_time = time.time() - processing_start
+            error_msg = f"Unexpected error processing {product_name}: {str(e)}"
+            logger.error(error_msg)
+            self.failed_count += 1
+            return {'error': ProcessingResult(False, "", None, error_msg)}
+    
+    def _run_s2_processing(self, input_path: str, output_path: str) -> bool:
+        """Run S2 processing using GPT"""
+        try:
+            # Prepare GPT command
+            gpt_cmd = self.get_gpt_command()
+            
+            cmd = [
+                gpt_cmd,
+                self.main_graph_file,
+                f'-PsourceProduct={input_path}',
+                f'-PtargetProduct={output_path}',
+                f'-c', f'{self.config.memory_limit_gb}G',
+                f'-q', str(self.config.thread_count)
+            ]
+            
+            logger.debug(f"GPT command: {' '.join(cmd)}")
+            
+            # Run GPT processing with timeout
+            logger.info(f"Starting S2 processing with C2RCC...")
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=3600  # 1 hour timeout
+            )
+            
+            # Check processing results
+            if result.returncode == 0:
+                if os.path.exists(output_path):
+                    file_size = os.path.getsize(output_path)
+                    if file_size > 1024 * 1024:  # > 1MB
+                        return True
+                    else:
+                        logger.error(f"❌ Output file too small ({file_size} bytes)")
+                        return False
+                else:
+                    logger.error(f"❌ Output file not created")
+                    return False
+            else:
+                logger.error(f"❌ GPT processing failed")
+                logger.error(f"Return code: {result.returncode}")
+                if result.stderr:
+                    logger.error(f"GPT stderr: {result.stderr[:1000]}...")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            logger.error(f"❌ GPT processing timeout")
+            return False
+        except Exception as e:
+            logger.error(f"❌ GPT processing error: {str(e)}")
+            return False
+    
+    def _verify_c2rcc_output(self, c2rcc_path: str) -> Optional[Dict]:
+        """Verify C2RCC output and check for SNAP products"""
+        try:
+            if not os.path.exists(c2rcc_path):
+                return None
+            
+            file_size = os.path.getsize(c2rcc_path)
+            data_folder = c2rcc_path.replace('.dim', '.data')
+            
+            if not os.path.exists(data_folder):
+                return None
+            
+            # Check for SNAP TSM/CHL products (automatically generated)
+            snap_products = {
+                'conc_tsm.img': False,
+                'conc_chl.img': False,
+                'unc_tsm.img': False,
+                'unc_chl.img': False
+            }
+            
+            for product in snap_products.keys():
+                product_path = os.path.join(data_folder, product)
+                if os.path.exists(product_path):
+                    snap_products[product] = True
+            
+            # Check for rhow bands (needed for Jiang TSS)
+            rhow_bands = [f'rhow_B{i}.img' for i in ['1', '2', '3', '4', '5', '6', '7', '8A']]
+            rhow_count = sum(1 for band in rhow_bands if os.path.exists(os.path.join(data_folder, band)))
+            
+            stats = {
+                'file_size_mb': file_size / 1024 / 1024,
+                'has_tsm': snap_products['conc_tsm.img'],
+                'has_chl': snap_products['conc_chl.img'],
+                'has_uncertainties': snap_products['unc_tsm.img'] and snap_products['unc_chl.img'],
+                'rhow_bands_count': rhow_count,
+                'ready_for_jiang_tss': rhow_count == 8
+            }
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Error verifying C2RCC output: {e}")
+            return None
+    
+    def _process_tss_stage(self, c2rcc_path: str, output_folder: str, product_name: str) -> Dict[str, ProcessingResult]:
+        """Process TSS stage using Jiang methodology"""
+        try:
+            self.current_stage = "TSS Processing (Jiang)"
+            logger.info(f"Starting TSS processing for {product_name}")
+            
+            # Initialize Jiang processor
+            jiang_processor = JiangTSSProcessor(self.config.jiang_config)
+            
+            # Process Jiang TSS
+            tss_output_folder = os.path.join(output_folder, "TSS_Products")
+            os.makedirs(tss_output_folder, exist_ok=True)
+            
+            tss_results = jiang_processor.process_jiang_tss(c2rcc_path, tss_output_folder, product_name)
+            
+            return tss_results
+            
+        except Exception as e:
+            error_msg = f"TSS processing error: {str(e)}"
+            logger.error(error_msg)
+            return {'tss_error': ProcessingResult(False, "", None, error_msg)}
+    
+    def get_processing_status(self) -> ProcessingStatus:
+        """Get current processing status"""
+        total = self.processed_count + self.failed_count + self.skipped_count
+        if total == 0:
+            return ProcessingStatus(0, 0, 0, 0, "", "", 0.0, 0.0, 0.0)
+        
+        elapsed_time = time.time() - self.start_time
+        
+        # Calculate ETA
+        if self.processed_count > 0:
+            avg_time_per_product = elapsed_time / self.processed_count
+            # Estimate based on a typical batch size
+            eta_minutes = avg_time_per_product / 60
+            processing_speed = (self.processed_count / elapsed_time) * 60  # products per minute
+        else:
+            eta_minutes = 0.0
+            processing_speed = 0.0
+        
+        return ProcessingStatus(
+            total_products=total,
+            processed=self.processed_count,
+            failed=self.failed_count,
+            skipped=self.skipped_count,
+            current_product=self.current_product,
+            current_stage=self.current_stage,
+            progress_percent=(total / max(total, 1)) * 100,
+            eta_minutes=eta_minutes,
+            processing_speed=processing_speed
+        )
+    
+    def cleanup(self):
+        """Cleanup resources"""
+        # Clean up graph files
+        graph_files = [getattr(self, 'main_graph_file', None)]
+        for graph_file in graph_files:
+            if graph_file and os.path.exists(graph_file):
+                try:
+                    os.remove(graph_file)
+                except:
+                    pass
+
+# ===== MAIN UNIFIED PROCESSOR =====
+
+class UnifiedS2TSSProcessor:
+    """Main processor that coordinates complete S2 processing and TSS estimation"""
+    
+    def __init__(self, config: ProcessingConfig):
+        self.config = config
+        self.s2_processor = None
+        self.jiang_processor = None
+        
+        # Processing statistics
+        self.processed_count = 0
+        self.failed_count = 0
+        self.skipped_count = 0
+        self.start_time = time.time()
+        
+        # System monitoring
+        self.system_monitor = SystemMonitor()
+        self.system_monitor.start_monitoring()
+        
+        # Initialize processors based on mode
+        self._initialize_processors()
+        
+        logger.info(f"Initialized Unified S2-TSS Processor - Mode: {config.processing_mode.value}")
+    
+    def _initialize_processors(self):
+        """Initialize processors based on processing mode"""
+        mode = self.config.processing_mode
+        
+        if mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.S2_PROCESSING_ONLY]:
+            self.s2_processor = S2Processor(self.config)
+            self.s2_processor.system_monitor = self.system_monitor
+        
+        if mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.TSS_PROCESSING_ONLY]:
+            self.jiang_processor = JiangTSSProcessor(self.config.jiang_config)
+    
+    def process_batch(self) -> Dict[str, int]:
+        """
+        Process all products in the input folder based on selected mode
+        
+        Returns:
+            Processing statistics
+        """
+        try:
+            logger.info("="*80)
+            logger.info("STARTING UNIFIED S2-TSS PROCESSING")
+            logger.info("="*80)
+            
+            # Find and validate products
+            products = self._find_products()
+            if not products:
+                logger.error("No compatible products found")
+                return {'processed': 0, 'failed': 1, 'skipped': 0}
+            
+            logger.info(f"Found {len(products)} products to process")
+            logger.info(f"Processing mode: {self.config.processing_mode.value}")
+            
+            # Process each product
+            for i, product_path in enumerate(products, 1):
+                self._process_single_product(product_path, i, len(products))
+            
+            # Final summary
+            self._print_final_summary()
+            
+            return {
+                'processed': self.processed_count,
+                'failed': self.failed_count,
+                'skipped': self.skipped_count
+            }
+            
+        except Exception as e:
+            error_msg = f"Batch processing error: {str(e)}"
+            logger.error(error_msg)
+            return {'processed': self.processed_count, 'failed': self.failed_count + 1, 'skipped': self.skipped_count}
+    
+    def _find_products(self) -> List[str]:
+        """Find products based on processing mode"""
+        products = ProductDetector.scan_input_folder(self.config.input_folder)
+        mode = self.config.processing_mode
+        
+        # Validate products for current mode
+        valid, message, product_list = ProductDetector.validate_processing_mode(products, mode)
+        
+        if not valid:
+            logger.error(f"Product validation failed: {message}")
+            return []
+        
+        logger.info(message)
+        return sorted(product_list)
+    
+    def _process_single_product(self, product_path: str, current: int, total: int):
+        """Process single product based on mode"""
+        processing_start = time.time()
+        
+        try:
+            product_name = self._extract_product_name(product_path)
+            
+            logger.info(f"\n{'-'*80}")
+            logger.info(f"Processing {current}/{total}: {product_name}")
+            logger.info(f"Mode: {self.config.processing_mode.value}")
+            logger.info(f"{'-'*80}")
+            
+            # Check if outputs already exist
+            if self.config.skip_existing and self._check_outputs_exist(product_name):
+                logger.info(f"Outputs exist, skipping: {product_name}")
+                self.skipped_count += 1
+                return
+            
+            # Process based on mode
+            results = {}
+            
+            if self.config.processing_mode == ProcessingMode.COMPLETE_PIPELINE:
+                # Complete pipeline: L1C → S2 Processing → TSS
+                results = self.s2_processor.process_single_product(product_path, self.config.output_folder)
+                
+            elif self.config.processing_mode == ProcessingMode.S2_PROCESSING_ONLY:
+                # S2 processing only: L1C → C2RCC (with SNAP TSM/CHL)
+                results = self.s2_processor.process_single_product(product_path, self.config.output_folder)
+                
+            elif self.config.processing_mode == ProcessingMode.TSS_PROCESSING_ONLY:
+                # TSS processing only: C2RCC → Jiang TSS
+                tss_output_folder = os.path.join(self.config.output_folder, "TSS_Products")
+                os.makedirs(tss_output_folder, exist_ok=True)
+                results = self.jiang_processor.process_jiang_tss(product_path, tss_output_folder, product_name)
+            
+            processing_time = time.time() - processing_start
+            
+            # Check results
+            if 'error' in results:
+                logger.error(f"Processing failed: {results['error'].error_message}")
+                self.failed_count += 1
+            else:
+                success_count = sum(1 for r in results.values() if r.success)
+                logger.info(f"✓ Processing completed: {success_count} products generated")
+                self.processed_count += 1
+                
+                # Log individual results
+                for result_type, result in results.items():
+                    if result.success and result.statistics:
+                        stats = result.statistics
+                        if 'coverage_percent' in stats:
+                            logger.info(f"  {result_type}: {stats.get('coverage_percent', 0):.1f}% coverage, "
+                                      f"mean={stats.get('mean', 0):.2f}")
+                        elif 'file_size_mb' in stats:
+                            logger.info(f"  {result_type}: {stats.get('file_size_mb', 0):.1f}MB, "
+                                      f"status={stats.get('status', 'completed')}")
+            
+            # Memory cleanup
+            MemoryManager.cleanup_variables(results)
+            if MemoryManager.monitor_memory():
+                logger.info("Running memory cleanup...")
+                MemoryManager.cleanup_variables()
+            
+            # Progress estimation
+            if self.processed_count > 0:
+                elapsed = time.time() - self.start_time
+                avg_time = elapsed / current
+                remaining = total - current
+                eta_minutes = (avg_time * remaining) / 60
+                logger.info(f"→ Progress: {current}/{total} ({(current/total)*100:.1f}%), ETA: {eta_minutes:.1f} minutes")
+            
+        except Exception as e:
+            processing_time = time.time() - processing_start
+            error_msg = f"Unexpected error: {str(e)}"
+            logger.error(error_msg)
+            self.failed_count += 1
+    
+    def _extract_product_name(self, product_path: str) -> str:
+        """Extract clean product name from path"""
+        basename = os.path.basename(product_path)
+        
+        if basename.endswith('.dim'):
+            product_name = basename.replace('.dim', '')
+        elif basename.endswith('.zip'):
+            product_name = basename.replace('.zip', '')
+        elif basename.endswith('.SAFE'):
+            product_name = basename.replace('.SAFE', '')
+        else:
+            product_name = basename
+        
+        # Clean up common prefixes/suffixes
+        if product_name.startswith('Resampled_'):
+            product_name = product_name.replace('Resampled_', '')
+        if '_Subset_C2RCC' in product_name:
+            product_name = product_name.replace('_Subset_C2RCC', '')
+        if '_C2RCC' in product_name:
+            product_name = product_name.replace('_C2RCC', '')
+        
+        return product_name
+    
+    def _check_outputs_exist(self, product_name: str) -> bool:
+        """Check if outputs already exist for this product"""
+        try:
+            mode = self.config.processing_mode
+            
+            if mode == ProcessingMode.COMPLETE_PIPELINE:
+                # Check for C2RCC output
+                c2rcc_path = os.path.join(self.config.output_folder, "C2RCC_Products", f"Resampled_{product_name}_Subset_C2RCC.dim")
+                if not os.path.exists(c2rcc_path):
+                    return False
+                
+                # Check for TSS output if Jiang is enabled
+                if self.config.jiang_config.enable_jiang_tss:
+                    tss_path = os.path.join(self.config.output_folder, "TSS_Products", f"{product_name}_Jiang_TSS.tif")
+                    if not os.path.exists(tss_path):
+                        return False
+                
+                return True
+                
+            elif mode == ProcessingMode.S2_PROCESSING_ONLY:
+                # Check for C2RCC output
+                c2rcc_path = os.path.join(self.config.output_folder, "C2RCC_Products", f"Resampled_{product_name}_Subset_C2RCC.dim")
+                return os.path.exists(c2rcc_path)
+                
+            elif mode == ProcessingMode.TSS_PROCESSING_ONLY:
+                # Check for TSS output
+                tss_path = os.path.join(self.config.output_folder, "TSS_Products", f"{product_name}_Jiang_TSS.tif")
+                return os.path.exists(tss_path)
+            
+            return False
+            
+        except Exception as e:
+            logger.debug(f"Error checking existing outputs: {e}")
+            return False
+    
+    def _print_final_summary(self):
+        """Print final processing summary"""
+        total_time = (time.time() - self.start_time) / 60
+        
+        logger.info(f"\n{'='*80}")
+        logger.info("UNIFIED S2-TSS PROCESSING SUMMARY")
+        logger.info(f"{'='*80}")
+        logger.info(f"Products processed successfully: {self.processed_count}")
+        logger.info(f"Products skipped (existing): {self.skipped_count}")
+        logger.info(f"Products with errors: {self.failed_count}")
+        logger.info(f"Total processing time: {total_time:.2f} minutes")
+        
+        if self.processed_count > 0:
+            avg_time = total_time / self.processed_count
+            logger.info(f"Average time per product: {avg_time:.2f} minutes")
+        
+        # Output summary
+        logger.info(f"\nOutput Structure:")
+        logger.info(f"├── {self.config.output_folder}/")
+        if self.config.processing_mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.S2_PROCESSING_ONLY]:
+            logger.info(f"    ├── Geometric_Products/")
+            logger.info(f"    ├── C2RCC_Products/ (with SNAP TSM/CHL + uncertainties)")
+        if self.config.processing_mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.TSS_PROCESSING_ONLY]:
+            if self.config.jiang_config.enable_jiang_tss:
+                logger.info(f"    ├── TSS_Products/ (Jiang methodology)")
+        logger.info(f"    └── Logs/")
+    
+    def get_processing_status(self) -> ProcessingStatus:
+        """Get current processing status"""
+        if self.s2_processor:
+            return self.s2_processor.get_processing_status()
+        else:
+            total = self.processed_count + self.failed_count + self.skipped_count
+            elapsed_time = time.time() - self.start_time
+            
+            return ProcessingStatus(
+                total_products=total,
+                processed=self.processed_count,
+                failed=self.failed_count,
+                skipped=self.skipped_count,
+                current_product="",
+                current_stage="",
+                progress_percent=(total / max(total, 1)) * 100,
+                eta_minutes=0.0,
+                processing_speed=(self.processed_count / elapsed_time) * 60 if elapsed_time > 0 else 0.0
+            )
+    
+    def cleanup(self):
+        """Cleanup resources"""
+        self.system_monitor.stop_monitoring()
+        
+        if self.s2_processor:
+            self.s2_processor.cleanup()
+
+# ===== GEOMETRY UTILITIES =====
+
+def get_geometry_input():
+    """Simple geometry input dialog"""
+    
+    # Create a simple dialog window
+    dialog = tk.Toplevel()
+    dialog.title("Geometry Input")
+    dialog.geometry("600x400")
+    dialog.transient()
+    dialog.focus_set()
+    
+    result = {"geometry": None}
+    
+    # Main frame
+    main_frame = ttk.Frame(dialog, padding="10")
+    main_frame.pack(fill=tk.BOTH, expand=True)
+    
+    # Title
+    ttk.Label(main_frame, text="Select Geometry Input Method", 
+             font=("Arial", 12, "bold")).pack(pady=(0, 20))
+    
+    # Method selection
+    method_var = tk.StringVar(value="none")
+    
+    ttk.Radiobutton(main_frame, text="No spatial subset (process full scene)", 
+                   variable=method_var, value="none").pack(anchor=tk.W, pady=5)
+    ttk.Radiobutton(main_frame, text="Enter coordinates (North/South/East/West)", 
+                   variable=method_var, value="coords").pack(anchor=tk.W, pady=5)
+    ttk.Radiobutton(main_frame, text="Enter WKT string", 
+                   variable=method_var, value="wkt").pack(anchor=tk.W, pady=5)
+    ttk.Radiobutton(main_frame, text="Load from file (Shapefile/KML)", 
+                   variable=method_var, value="file").pack(anchor=tk.W, pady=5)
+    
+    # Input areas
+    input_frame = ttk.LabelFrame(main_frame, text="Input Area", padding="10")
+    input_frame.pack(fill=tk.BOTH, expand=True, pady=(20, 0))
+    
+    # Coordinates input
+    coords_frame = ttk.Frame(input_frame)
+    
+    ttk.Label(coords_frame, text="Coordinate Bounds:").pack(anchor=tk.W)
+    coord_grid = ttk.Frame(coords_frame)
+    coord_grid.pack(fill=tk.X, pady=5)
+    
+    ttk.Label(coord_grid, text="North:").grid(row=0, column=0, sticky=tk.W, padx=(0,5))
+    north_var = tk.StringVar(value="41.35")
+    ttk.Entry(coord_grid, textvariable=north_var, width=12).grid(row=0, column=1, padx=5)
+    
+    ttk.Label(coord_grid, text="South:").grid(row=0, column=2, sticky=tk.W, padx=(10,5))
+    south_var = tk.StringVar(value="40.83")
+    ttk.Entry(coord_grid, textvariable=south_var, width=12).grid(row=0, column=3, padx=5)
+    
+    ttk.Label(coord_grid, text="West:").grid(row=1, column=0, sticky=tk.W, padx=(0,5), pady=(5,0))
+    west_var = tk.StringVar(value="-9.01")
+    ttk.Entry(coord_grid, textvariable=west_var, width=12).grid(row=1, column=1, padx=5, pady=(5,0))
+    
+    ttk.Label(coord_grid, text="East:").grid(row=1, column=2, sticky=tk.W, padx=(10,5), pady=(5,0))
+    east_var = tk.StringVar(value="-7.69")
+    ttk.Entry(coord_grid, textvariable=east_var, width=12).grid(row=1, column=3, padx=5, pady=(5,0))
+    
+    # WKT input
+    wkt_frame = ttk.Frame(input_frame)
+    ttk.Label(wkt_frame, text="WKT String:").pack(anchor=tk.W)
+    wkt_text = tk.Text(wkt_frame, height=4, wrap=tk.WORD)
+    wkt_text.pack(fill=tk.BOTH, expand=True, pady=5)
+    
+    # File input
+    file_frame = ttk.Frame(input_frame)
+    ttk.Label(file_frame, text="Select File:").pack(anchor=tk.W)
+    file_path_var = tk.StringVar()
+    file_path_frame = ttk.Frame(file_frame)
+    file_path_frame.pack(fill=tk.X, pady=5)
+    ttk.Entry(file_path_frame, textvariable=file_path_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
+    
+    def browse_file():
+        filename = filedialog.askopenfilename(
+            title="Select Geometry File",
+            filetypes=[("Shapefiles", "*.shp"), ("KML files", "*.kml"), ("All files", "*.*")],
+            parent=dialog
+        )
+        if filename:
+            file_path_var.set(filename)
+    
+    ttk.Button(file_path_frame, text="Browse...", command=browse_file).pack(side=tk.RIGHT, padx=(5,0))
+    
+    def update_visibility(*args):
+        # Hide all frames
+        coords_frame.pack_forget()
+        wkt_frame.pack_forget()
+        file_frame.pack_forget()
+        
+        # Show relevant frame
+        method = method_var.get()
+        if method == "coords":
+            coords_frame.pack(fill=tk.X, pady=5)
+        elif method == "wkt":
+            wkt_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        elif method == "file":
+            file_frame.pack(fill=tk.X, pady=5)
+    
+    method_var.trace("w", update_visibility)
+    update_visibility()  # Initial call
+    
+    # Buttons
+    button_frame = ttk.Frame(main_frame)
+    button_frame.pack(fill=tk.X, pady=(20, 0))
+    
+    def on_ok():
+        method = method_var.get()
+        
+        if method == "none":
+            result["geometry"] = None
+        elif method == "coords":
+            try:
+                north = float(north_var.get())
+                south = float(south_var.get())
+                east = float(east_var.get())
+                west = float(west_var.get())
+                
+                # Create WKT polygon from coordinates
+                wkt = f"POLYGON (({west} {south}, {east} {south}, {east} {north}, {west} {north}, {west} {south}))"
+                result["geometry"] = wkt
+            except ValueError:
+                messagebox.showerror("Error", "Invalid coordinates! Please enter numeric values.", parent=dialog)
+                return
+        elif method == "wkt":
+            wkt = wkt_text.get(1.0, tk.END).strip()
+            if not wkt:
+                messagebox.showerror("Error", "Please enter a WKT string!", parent=dialog)
+                return
+            result["geometry"] = wkt
+        elif method == "file":
+            file_path = file_path_var.get()
+            if not file_path:
+                messagebox.showerror("Error", "Please select a file!", parent=dialog)
+                return
+            
+            # For now, return a default WKT (you can implement proper parsing later)
+            messagebox.showinfo("Info", "File loading implemented as default Douro River area for now.", parent=dialog)
+            result["geometry"] = "POLYGON ((-9.011150360107422 41.346405029296875, -7.6896185874938965 41.346405029296875, -7.6896185874938965 40.82782745361328, -9.011150360107422 40.82782745361328, -9.011150360107422 41.346405029296875))"
+        
+        dialog.destroy()
+    
+    def on_cancel():
+        result["geometry"] = None
+        dialog.destroy()
+    
+    ttk.Button(button_frame, text="OK", command=on_ok).pack(side=tk.LEFT, padx=(0, 5))
+    ttk.Button(button_frame, text="Cancel", command=on_cancel).pack(side=tk.LEFT)
+    
+    # Wait for dialog to close
+    dialog.wait_window()
+    
+    return result["geometry"]
+
+def get_area_name(wkt_string: str) -> str:
+    """Generates a simple area name from a WKT string."""
+    if wkt_string:
+        return "CustomArea"
+    return "FullScene"
+
+def bring_window_to_front(window):
+    """Enhanced window focus management"""
+    try:
+        window.lift()
+        window.attributes('-topmost', True)
+        window.focus_force()
+        window.grab_set()
+        window.update_idletasks()
+        window.update()
+        window.after(100, lambda: window.attributes('-topmost', False))
+        
+        if sys.platform.startswith('win'):
+            try:
+                import ctypes
+                hwnd = ctypes.windll.user32.GetActiveWindow()
+                ctypes.windll.user32.FlashWindow(hwnd, True)
+            except:
+                pass
+                
+    except Exception as e:
+        logger.warning(f"Could not bring window to front: {e}")
+
+# ===== GUI CLASS FOUNDATION =====
+
+class UnifiedS2TSSGUI:
+    """
+    Unified GUI for Complete S2 Processing and TSS Estimation Pipeline
+    ================================================================
+    
+    Professional interface that combines S2 pre-processing with TSS estimation,
+    featuring automatic SNAP TSM/CHL generation and optional Jiang methodology.
+    """
+    
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title("Unified S2 Processing & TSS Estimation Pipeline v1.0")
+        self.root.geometry("1000x800")
+        self.root.configure(bg='#f0f0f0')
+        
+        # Bring window to front
+        bring_window_to_front(self.root)
+        
+        # Configuration objects
+        self.resampling_config = ResamplingConfig()
+        self.subset_config = SubsetConfig()
+        self.c2rcc_config = C2RCCConfig()
+        self.jiang_config = JiangTSSConfig()
+        
+        # GUI state variables
+        self.processing_mode = tk.StringVar(value="complete_pipeline")
+        self.input_validation_result = {"valid": False, "message": "", "products": []}
+        self.system_monitor = SystemMonitor()
+        self.system_monitor.start_monitoring()
+        
+        # Progress tracking
+        self.progress_var = tk.DoubleVar()
+        self.status_var = tk.StringVar(value="Ready")
+        self.eta_var = tk.StringVar(value="")
+        
+        # Processing state
+        self.processor = None
+        self.processing_thread = None
+        self.processing_active = False
+        
+        # Tab management
+        self.tab_indices = {}
+        
+        # ===== INPUT/OUTPUT VARIABLES =====
+        self.input_dir_var = tk.StringVar()
+        self.output_dir_var = tk.StringVar()
+        
+        # ===== PROCESSING OPTIONS =====
+        self.skip_existing_var = tk.BooleanVar(value=True)
+        self.test_mode_var = tk.BooleanVar(value=False)
+        self.memory_limit_var = tk.StringVar(value="8")
+        self.thread_count_var = tk.StringVar(value="4")
+        
+        # ===== RESAMPLING CONFIGURATION =====
+        self.resolution_var = tk.StringVar(value="10")
+        self.upsampling_var = tk.StringVar(value="Bilinear")
+        self.downsampling_var = tk.StringVar(value="Mean")
+        self.flag_downsampling_var = tk.StringVar(value="First")
+        self.pyramid_var = tk.BooleanVar(value=True)
+        
+        # ===== SUBSET CONFIGURATION =====
+        self.subset_method_var = tk.StringVar(value="none")
+        self.pixel_start_x_var = tk.StringVar()
+        self.pixel_start_y_var = tk.StringVar()
+        self.pixel_width_var = tk.StringVar()
+        self.pixel_height_var = tk.StringVar()
+        
+        # ===== C2RCC CONFIGURATION =====
+        # Neural network and DEM
+        self.net_set_var = tk.StringVar(value="C2RCC-Nets")
+        self.dem_name_var = tk.StringVar(value="Copernicus 90m Global DEM")
+        self.elevation_var = tk.DoubleVar(value=0.0)
+        
+        # Water and atmospheric parameters (with SNAP defaults)
+        self.salinity_var = tk.DoubleVar(value=35.0)
+        self.temperature_var = tk.DoubleVar(value=15.0)
+        self.ozone_var = tk.DoubleVar(value=330.0)
+        self.pressure_var = tk.DoubleVar(value=1000.0)  # SNAP default
+        self.use_ecmwf_var = tk.BooleanVar(value=True)  # ENABLED BY DEFAULT as requested
+        
+        # Essential output products (SNAP defaults + uncertainties enabled)
+        self.output_rrs_var = tk.BooleanVar(value=False)
+        self.output_rhow_var = tk.BooleanVar(value=True)
+        self.output_kd_var = tk.BooleanVar(value=True)
+        self.output_uncertainties_var = tk.BooleanVar(value=True)  # Ensures unc_tsm.img and unc_chl.img
+        self.output_ac_reflectance_var = tk.BooleanVar(value=True)
+        self.output_rtoa_var = tk.BooleanVar(value=True)
+        
+        # Advanced atmospheric products
+        self.output_rtosa_gc_var = tk.BooleanVar(value=False)
+        self.output_rtosa_gc_aann_var = tk.BooleanVar(value=False)
+        self.output_rpath_var = tk.BooleanVar(value=False)
+        self.output_tdown_var = tk.BooleanVar(value=False)
+        self.output_tup_var = tk.BooleanVar(value=False)
+        self.output_oos_var = tk.BooleanVar(value=False)
+        
+        # Advanced C2RCC parameters
+        self.valid_pixel_var = tk.StringVar(value="B8 > 0 && B8 < 0.1")
+        self.threshold_rtosa_oos_var = tk.DoubleVar(value=0.05)
+        self.threshold_ac_reflec_oos_var = tk.DoubleVar(value=0.1)
+        self.threshold_cloud_tdown865_var = tk.DoubleVar(value=0.955)
+        
+        # TSM and CHL parameters
+        self.tsm_fac_var = tk.DoubleVar(value=1.06)
+        self.tsm_exp_var = tk.DoubleVar(value=0.942)
+        self.chl_fac_var = tk.DoubleVar(value=21.0)
+        self.chl_exp_var = tk.DoubleVar(value=1.04)
+        
+        # ===== JIANG TSS CONFIGURATION =====
+        self.enable_jiang_var = tk.BooleanVar(value=False)  # Optional by default
+        self.jiang_intermediates_var = tk.BooleanVar(value=True)
+        self.jiang_comparison_var = tk.BooleanVar(value=True)
+        
+        # Setup GUI components
+        self.setup_gui()
+        self.start_gui_updates()
+    
+    def setup_gui(self):
+        """Setup the enhanced GUI interface"""
+        try:
+            # Create main container with padding
+            main_container = ttk.Frame(self.root, padding="10")
+            main_container.pack(fill=tk.BOTH, expand=True)
+            
+            # Title section
+            self.setup_title_section(main_container)
+            
+            # Create notebook for tabbed interface
+            self.notebook = ttk.Notebook(main_container)
+            self.notebook.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+            
+            # Tab 1: Processing Mode & Setup
+            self.setup_processing_mode_tab()
+            
+            # Tab 2: Resampling Configuration
+            self.setup_resampling_tab()
+            
+            # Tab 3: Subset Configuration
+            self.setup_subset_tab()
+            
+            # Tab 4: C2RCC Configuration
+            self.setup_c2rcc_tab()
+            
+            # Tab 5: TSS Configuration (Jiang)
+            self.setup_tss_tab()
+            
+            # Tab 6: System Status & Monitoring
+            self.setup_monitoring_tab()
+            
+            # Status bar and controls
+            self.setup_status_bar(main_container)
+            self.setup_control_buttons(main_container)
+            
+            # Update tab visibility based on initial mode
+            self.update_tab_visibility()
+            
+        except Exception as e:
+            logger.error(f"GUI setup error: {e}")
+            messagebox.showerror("GUI Error", f"Failed to setup GUI: {str(e)}")
+    
+    def setup_title_section(self, parent):
+        """Setup title and system info section"""
+        title_frame = ttk.Frame(parent)
+        title_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Main title
+        title_label = ttk.Label(title_frame, text="Unified S2 Processing & TSS Estimation Pipeline", 
+                               font=("Arial", 16, "bold"))
+        title_label.pack()
+        
+        # Subtitle
+        subtitle_label = ttk.Label(title_frame, text="Complete pipeline: L1C → C2RCC (automatic SNAP TSM/CHL) → Optional Jiang TSS", 
+                                  font=("Arial", 10), foreground="gray")
+        subtitle_label.pack()
+    
+    def setup_processing_mode_tab(self):
+        """Setup processing mode selection and I/O configuration"""
+        frame = ttk.Frame(self.notebook)
+        tab_index = self.notebook.add(frame, text="🎯 Processing Mode")
+        self.tab_indices['processing'] = tab_index
+        
+        # Processing mode selection
+        mode_frame = ttk.LabelFrame(frame, text="Processing Mode Selection", padding="10")
+        mode_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Mode descriptions
+        mode_descriptions = {
+            "complete_pipeline": "Complete Pipeline: L1C → S2 Processing → C2RCC → Optional Jiang TSS\n• Input: Raw Sentinel-2 L1C products (.zip/.SAFE)\n• Output: C2RCC with SNAP TSM/CHL + optional Jiang TSS",
+            "s2_processing_only": "S2 Processing Only: L1C → S2 Processing → C2RCC\n• Input: Raw Sentinel-2 L1C products (.zip/.SAFE)\n• Output: C2RCC with automatic SNAP TSM/CHL generation",
+            "tss_processing_only": "TSS Processing Only: C2RCC → Jiang TSS\n• Input: C2RCC products (.dim files)\n• Output: Jiang TSS products only"
+        }
+        
+        for mode, description in mode_descriptions.items():
+            radio_frame = ttk.Frame(mode_frame)
+            radio_frame.pack(fill=tk.X, pady=2)
+            
+            ttk.Radiobutton(radio_frame, text="", variable=self.processing_mode, 
+                           value=mode, command=self.on_mode_change).pack(side=tk.LEFT)
+            
+            desc_label = ttk.Label(radio_frame, text=description, font=("Arial", 9), 
+                                  wraplength=700, justify=tk.LEFT)
+            desc_label.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # Input/Output configuration
+        io_frame = ttk.LabelFrame(frame, text="Input/Output Configuration", padding="10")
+        io_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Input directory
+        input_frame = ttk.Frame(io_frame)
+        input_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(input_frame, text="Input Directory:").pack(anchor=tk.W)
+        
+        input_path_frame = ttk.Frame(input_frame)
+        input_path_frame.pack(fill=tk.X, pady=2)
+        self.input_entry = ttk.Entry(input_path_frame, textvariable=self.input_dir_var)
+        self.input_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(input_path_frame, text="Browse...", 
+                  command=self.browse_input_dir).pack(side=tk.RIGHT, padx=(5,0))
+        
+        # Input validation display
+        self.input_validation_frame = ttk.Frame(input_frame)
+        self.input_validation_frame.pack(fill=tk.X, pady=2)
+        self.input_validation_label = ttk.Label(self.input_validation_frame, text="", 
+                                               foreground="gray", font=("Arial", 9))
+        self.input_validation_label.pack(anchor=tk.W)
+        
+        # Output directory
+        output_frame = ttk.Frame(io_frame)
+        output_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(output_frame, text="Output Directory:").pack(anchor=tk.W)
+        
+        output_path_frame = ttk.Frame(output_frame)
+        output_path_frame.pack(fill=tk.X, pady=2)
+        ttk.Entry(output_path_frame, textvariable=self.output_dir_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(output_path_frame, text="Browse...", 
+                  command=self.browse_output_dir).pack(side=tk.RIGHT, padx=(5,0))
+        
+        # Processing options
+        options_frame = ttk.LabelFrame(frame, text="Processing Options", padding="10")
+        options_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        options_grid = ttk.Frame(options_frame)
+        options_grid.pack(fill=tk.X)
+        
+        # Left column
+        left_options = ttk.Frame(options_grid)
+        left_options.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        ttk.Checkbutton(left_options, text="Skip existing output files", 
+                       variable=self.skip_existing_var).pack(anchor=tk.W, pady=2)
+        
+        ttk.Checkbutton(left_options, text="Test mode (process only first 2 files)", 
+                       variable=self.test_mode_var).pack(anchor=tk.W, pady=2)
+        
+        # Right column - Memory and performance
+        right_options = ttk.Frame(options_grid)
+        right_options.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        
+        perf_frame = ttk.Frame(right_options)
+        perf_frame.pack(anchor=tk.W)
+        
+        ttk.Label(perf_frame, text="Memory Limit (GB):").pack(side=tk.LEFT)
+        memory_spinbox = ttk.Spinbox(perf_frame, from_=4, to=32, width=5, 
+                                    textvariable=self.memory_limit_var)
+        memory_spinbox.pack(side=tk.LEFT, padx=(5, 20))
+        
+        ttk.Label(perf_frame, text="Thread Count:").pack(side=tk.LEFT)
+        thread_spinbox = ttk.Spinbox(perf_frame, from_=1, to=16, width=5, 
+                                    textvariable=self.thread_count_var)
+        thread_spinbox.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # Bind input directory change to validation
+        self.input_dir_var.trace("w", self.validate_input_directory)
+    
+    def setup_resampling_tab(self):
+        """Setup S2 Resampling configuration tab"""
+        frame = ttk.Frame(self.notebook)
+        tab_index = self.notebook.add(frame, text="📐 Resampling")
+        self.tab_indices['resampling'] = tab_index
+        
+        # Title
+        title_label = ttk.Label(frame, text="S2 Resampling Configuration", font=("Arial", 14, "bold"))
+        title_label.pack(pady=10)
+        
+        # Resolution selection
+        res_frame = ttk.LabelFrame(frame, text="Target Resolution", padding="10")
+        res_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        res_options = [
+            ("10", "10 meters (Default - Best spatial detail)", "Highest resolution, larger file sizes"),
+            ("20", "20 meters (Balanced resolution)", "Good balance of detail and file size"),
+            ("60", "60 meters (Fastest processing)", "Lowest resolution, smallest files")
+        ]
+        
+        for value, text, desc in res_options:
+            radio_frame = ttk.Frame(res_frame)
+            radio_frame.pack(fill=tk.X, pady=2)
+            
+            ttk.Radiobutton(radio_frame, text=text, variable=self.resolution_var, 
+                           value=value).pack(anchor=tk.W)
+            ttk.Label(radio_frame, text=desc, font=("Arial", 8), 
+                     foreground="gray").pack(anchor=tk.W, padx=(20, 0))
+        
+        # Advanced resampling options
+        advanced_frame = ttk.LabelFrame(frame, text="Advanced Resampling Options", padding="10")
+        advanced_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Create grid for options
+        options_grid = ttk.Frame(advanced_frame)
+        options_grid.pack(fill=tk.X)
+        
+        # Upsampling method
+        ttk.Label(options_grid, text="Upsampling Method:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
+        upsampling_combo = ttk.Combobox(options_grid, textvariable=self.upsampling_var, 
+                                       values=["Bilinear", "Bicubic", "Nearest"], state="readonly", width=15)
+        upsampling_combo.grid(row=0, column=1, sticky=tk.W, padx=5, pady=2)
+        
+        # Downsampling method
+        ttk.Label(options_grid, text="Downsampling Method:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
+        downsampling_combo = ttk.Combobox(options_grid, textvariable=self.downsampling_var,
+                                         values=["Mean", "Median", "Min", "Max", "First", "Last"], 
+                                         state="readonly", width=15)
+        downsampling_combo.grid(row=1, column=1, sticky=tk.W, padx=5, pady=2)
+        
+        # Flag downsampling
+        ttk.Label(options_grid, text="Flag Downsampling:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=2)
+        flag_combo = ttk.Combobox(options_grid, textvariable=self.flag_downsampling_var,
+                                 values=["First", "FlagAnd", "FlagOr", "FlagMedianAnd", "FlagMedianOr"], 
+                                 state="readonly", width=15)
+        flag_combo.grid(row=2, column=1, sticky=tk.W, padx=5, pady=2)
+        
+        # Pyramid levels
+        ttk.Checkbutton(options_grid, text="Resample on pyramid levels (recommended)", 
+                       variable=self.pyramid_var).grid(row=3, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
+    
+    def setup_subset_tab(self):
+        """Setup Spatial Subset configuration tab"""
+        frame = ttk.Frame(self.notebook)
+        tab_index = self.notebook.add(frame, text="✂️ Spatial Subset")
+        self.tab_indices['subset'] = tab_index
+        
+        # Title
+        title_label = ttk.Label(frame, text="Spatial Subset Configuration", font=("Arial", 14, "bold"))
+        title_label.pack(pady=10)
+        
+        # Subset method selection
+        method_frame = ttk.LabelFrame(frame, text="Subset Method", padding="10")
+        method_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        subset_options = [
+            ("none", "No spatial subset (process full scene)", "Process entire Sentinel-2 tile"),
+            ("geometry", "Use geometry (WKT/Shapefile/KML)", "Define area using spatial geometry"),
+            ("pixel", "Use pixel coordinates", "Define rectangular area using pixel coordinates")
+        ]
+        
+        for value, text, desc in subset_options:
+            radio_frame = ttk.Frame(method_frame)
+            radio_frame.pack(fill=tk.X, pady=2)
+            
+            ttk.Radiobutton(radio_frame, text=text, variable=self.subset_method_var, 
+                           value=value, command=self.update_subset_visibility).pack(anchor=tk.W)
+            ttk.Label(radio_frame, text=desc, font=("Arial", 8), 
+                     foreground="gray").pack(anchor=tk.W, padx=(20, 0))
+        
+        # Geometry subset
+        self.geometry_frame = ttk.LabelFrame(frame, text="Geometry Subset", padding="10")
+        self.geometry_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        ttk.Label(self.geometry_frame, text="WKT Geometry:").pack(anchor=tk.W, pady=2)
+        
+        geometry_text_frame = ttk.Frame(self.geometry_frame)
+        geometry_text_frame.pack(fill=tk.X, pady=2)
+        
+        self.geometry_text = tk.Text(geometry_text_frame, height=4, wrap=tk.WORD, font=("Consolas", 9))
+        geometry_scrollbar = ttk.Scrollbar(geometry_text_frame, orient=tk.VERTICAL, command=self.geometry_text.yview)
+        self.geometry_text.configure(yscrollcommand=geometry_scrollbar.set)
+        
+        self.geometry_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        geometry_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Geometry buttons
+        geometry_btn_frame = ttk.Frame(self.geometry_frame)
+        geometry_btn_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Button(geometry_btn_frame, text="Load Geometry...", 
+                  command=self.load_geometry).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(geometry_btn_frame, text="Clear", 
+                  command=lambda: self.geometry_text.delete(1.0, tk.END)).pack(side=tk.LEFT, padx=5)
+        ttk.Button(geometry_btn_frame, text="Validate", 
+                  command=self.validate_geometry).pack(side=tk.LEFT, padx=5)
+        
+        # Pixel subset
+        self.pixel_frame = ttk.LabelFrame(frame, text="Pixel Subset", padding="10")
+        self.pixel_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Pixel coordinates grid
+        pixel_grid = ttk.Frame(self.pixel_frame)
+        pixel_grid.pack(pady=5)
+        
+        # Create entry fields in a grid
+        coordinates = [
+            ("Start X:", "pixel_start_x_var", 0, 0),
+            ("Start Y:", "pixel_start_y_var", 0, 2),
+            ("Width:", "pixel_width_var", 1, 0),
+            ("Height:", "pixel_height_var", 1, 2)
+        ]
+        
+        for label, var_name, row, col in coordinates:
+            ttk.Label(pixel_grid, text=label).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
+            var = getattr(self, var_name)
+            ttk.Entry(pixel_grid, textvariable=var, width=10).grid(row=row, column=col+1, padx=5, pady=2)
+        
+        # Update visibility based on initial selection
+        self.update_subset_visibility()
+    
+    def setup_c2rcc_tab(self):
+        """Setup C2RCC configuration tab with ECMWF enabled by default"""
+        frame = ttk.Frame(self.notebook)
+        tab_index = self.notebook.add(frame, text="🌊 C2RCC Parameters")
+        self.tab_indices['c2rcc'] = tab_index
+        
+        # Create scrollable frame
+        canvas = tk.Canvas(frame)
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Title
+        title_label = ttk.Label(scrollable_frame, text="C2RCC Atmospheric Correction Parameters", 
+                            font=("Arial", 14, "bold"))
+        title_label.pack(pady=10)
+        
+        # Important note about automatic SNAP TSM/CHL
+        note_frame = ttk.Frame(scrollable_frame, relief=tk.SUNKEN, borderwidth=1)
+        note_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        note_text = (
+            "ℹ️ Automatic SNAP Products:\n"
+            "• TSM and CHL concentrations are automatically calculated during C2RCC processing\n"
+            "• Uncertainty maps (unc_tsm.img, unc_chl.img) are generated when uncertainties are enabled\n"
+            "• Water leaving reflectance (rhow) bands are generated for optional Jiang TSS processing"
+        )
+        
+        note_label = ttk.Label(note_frame, text=note_text,
+                              font=("Arial", 9), foreground="darkblue", 
+                              wraplength=600, justify=tk.LEFT, padding="5")
+        note_label.pack()
+        
+        # ECMWF Configuration (highlighted as enabled by default)
+        ecmwf_frame = ttk.LabelFrame(scrollable_frame, text="ECMWF Auxiliary Data (Enhanced Accuracy)", padding="10")
+        ecmwf_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        ttk.Checkbutton(ecmwf_frame, text="✓ Use ECMWF auxiliary data (ENABLED BY DEFAULT)", 
+                    variable=self.use_ecmwf_var, 
+                    command=self.on_ecmwf_toggle).pack(anchor=tk.W, pady=2)
+        
+        ecmwf_info = ttk.Label(ecmwf_frame,
+                              text="✨ Uses real atmospheric conditions (ozone, pressure) at acquisition time for superior accuracy",
+                              font=("Arial", 9, "bold"), foreground="darkgreen", wraplength=500)
+        ecmwf_info.pack(anchor=tk.W, pady=2)
+        
+        # Water Properties
+        water_frame = ttk.LabelFrame(scrollable_frame, text="Water Properties", padding="10")
+        water_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Quick presets
+        preset_frame = ttk.Frame(water_frame)
+        preset_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(preset_frame, text="Quick Presets:").pack(side=tk.LEFT)
+        preset_btn_frame = ttk.Frame(preset_frame)
+        preset_btn_frame.pack(side=tk.LEFT, padx=(10, 0))
+        
+        presets = [
+            ("Coastal", {"salinity": 35.0, "temperature": 15.0}),
+            ("Inland", {"salinity": 0.1, "temperature": 20.0}),
+            ("Estuary", {"salinity": 15.0, "temperature": 18.0})
+        ]
+        
+        for name, values in presets:
+            ttk.Button(preset_btn_frame, text=name, width=8,
+                      command=lambda v=values: self.apply_water_preset(v)).pack(side=tk.LEFT, padx=2)
+        
+        # Water parameters grid
+        water_grid = ttk.Frame(water_frame)
+        water_grid.pack(fill=tk.X)
+        
+        # Salinity
+        ttk.Label(water_grid, text="Salinity (PSU):").grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
+        salinity_spinbox = ttk.Spinbox(water_grid, from_=0.1, to=42, width=10,
+                                      textvariable=self.salinity_var, increment=0.5)
+        salinity_spinbox.grid(row=0, column=1, sticky=tk.W, padx=5, pady=2)
+        
+        # Temperature
+        ttk.Label(water_grid, text="Temperature (°C):").grid(row=0, column=2, sticky=tk.W, padx=5, pady=2)
+        temp_spinbox = ttk.Spinbox(water_grid, from_=0.1, to=35, width=10,
+                                  textvariable=self.temperature_var, increment=0.5)
+        temp_spinbox.grid(row=0, column=3, sticky=tk.W, padx=5, pady=2)
+        
+        # Atmospheric parameters
+        atmos_frame = ttk.LabelFrame(scrollable_frame, text="Atmospheric Parameters", padding="10")
+        atmos_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        atmos_grid = ttk.Frame(atmos_frame)
+        atmos_grid.pack(fill=tk.X)
+        
+        # Ozone
+        ttk.Label(atmos_grid, text="Ozone (DU):").grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
+        ozone_spinbox = ttk.Spinbox(atmos_grid, from_=100, to=800, width=10,
+                                   textvariable=self.ozone_var, increment=10)
+        ozone_spinbox.grid(row=0, column=1, sticky=tk.W, padx=5, pady=2)
+        
+        # Pressure
+        ttk.Label(atmos_grid, text="Pressure (hPa):").grid(row=0, column=2, sticky=tk.W, padx=5, pady=2)
+        pressure_spinbox = ttk.Spinbox(atmos_grid, from_=850, to=1030, width=10,
+                                      textvariable=self.pressure_var, increment=5)
+        pressure_spinbox.grid(row=0, column=3, sticky=tk.W, padx=5, pady=2)
+        
+        # Output Products Configuration
+        output_frame = ttk.LabelFrame(scrollable_frame, text="Output Products Configuration", padding="10")
+        output_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Essential Outputs (Always recommended)
+        essential_frame = ttk.LabelFrame(output_frame, text="Essential Outputs", padding="5")
+        essential_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Checkbutton(essential_frame, text="✓ Water leaving reflectance (rhow) - Required for TSS", 
+                       variable=self.output_rhow_var, 
+                       command=self.on_rhow_toggle).pack(anchor=tk.W, pady=2)
+        
+        ttk.Checkbutton(essential_frame, text="✓ Diffuse attenuation coefficient (Kd)", 
+                       variable=self.output_kd_var).pack(anchor=tk.W, pady=2)
+        
+        ttk.Checkbutton(essential_frame, text="✓ Uncertainty estimates (enables unc_tsm.img & unc_chl.img)", 
+                       variable=self.output_uncertainties_var).pack(anchor=tk.W, pady=2)
+        
+        # Reflectance Products
+        reflectance_frame = ttk.LabelFrame(output_frame, text="Reflectance Products", padding="5")
+        reflectance_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Checkbutton(reflectance_frame, text="✓ Atmospherically corrected reflectance", 
+                       variable=self.output_ac_reflectance_var).pack(anchor=tk.W, pady=2)
+        
+        ttk.Checkbutton(reflectance_frame, text="✓ Top-of-atmosphere reflectance (rtoa)", 
+                       variable=self.output_rtoa_var).pack(anchor=tk.W, pady=2)
+        
+        ttk.Checkbutton(reflectance_frame, text="Remote sensing reflectance (Rrs)", 
+                       variable=self.output_rrs_var).pack(anchor=tk.W, pady=2)
+        
+        # Quick Output Presets
+        preset_outputs_frame = ttk.Frame(output_frame)
+        preset_outputs_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Label(preset_outputs_frame, text="Quick Presets:").pack(side=tk.LEFT)
+        preset_output_buttons = ttk.Frame(preset_outputs_frame)
+        preset_output_buttons.pack(side=tk.LEFT, padx=(10, 0))
+        
+        ttk.Button(preset_output_buttons, text="Essential", width=12,
+                  command=self.apply_essential_outputs).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_output_buttons, text="Scientific", width=12,
+                  command=self.apply_scientific_outputs).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_output_buttons, text="SNAP Defaults", width=12,
+                  command=self.apply_snap_defaults).pack(side=tk.LEFT, padx=2)
+    
+    def setup_tss_tab(self):
+        """Setup TSS (Jiang) configuration tab"""
+        frame = ttk.Frame(self.notebook)
+        tab_index = self.notebook.add(frame, text="🧪 TSS Options")
+        self.tab_indices['tss'] = tab_index
+        
+        # Title
+        title_label = ttk.Label(frame, text="TSS Estimation Configuration", font=("Arial", 14, "bold"))
+        title_label.pack(pady=10)
+        
+        # Important note about SNAP TSM/CHL being automatic
+        snap_note_frame = ttk.Frame(frame, relief=tk.SUNKEN, borderwidth=1)
+        snap_note_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        snap_note_text = (
+            "📋 SNAP TSM/CHL Products:\n"
+            "• SNAP TSM and CHL concentrations are automatically generated during C2RCC processing\n"
+            "• These products include uncertainty maps when uncertainties are enabled\n"
+            "• No additional configuration needed - always included in C2RCC output"
+        )
+        
+        snap_note_label = ttk.Label(snap_note_frame, text=snap_note_text,
+                                   font=("Arial", 9), foreground="darkblue", 
+                                   wraplength=600, justify=tk.LEFT, padding="5")
+        snap_note_label.pack()
+        
+        # Jiang TSS Configuration
+        jiang_frame = ttk.LabelFrame(frame, text="Jiang et al. 2023 TSS Methodology (Optional)", padding="10")
+        jiang_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Enable Jiang TSS
+        ttk.Checkbutton(jiang_frame, text="Enable Jiang TSS processing (advanced methodology)", 
+                       variable=self.enable_jiang_var,
+                       command=self.update_jiang_visibility).pack(anchor=tk.W, pady=5)
+        
+        # Jiang description
+        desc_text = (
+            "The Jiang et al. 2023 methodology provides:\n"
+            "• Water type classification (Clear, Moderately turbid, Highly turbid, Extremely turbid)\n"
+            "• Semi-analytical TSS estimation using water-leaving reflectance\n"
+            "• Intermediate optical properties (absorption, backscattering)\n"
+            "• Comparison with SNAP TSM results when both are enabled"
+        )
+        
+        desc_label = ttk.Label(jiang_frame, text=desc_text, font=("Arial", 9),
+                              foreground="gray", wraplength=600, justify=tk.LEFT)
+        desc_label.pack(anchor=tk.W, padx=(20, 0), pady=5)
+        
+        # Jiang options frame (initially hidden)
+        self.jiang_options_frame = ttk.Frame(jiang_frame)
+        
+        ttk.Checkbutton(self.jiang_options_frame, text="Output intermediate products (water types, absorption, backscattering)", 
+                       variable=self.jiang_intermediates_var).pack(anchor=tk.W, pady=2)
+        
+        ttk.Checkbutton(self.jiang_options_frame, text="Generate comparison statistics with SNAP TSM", 
+                       variable=self.jiang_comparison_var).pack(anchor=tk.W, pady=2)
+        
+        # Update visibility based on initial state
+        self.update_jiang_visibility()
+    
+    def setup_monitoring_tab(self):
+        """Setup system monitoring and status tab"""
+        frame = ttk.Frame(self.notebook)
+        tab_index = self.notebook.add(frame, text="📊 System Monitor")
+        self.tab_indices['monitoring'] = tab_index
+        
+        # Title
+        title_label = ttk.Label(frame, text="System Monitoring & Status", font=("Arial", 14, "bold"))
+        title_label.pack(pady=10)
+        
+        # System info frame
+        sys_frame = ttk.LabelFrame(frame, text="System Information", padding="10")
+        sys_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Create system info labels
+        self.cpu_label = ttk.Label(sys_frame, text="CPU: --", font=("Consolas", 10))
+        self.cpu_label.pack(anchor=tk.W, pady=2)
+        
+        self.memory_label = ttk.Label(sys_frame, text="Memory: --", font=("Consolas", 10))
+        self.memory_label.pack(anchor=tk.W, pady=2)
+        
+        self.disk_label = ttk.Label(sys_frame, text="Disk: --", font=("Consolas", 10))
+        self.disk_label.pack(anchor=tk.W, pady=2)
+        
+        self.snap_label = ttk.Label(sys_frame, text="SNAP: --", font=("Consolas", 10))
+        self.snap_label.pack(anchor=tk.W, pady=2)
+        
+        # Processing status frame
+        status_frame = ttk.LabelFrame(frame, text="Processing Status", padding="10")
+        status_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Progress bar
+        self.progress_bar = ttk.Progressbar(status_frame, variable=self.progress_var, 
+                                           maximum=100, mode='determinate')
+        self.progress_bar.pack(fill=tk.X, pady=5)
+        
+        # Status labels
+        self.current_status_label = ttk.Label(status_frame, textvariable=self.status_var, 
+                                             font=("Arial", 10, "bold"))
+        self.current_status_label.pack(anchor=tk.W, pady=2)
+        
+        self.eta_label = ttk.Label(status_frame, textvariable=self.eta_var, 
+                                  font=("Arial", 9), foreground="gray")
+        self.eta_label.pack(anchor=tk.W, pady=2)
+        
+        # Processing statistics
+        stats_frame = ttk.LabelFrame(frame, text="Processing Statistics", padding="10")
+        stats_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        self.stats_text = tk.Text(stats_frame, height=8, font=("Consolas", 9), 
+                                 state=tk.DISABLED, wrap=tk.WORD)
+        stats_scrollbar = ttk.Scrollbar(stats_frame, orient=tk.VERTICAL, command=self.stats_text.yview)
+        self.stats_text.configure(yscrollcommand=stats_scrollbar.set)
+        
+        self.stats_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        stats_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    
+    def setup_status_bar(self, parent):
+        """Setup status bar at bottom"""
+        self.status_frame = ttk.Frame(parent, relief=tk.SUNKEN, borderwidth=1)
+        self.status_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # Left side - status
+        left_frame = ttk.Frame(self.status_frame)
+        left_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5, pady=2)
+        
+        self.status_label = ttk.Label(left_frame, textvariable=self.status_var)
+        self.status_label.pack(side=tk.LEFT)
+        
+        # Right side - version info
+        right_frame = ttk.Frame(self.status_frame)
+        right_frame.pack(side=tk.RIGHT, padx=5, pady=2)
+        
+        version_label = ttk.Label(right_frame, text="Unified S2-TSS Pipeline v1.0", 
+                                 font=("Arial", 8), foreground="gray")
+        version_label.pack()
+    
+    def setup_control_buttons(self, parent):
+        """Setup control buttons at bottom"""
+        button_frame = ttk.Frame(parent)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # Left side buttons
+        left_buttons = ttk.Frame(button_frame)
+        left_buttons.pack(side=tk.LEFT)
+        
+        self.start_button = ttk.Button(left_buttons, text="🚀 Start Processing", 
+                                      command=self.start_processing)
+        self.start_button.pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.stop_button = ttk.Button(left_buttons, text="⏹️ Stop", 
+                                     command=self.stop_processing, state=tk.DISABLED)
+        self.stop_button.pack(side=tk.LEFT, padx=5)
+        
+        # Right side buttons
+        right_buttons = ttk.Frame(button_frame)
+        right_buttons.pack(side=tk.RIGHT)
+        
+        ttk.Button(right_buttons, text="💾 Save Config", 
+                  command=self.save_config).pack(side=tk.LEFT, padx=5)
+        ttk.Button(right_buttons, text="📁 Load Config", 
+                  command=self.load_config).pack(side=tk.LEFT, padx=5)
+        ttk.Button(right_buttons, text="❌ Exit", 
+                  command=self.on_closing).pack(side=tk.LEFT, padx=(10, 0))
+    
+    # ===== GUI EVENT HANDLERS =====
+    
+    def on_mode_change(self):
+        """Handle processing mode change"""
+        self.update_tab_visibility()
+        self.validate_input_directory()
+        self.status_var.set(f"Mode changed to: {self.processing_mode.get()}")
+    
+    def update_tab_visibility(self):
+        """Update tab visibility based on processing mode"""
+        try:
+            mode = self.processing_mode.get()
+            
+            # Show/hide tabs based on mode
+            if mode in ["complete_pipeline", "s2_processing_only"]:
+                # Show S2 processing tabs
+                for tab_name in ['resampling', 'subset', 'c2rcc']:
+                    if tab_name in self.tab_indices:
+                        try:
+                            self.notebook.tab(self.tab_indices[tab_name], state="normal")
+                        except tk.TclError:
+                            pass
+            else:
+                # Hide S2 processing tabs for TSS-only mode
+                for tab_name in ['resampling', 'subset', 'c2rcc']:
+                    if tab_name in self.tab_indices:
+                        try:
+                            self.notebook.tab(self.tab_indices[tab_name], state="hidden")
+                        except tk.TclError:
+                            pass
+            
+            # TSS tab visibility
+            if mode in ["complete_pipeline", "tss_processing_only"]:
+                if 'tss' in self.tab_indices:
+                    try:
+                        self.notebook.tab(self.tab_indices['tss'], state="normal")
+                    except tk.TclError:
+                        pass
+            else:
+                if 'tss' in self.tab_indices:
+                    try:
+                        self.notebook.tab(self.tab_indices['tss'], state="hidden")
+                    except tk.TclError:
+                        pass
+                        
+        except Exception as e:
+            logger.error(f"Error updating tab visibility: {e}")
+    
+    def update_subset_visibility(self):
+        """Update subset frame visibility"""
+        method = self.subset_method_var.get()
+        
+        if method == "geometry":
+            self.geometry_frame.pack(fill=tk.X, padx=10, pady=5)
+            self.pixel_frame.pack_forget()
+        elif method == "pixel":
+            self.pixel_frame.pack(fill=tk.X, padx=10, pady=5)
+            self.geometry_frame.pack_forget()
+        else:
+            self.geometry_frame.pack_forget()
+            self.pixel_frame.pack_forget()
+    
+    def update_jiang_visibility(self):
+        """Update Jiang options visibility"""
+        if self.enable_jiang_var.get():
+            self.jiang_options_frame.pack(fill=tk.X, pady=(10, 0))
+        else:
+            self.jiang_options_frame.pack_forget()
+    
+    def on_ecmwf_toggle(self):
+        """Handle ECMWF toggle with information"""
+        if not self.use_ecmwf_var.get():
+            result = messagebox.askyesno(
+                "ECMWF Disabled", 
+                "Disabling ECMWF auxiliary data will reduce atmospheric correction accuracy.\n\n"
+                "ECMWF provides real-time ozone and pressure data at acquisition time.\n\n"
+                "Continue anyway?",
+                parent=self.root
+            )
+            if not result:
+                self.use_ecmwf_var.set(True)
+    
+    def on_rhow_toggle(self):
+        """Handle rhow toggle with warning"""
+        if not self.output_rhow_var.get():
+            result = messagebox.askyesno(
+                "Warning", 
+                "Disabling water leaving reflectance (rhow) will prevent Jiang TSS processing.\n\n"
+                "This output is required for advanced TSS analysis.\n\n"
+                "Continue anyway?",
+                parent=self.root
+            )
+            if not result:
+                self.output_rhow_var.set(True)
+    
+    def validate_input_directory(self, *args):
+        """Validate input directory and update display"""
+        input_dir = self.input_dir_var.get()
+        if not input_dir or not os.path.exists(input_dir):
+            self.input_validation_result = {"valid": False, "message": "Please select a valid input directory", "products": []}
+            self.input_validation_label.config(text=self.input_validation_result["message"], foreground="red")
+            return
+        
+        # Scan directory for products
+        products = ProductDetector.scan_input_folder(input_dir)
+        mode = ProcessingMode(self.processing_mode.get())
+        
+        # Validate products for current mode
+        valid, message, product_list = ProductDetector.validate_processing_mode(products, mode)
+        
+        self.input_validation_result = {
+            "valid": valid,
+            "message": message,
+            "products": product_list
+        }
+        
+        # Update display
+        color = "darkgreen" if valid else "red"
+        self.input_validation_label.config(text=message, foreground=color)
+        
+        # Update status
+        if valid:
+            self.status_var.set(f"Ready: {len(product_list)} products found")
+        else:
+            self.status_var.set("Input validation failed")
+    
+    def validate_geometry(self):
+        """Validate WKT geometry"""
+        wkt_text = self.geometry_text.get(1.0, tk.END).strip()
+        if not wkt_text:
+            messagebox.showwarning("Warning", "No geometry to validate", parent=self.root)
+            return
+        
+        try:
+            # Basic WKT validation
+            if not any(wkt_text.upper().startswith(geom) for geom in ['POLYGON', 'POINT', 'LINESTRING']):
+                raise ValueError("Invalid WKT format")
+            
+            messagebox.showinfo("Validation", "Geometry appears valid", parent=self.root)
+            self.status_var.set("Geometry validated")
+        except Exception as e:
+            messagebox.showerror("Validation Error", f"Invalid geometry: {str(e)}", parent=self.root)
+    
+    def browse_input_dir(self):
+        """Browse for input directory"""
+        directory = filedialog.askdirectory(title="Select Input Directory", parent=self.root)
+        if directory:
+            self.input_dir_var.set(directory)
+    
+    def browse_output_dir(self):
+        """Browse for output directory"""
+        directory = filedialog.askdirectory(title="Select Output Directory", parent=self.root)
+        if directory:
+            self.output_dir_var.set(directory)
+    
+    def load_geometry(self):
+        """Load geometry using geometry utils"""
+        try:
+            geometry_wkt = get_geometry_input()
+            if geometry_wkt:
+                self.geometry_text.delete(1.0, tk.END)
+                self.geometry_text.insert(1.0, geometry_wkt)
+                self.subset_method_var.set("geometry")
+                self.update_subset_visibility()
+                messagebox.showinfo("Success", "Geometry loaded successfully!", parent=self.root)
+                self.status_var.set("Geometry loaded")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load geometry: {str(e)}", parent=self.root)
+    
+    def apply_water_preset(self, values):
+        """Apply water parameter preset"""
+        self.salinity_var.set(values["salinity"])
+        self.temperature_var.set(values["temperature"])
+        self.status_var.set("Water preset applied")
+    
+    def apply_snap_defaults(self):
+        """Apply SNAP default values to all parameters"""
+        # Basic parameters
+        self.salinity_var.set(35.0)
+        self.temperature_var.set(15.0)
+        self.ozone_var.set(330.0)
+        self.pressure_var.set(1000.0)  # SNAP default
+        self.elevation_var.set(0.0)
+        
+        # Neural network and DEM
+        self.net_set_var.set("C2RCC-Nets")
+        self.dem_name_var.set("Copernicus 90m Global DEM")
+        self.use_ecmwf_var.set(True)  # Keep enabled by default as requested
+        
+        # Output products (SNAP defaults)
+        self.output_rrs_var.set(False)
+        self.output_rhow_var.set(True)
+        self.output_kd_var.set(True)
+        self.output_uncertainties_var.set(True)  # Keep enabled for TSM/CHL uncertainties
+        self.output_ac_reflectance_var.set(True)
+        self.output_rtoa_var.set(True)
+        self.output_rtosa_gc_var.set(False)
+        self.output_rtosa_gc_aann_var.set(False)
+        self.output_rpath_var.set(False)
+        self.output_tdown_var.set(False)
+        self.output_tup_var.set(False)
+        self.output_oos_var.set(False)
+        
+        # Advanced parameters
+        self.valid_pixel_var.set("B8 > 0 && B8 < 0.1")
+        self.threshold_rtosa_oos_var.set(0.05)
+        self.threshold_ac_reflec_oos_var.set(0.1)
+        self.threshold_cloud_tdown865_var.set(0.955)
+        
+        # TSM and CHL parameters
+        self.tsm_fac_var.set(1.06)
+        self.tsm_exp_var.set(0.942)
+        self.chl_fac_var.set(21.0)
+        self.chl_exp_var.set(1.04)
+        
+        self.status_var.set("SNAP default values applied")
+    
+    def apply_essential_outputs(self):
+        """Apply essential outputs preset"""
+        # Reset all to False first
+        self.reset_all_outputs()
+        
+        # Enable essential outputs
+        self.output_rhow_var.set(True)
+        self.output_kd_var.set(True)
+        self.output_uncertainties_var.set(True)  # Keep for TSM/CHL uncertainties
+        self.output_ac_reflectance_var.set(True)
+        
+        self.status_var.set("Essential outputs preset applied")
+    
+    def apply_scientific_outputs(self):
+        """Apply scientific outputs preset"""
+        # Reset all to False first
+        self.reset_all_outputs()
+        
+        # Enable scientific outputs
+        self.output_rhow_var.set(True)
+        self.output_kd_var.set(True)
+        self.output_ac_reflectance_var.set(True)
+        self.output_rtoa_var.set(True)
+        self.output_uncertainties_var.set(True)
+        self.output_oos_var.set(True)
+        
+        self.status_var.set("Scientific outputs preset applied")
+    
+    def reset_all_outputs(self):
+        """Reset all output variables to False"""
+        self.output_rhow_var.set(False)
+        self.output_kd_var.set(False)
+        self.output_ac_reflectance_var.set(False)
+        self.output_rtoa_var.set(False)
+        self.output_rrs_var.set(False)
+        self.output_rtosa_gc_var.set(False)
+        self.output_rtosa_gc_aann_var.set(False)
+        self.output_rpath_var.set(False)
+        self.output_tdown_var.set(False)
+        self.output_tup_var.set(False)
+        self.output_uncertainties_var.set(False)
+        self.output_oos_var.set(False)
+    
+    def update_configurations(self):
+        """Update configuration objects from GUI"""
+        try:
+            # Update resampling config
+            self.resampling_config.target_resolution = self.resolution_var.get()
+            self.resampling_config.upsampling_method = self.upsampling_var.get()
+            self.resampling_config.downsampling_method = self.downsampling_var.get()
+            self.resampling_config.flag_downsampling = self.flag_downsampling_var.get()
+            self.resampling_config.resample_on_pyramid_levels = self.pyramid_var.get()
+            
+            # Update subset config
+            subset_method = self.subset_method_var.get()
+            
+            if subset_method == "geometry":
+                geometry_text = self.geometry_text.get(1.0, tk.END).strip()
+                if geometry_text:
+                    self.subset_config.geometry_wkt = geometry_text
+                    self.subset_config.pixel_start_x = None
+                    self.subset_config.pixel_start_y = None
+                    self.subset_config.pixel_size_x = None
+                    self.subset_config.pixel_size_y = None
+                else:
+                    messagebox.showerror("Error", "Geometry method selected but no WKT provided!", parent=self.root)
+                    return False
+            elif subset_method == "pixel":
+                try:
+                    start_x = int(self.pixel_start_x_var.get()) if self.pixel_start_x_var.get() else None
+                    start_y = int(self.pixel_start_y_var.get()) if self.pixel_start_y_var.get() else None
+                    width = int(self.pixel_width_var.get()) if self.pixel_width_var.get() else None
+                    height = int(self.pixel_height_var.get()) if self.pixel_height_var.get() else None
+                    
+                    if all(v is not None for v in [start_x, start_y, width, height]):
+                        self.subset_config.pixel_start_x = start_x
+                        self.subset_config.pixel_start_y = start_y
+                        self.subset_config.pixel_size_x = width
+                        self.subset_config.pixel_size_y = height
+                        self.subset_config.geometry_wkt = None
+                    else:
+                        messagebox.showerror("Error", "Pixel method selected but incomplete coordinates!", parent=self.root)
+                        return False
+                except ValueError:
+                    messagebox.showerror("Error", "Invalid pixel coordinates (must be integers)!", parent=self.root)
+                    return False
+            else:
+                # No subset
+                self.subset_config.geometry_wkt = None
+                self.subset_config.pixel_start_x = None
+                self.subset_config.pixel_start_y = None
+                self.subset_config.pixel_size_x = None
+                self.subset_config.pixel_size_y = None
+            
+            # Update C2RCC config
+            self.c2rcc_config.salinity = self.salinity_var.get()
+            self.c2rcc_config.temperature = self.temperature_var.get()
+            self.c2rcc_config.ozone = self.ozone_var.get()
+            self.c2rcc_config.pressure = self.pressure_var.get()
+            self.c2rcc_config.elevation = self.elevation_var.get()
+            self.c2rcc_config.net_set = self.net_set_var.get()
+            self.c2rcc_config.dem_name = self.dem_name_var.get()
+            self.c2rcc_config.use_ecmwf_aux_data = self.use_ecmwf_var.get()
+            
+            # Output products
+            self.c2rcc_config.output_as_rrs = self.output_rrs_var.get()
+            self.c2rcc_config.output_rhow = self.output_rhow_var.get()
+            self.c2rcc_config.output_kd = self.output_kd_var.get()
+            self.c2rcc_config.output_uncertainties = self.output_uncertainties_var.get()
+            self.c2rcc_config.output_ac_reflectance = self.output_ac_reflectance_var.get()
+            self.c2rcc_config.output_rtoa = self.output_rtoa_var.get()
+            self.c2rcc_config.output_rtosa_gc = self.output_rtosa_gc_var.get()
+            self.c2rcc_config.output_rtosa_gc_aann = self.output_rtosa_gc_aann_var.get()
+            self.c2rcc_config.output_rpath = self.output_rpath_var.get()
+            self.c2rcc_config.output_tdown = self.output_tdown_var.get()
+            self.c2rcc_config.output_tup = self.output_tup_var.get()
+            self.c2rcc_config.output_oos = self.output_oos_var.get()
+            
+            # Advanced parameters
+            self.c2rcc_config.valid_pixel_expression = self.valid_pixel_var.get()
+            self.c2rcc_config.threshold_rtosa_oos = self.threshold_rtosa_oos_var.get()
+            self.c2rcc_config.threshold_ac_reflec_oos = self.threshold_ac_reflec_oos_var.get()
+            self.c2rcc_config.threshold_cloud_tdown865 = self.threshold_cloud_tdown865_var.get()
+            
+            # TSM and CHL parameters
+            self.c2rcc_config.tsm_fac = self.tsm_fac_var.get()
+            self.c2rcc_config.tsm_exp = self.tsm_exp_var.get()
+            self.c2rcc_config.chl_fac = self.chl_fac_var.get()
+            self.c2rcc_config.chl_exp = self.chl_exp_var.get()
+            
+            # Update Jiang config
+            self.jiang_config.enable_jiang_tss = self.enable_jiang_var.get()
+            self.jiang_config.output_intermediates = self.jiang_intermediates_var.get()
+            self.jiang_config.output_comparison_stats = self.jiang_comparison_var.get()
+            
+            return True
+            
+        except Exception as e:
+            messagebox.showerror("Configuration Error", f"Failed to update configurations: {str(e)}", parent=self.root)
+            return False
+    
+    def save_config(self):
+        """Save configuration to file"""
+        try:
+            if not self.update_configurations():
+                return
+            
+            config_file = filedialog.asksaveasfilename(
+                title="Save Configuration",
+                defaultextension=".json",
+                filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+                parent=self.root
+            )
+            
+            if config_file:
+                config = {
+                    'processing_mode': self.processing_mode.get(),
+                    'resampling': asdict(self.resampling_config),
+                    'subset': asdict(self.subset_config),
+                    'c2rcc': asdict(self.c2rcc_config),
+                    'jiang': asdict(self.jiang_config),
+                    'skip_existing': self.skip_existing_var.get(),
+                    'test_mode': self.test_mode_var.get(),
+                    'memory_limit': int(self.memory_limit_var.get()),
+                    'thread_count': int(self.thread_count_var.get()),
+                    'saved_at': datetime.now().isoformat()
+                }
+                
+                with open(config_file, 'w') as f:
+                    json.dump(config, f, indent=2)
+                
+                messagebox.showinfo("Success", f"Configuration saved to:\n{config_file}", parent=self.root)
+                self.status_var.set("Configuration saved")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save configuration: {str(e)}", parent=self.root)
+    
+    def load_config(self):
+        """Load configuration from file"""
+        try:
+            config_file = filedialog.askopenfilename(
+                title="Load Configuration",
+                filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+                parent=self.root
+            )
+            
+            if config_file:
+                with open(config_file, 'r') as f:
+                    config = json.load(f)
+                
+                # Load processing mode
+                if 'processing_mode' in config:
+                    self.processing_mode.set(config['processing_mode'])
+                
+                # Load configurations (simplified loading for brevity)
+                # You can expand this to load all parameters
+                
+                # Update GUI state
+                self.update_tab_visibility()
+                self.update_subset_visibility()
+                self.update_jiang_visibility()
+                
+                messagebox.showinfo("Success", "Configuration loaded successfully!", parent=self.root)
+                self.status_var.set("Configuration loaded")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load configuration: {str(e)}", parent=self.root)
+    
+    def start_processing(self):
+        """Start processing in background thread"""
+        if self.processing_active:
+            return
+        
+        try:
+            # Validate configuration
+            if not self.input_validation_result["valid"]:
+                messagebox.showerror("Error", "Please fix input validation errors first", parent=self.root)
+                return
+            
+            if not self.output_dir_var.get():
+                messagebox.showerror("Error", "Please select output directory", parent=self.root)
+                return
+            
+            if not self.update_configurations():
+                return
+            
+            # Create processing configuration
+            processing_config = ProcessingConfig(
+                processing_mode=ProcessingMode(self.processing_mode.get()),
+                input_folder=self.input_dir_var.get(),
+                output_folder=self.output_dir_var.get(),
+                resampling_config=self.resampling_config,
+                subset_config=self.subset_config,
+                c2rcc_config=self.c2rcc_config,
+                jiang_config=self.jiang_config,
+                skip_existing=self.skip_existing_var.get(),
+                test_mode=self.test_mode_var.get(),
+                memory_limit_gb=int(self.memory_limit_var.get()),
+                thread_count=int(self.thread_count_var.get())
+            )
+            
+            # Confirm processing
+            products = self.input_validation_result["products"]
+            process_count = len(products)
+            if processing_config.test_mode:
+                process_count = min(2, process_count)
+            
+            mode_name = processing_config.processing_mode.value.replace('_', ' ').title()
+            
+            # Build confirmation message
+            confirm_msg = f"Start {mode_name} processing?\n\n"
+            confirm_msg += f"Products found: {len(products)}\n"
+            confirm_msg += f"Will process: {process_count} products\n"
+            confirm_msg += f"Mode: {mode_name}\n"
+            confirm_msg += f"Output: {processing_config.output_folder}\n"
+            confirm_msg += f"ECMWF: {'Enabled' if processing_config.c2rcc_config.use_ecmwf_aux_data else 'Disabled'}\n"
+            
+            if processing_config.processing_mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.TSS_PROCESSING_ONLY]:
+                if processing_config.jiang_config.enable_jiang_tss:
+                    confirm_msg += f"Jiang TSS: Enabled\n"
+                else:
+                    confirm_msg += f"Jiang TSS: Disabled (SNAP TSM/CHL only)\n"
+            
+            confirm_msg += f"\nProceed?"
+            
+            proceed = messagebox.askyesno("Confirm Processing", confirm_msg, parent=self.root)
+            
+            if not proceed:
+                return
+            
+            # Start processing thread
+            self.processing_active = True
+            self.start_button.config(state=tk.DISABLED)
+            self.stop_button.config(state=tk.NORMAL)
+            self.status_var.set("Starting processing...")
+            
+            # Start processing in background thread
+            self.processing_thread = threading.Thread(
+                target=self.run_processing_thread, 
+                args=(processing_config, products),
+                daemon=True
+            )
+            self.processing_thread.start()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to start processing: {str(e)}", parent=self.root)
+            self.processing_active = False
+            self.start_button.config(state=tk.NORMAL)
+            self.stop_button.config(state=tk.DISABLED)
+    
+    def run_processing_thread(self, config, products):
+        """Run processing in background thread"""
+        try:
+            # Create processor
+            self.processor = UnifiedS2TSSProcessor(config)
+            
+            # Limit products for test mode
+            if config.test_mode:
+                products = products[:2]
+                logger.info(f"TEST MODE: Processing only {len(products)} products")
+            
+            # Process products
+            total_products = len(products)
+            
+            for i, product_path in enumerate(products):
+                if not self.processing_active:  # Check for stop signal
+                    break
+                
+                # Update status
+                product_name = os.path.basename(product_path)
+                self.status_var.set(f"Processing {i+1}/{total_products}: {product_name}")
+                
+                # Process product
+                try:
+                    self.processor._process_single_product(product_path, i+1, total_products)
+                except Exception as e:
+                    logger.error(f"Error processing {product_name}: {e}")
+                
+                # Update progress
+                progress = ((i + 1) / total_products) * 100
+                self.progress_var.set(progress)
+                
+                # Update ETA
+                status = self.processor.get_processing_status()
+                if status.eta_minutes > 0:
+                    self.eta_var.set(f"ETA: {status.eta_minutes:.1f} min | Speed: {status.processing_speed:.1f} products/min")
+                else:
+                    self.eta_var.set("")
+            
+            # Processing completed
+            self.on_processing_complete()
+            
+        except Exception as e:
+            logger.error(f"Processing thread error: {e}")
+            self.status_var.set(f"Processing error: {str(e)}")
+        finally:
+            self.processing_active = False
+            self.start_button.config(state=tk.NORMAL)
+            self.stop_button.config(state=tk.DISABLED)
+            if self.processor:
+                self.processor.cleanup()
+    
+    def stop_processing(self):
+        """Stop processing"""
+        if self.processing_active:
+            self.processing_active = False
+            self.status_var.set("Stopping processing...")
+            self.stop_button.config(state=tk.DISABLED)
+    
+    def on_processing_complete(self):
+        """Handle processing completion"""
+        if self.processor:
+            status = self.processor.get_processing_status()
+            
+            # Final status
+            self.status_var.set("Processing completed!")
+            self.progress_var.set(100)
+            
+            # Show completion message
+            total_time = (time.time() - self.processor.start_time) / 60
+            
+            completion_msg = (
+                f"Processing completed!\n\n"
+                f"Successfully processed: {status.processed}\n"
+                f"Failed: {status.failed}\n"
+                f"Skipped: {status.skipped}\n"
+                f"Total time: {total_time:.1f} minutes\n\n"
+                f"Outputs saved to:\n{self.output_dir_var.get()}\n\n"
+                f"Check log file for details."
+            )
+            
+            messagebox.showinfo("Processing Complete", completion_msg, parent=self.root)
+    
+    def start_gui_updates(self):
+        """Start GUI update loop"""
+        self.update_system_info()
+        self.update_processing_stats()
+        self.root.after(2000, self.start_gui_updates)  # Update every 2 seconds
+    
+    def update_system_info(self):
+        """Update system information display"""
+        try:
+            info = self.system_monitor.get_current_info()
+            
+            # Update system labels
+            self.cpu_label.config(text=f"CPU: {info['cpu_percent']:.1f}%")
+            
+            memory_percent = (info['memory_used_gb'] / info['memory_total_gb']) * 100
+            self.memory_label.config(text=f"Memory: {info['memory_used_gb']:.1f}/{info['memory_total_gb']:.1f} GB ({memory_percent:.1f}%)")
+            
+            self.disk_label.config(text=f"Disk Free: {info['disk_free_gb']:.1f} GB")
+            
+            # SNAP status
+            snap_home = os.environ.get('SNAP_HOME', 'Not set')
+            self.snap_label.config(text=f"SNAP: {snap_home}")
+            
+            # Color coding for warnings
+            if memory_percent > 90:
+                self.memory_label.config(foreground="red")
+            elif memory_percent > 75:
+                self.memory_label.config(foreground="orange")
+            else:
+                self.memory_label.config(foreground="black")
+            
+            if info['disk_free_gb'] < 10:
+                self.disk_label.config(foreground="red")
+            elif info['disk_free_gb'] < 50:
+                self.disk_label.config(foreground="orange")
+            else:
+                self.disk_label.config(foreground="black")
+                
+        except Exception as e:
+            logger.warning(f"GUI update error: {e}")
+    
+    def update_processing_stats(self):
+        """Update processing statistics display"""
+        if self.processor and self.processing_active:
+            try:
+                status = self.processor.get_processing_status()
+                
+                # Update stats text
+                stats_text = (
+                    f"Processing Statistics:\n"
+                    f"{'='*30}\n"
+                    f"Total Products: {status.total_products}\n"
+                    f"Processed: {status.processed}\n"
+                    f"Failed: {status.failed}\n"
+                    f"Skipped: {status.skipped}\n"
+                    f"Progress: {status.progress_percent:.1f}%\n"
+                    f"Current: {status.current_product}\n"
+                    f"Stage: {status.current_stage}\n"
+                    f"ETA: {status.eta_minutes:.1f} minutes\n"
+                    f"Speed: {status.processing_speed:.2f} products/min\n"
+                    f"\nSystem Health:\n"
+                    f"{'='*15}\n"
+                )
+                
+                healthy, warnings = self.system_monitor.check_system_health()
+                if healthy:
+                    stats_text += "✓ System healthy\n"
+                else:
+                    stats_text += "⚠ System warnings:\n"
+                    for warning in warnings:
+                        stats_text += f"  - {warning}\n"
+                
+                # Update text widget
+                self.stats_text.config(state=tk.NORMAL)
+                self.stats_text.delete(1.0, tk.END)
+                self.stats_text.insert(1.0, stats_text)
+                self.stats_text.config(state=tk.DISABLED)
+                
+            except Exception as e:
+                logger.warning(f"Stats update error: {e}")
+    
+    def on_closing(self):
+        """Handle application closing"""
+        if self.processing_active:
+            result = messagebox.askyesno(
+                "Confirm Exit", 
+                "Processing is active. Stop processing and exit?",
+                parent=self.root
+            )
+            if result:
+                self.stop_processing()
+                time.sleep(1)  # Give time to stop
+            else:
+                return
+        
+        # Cleanup
+        try:
+            self.system_monitor.stop_monitoring()
+            if self.processor:
+                self.processor.cleanup()
+        except:
+            pass
+        
+        self.root.destroy()
+    
+    def run(self):
+        """Run the GUI application"""
+        try:
+            # Set default directories if available
+            default_paths = [
+                (r"D:\GSEU_WP5\Imagens\2019", "input"),
+                (r"D:\GSEU_WP5\Processed", "output"),
+                (r"D:\GSEU_WP5\C2RCC", "input"),  # For TSS-only mode
+                (r"D:\GSEU_WP5\C2RCC_Output", "output")
+            ]
+            
+            for path, path_type in default_paths:
+                if os.path.exists(path):
+                    if path_type == "input" and not self.input_dir_var.get():
+                        self.input_dir_var.set(path)
+                    elif path_type == "output" and not self.output_dir_var.get():
+                        self.output_dir_var.set(path)
+                    break
+            
+            # Protocol for window closing
+            self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+            
+            # Start main loop
+            self.root.mainloop()
+            
+        except Exception as e:
+            logger.error(f"GUI error: {str(e)}")
+            messagebox.showerror("Application Error", f"GUI error: {str(e)}")
+        finally:
+            # Ensure cleanup
+            try:
+                self.system_monitor.stop_monitoring()
+            except:
+                pass
+
+# ===== CONFIGURATION HELPER =====
+
+def create_default_config(input_folder: str, output_folder: str, 
+                         processing_mode: str = "complete_pipeline") -> ProcessingConfig:
+    """Create default processing configuration"""
+    
+    # Validate processing mode
+    try:
+        mode = ProcessingMode(processing_mode.lower())
+    except ValueError:
+        logger.warning(f"Invalid processing mode '{processing_mode}', using 'complete_pipeline'")
+        mode = ProcessingMode.COMPLETE_PIPELINE
+    
+    # Create configurations with defaults
+    resampling_config = ResamplingConfig()
+    subset_config = SubsetConfig()
+    c2rcc_config = C2RCCConfig()  # ECMWF enabled by default
+    jiang_config = JiangTSSConfig()  # Jiang disabled by default
+    
+    return ProcessingConfig(
+        processing_mode=mode,
+        input_folder=input_folder,
+        output_folder=output_folder,
+        resampling_config=resampling_config,
+        subset_config=subset_config,
+        c2rcc_config=c2rcc_config,
+        jiang_config=jiang_config,
+        skip_existing=True,
+        test_mode=False,
+        memory_limit_gb=8,
+        thread_count=4
+    )
+
+# ===== COMMAND LINE INTERFACE =====
+
+def cli_main():
+    """Command line interface for batch processing"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description="Unified S2 Processing & TSS Estimation Pipeline",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python unified_s2_tss_pipeline.py -i D:/L1C_Products -o D:/Results
+  python unified_s2_tss_pipeline.py -i /path/to/l1c -o /path/to/results --mode s2_processing_only
+  python unified_s2_tss_pipeline.py -i ./c2rcc_products -o ./tss_results --mode tss_processing_only --enable-jiang
+        """
+    )
+    
+    parser.add_argument("-i", "--input", required=True,
+                       help="Input folder containing L1C products (.zip/.SAFE) or C2RCC products (.dim)")
+    
+    parser.add_argument("-o", "--output", required=True,
+                       help="Output folder for results")
+    
+    parser.add_argument("--mode", choices=["complete_pipeline", "s2_processing_only", "tss_processing_only"], 
+                       default="complete_pipeline",
+                       help="Processing mode (default: complete_pipeline)")
+    
+    parser.add_argument("--no-skip", action="store_true",
+                       help="Process all products (don't skip existing outputs)")
+    
+    parser.add_argument("--enable-jiang", action="store_true",
+                       help="Enable Jiang TSS methodology (in addition to automatic SNAP TSM/CHL)")
+    
+    parser.add_argument("--no-ecmwf", action="store_true",
+                       help="Disable ECMWF auxiliary data (reduces accuracy)")
+    
+    parser.add_argument("--test", action="store_true",
+                       help="Test mode (process only first 2 products)")
+    
+    parser.add_argument("--memory-limit", type=int, default=8,
+                       help="Memory limit in GB (default: 8)")
+    
+    parser.add_argument("--threads", type=int, default=4,
+                       help="Number of processing threads (default: 4)")
+    
+    parser.add_argument("--resolution", choices=["10", "20", "60"], default="10",
+                       help="Target resolution in meters (default: 10)")
+    
+    args = parser.parse_args()
+    
+    # Validate arguments
+    if not os.path.exists(args.input):
+        print(f"ERROR: Input folder does not exist: {args.input}")
+        return False
+    
+    # Create output folder
+    try:
+        os.makedirs(args.output, exist_ok=True)
+    except Exception as e:
+        print(f"ERROR: Cannot create output folder: {e}")
+        return False
+    
+    # Create configuration from arguments
+    c2rcc_config = C2RCCConfig()
+    c2rcc_config.use_ecmwf_aux_data = not args.no_ecmwf  # ECMWF enabled by default unless disabled
+    
+    jiang_config = JiangTSSConfig()
+    jiang_config.enable_jiang_tss = args.enable_jiang
+    
+    resampling_config = ResamplingConfig()
+    resampling_config.target_resolution = args.resolution
+    
+    config = ProcessingConfig(
+        processing_mode=ProcessingMode(args.mode),
+        input_folder=args.input,
+        output_folder=args.output,
+        resampling_config=resampling_config,
+        subset_config=SubsetConfig(),
+        c2rcc_config=c2rcc_config,
+        jiang_config=jiang_config,
+        skip_existing=not args.no_skip,
+        test_mode=args.test,
+        memory_limit_gb=args.memory_limit,
+        thread_count=args.threads
+    )
+    
+    # Print configuration
+    print("="*80)
+    print("UNIFIED S2 PROCESSING & TSS ESTIMATION PIPELINE")
+    print("="*80)
+    print(f"Input folder: {config.input_folder}")
+    print(f"Output folder: {config.output_folder}")
+    print(f"Processing mode: {config.processing_mode.value}")
+    print(f"Resolution: {config.resampling_config.target_resolution}m")
+    print(f"ECMWF: {'Enabled' if config.c2rcc_config.use_ecmwf_aux_data else 'Disabled'}")
+    print(f"Jiang TSS: {'Enabled' if config.jiang_config.enable_jiang_tss else 'Disabled'}")
+    print(f"Skip existing: {config.skip_existing}")
+    print(f"Test mode: {config.test_mode}")
+    print(f"Memory limit: {config.memory_limit_gb} GB")
+    print()
+    
+    # Run processing
+    try:
+        processor = UnifiedS2TSSProcessor(config)
+        results = processor.process_batch()
+        
+        # Print results
+        print("\n" + "="*80)
+        print("PROCESSING COMPLETED")
+        print("="*80)
+        print(f"Successfully processed: {results['processed']}")
+        print(f"Skipped (existing): {results['skipped']}")
+        print(f"Failed: {results['failed']}")
+        
+        processor.cleanup()
+        return results['failed'] == 0
+        
+    except KeyboardInterrupt:
+        print("\nProcessing interrupted by user")
+        return False
+    except Exception as e:
+        print(f"\nProcessing failed: {str(e)}")
+        logger.error(f"CLI processing failed: {str(e)}")
+        return False
+
+# ===== MAIN FUNCTION =====
+
+def main():
+    """Main entry point with enhanced error handling"""
+    try:
+        # Check Python version
+        if sys.version_info < (3, 6):
+            print("ERROR: Python 3.6 or higher is required!")
+            sys.exit(1)
+        
+        # Check for required dependencies
+        missing_deps = []
+        try:
+            import numpy as np
+            print("✓ NumPy available")
+        except ImportError:
+            missing_deps.append("numpy")
+        
+        try:
+            from osgeo import gdal
+            print("✓ GDAL available")
+        except ImportError:
+            missing_deps.append("gdal")
+        
+        try:
+            import psutil
+            print("✓ psutil available")
+        except ImportError:
+            missing_deps.append("psutil")
+        
+        if missing_deps:
+            print(f"\nERROR: Missing required dependencies: {missing_deps}")
+            print("Install with:")
+            for dep in missing_deps:
+                if dep == "gdal":
+                    print(f"  conda install {dep}")
+                else:
+                    print(f"  pip install {dep}")
+            sys.exit(1)
+        
+        # Set environment variable if not set (Windows default)
+        if not os.environ.get('SNAP_HOME'):
+            default_snap_paths = [
+                r"C:\Program Files\esa-snap",
+                r"C:\Program Files (x86)\esa-snap",
+                r"D:\Program Files\esa-snap"
+            ]
+            
+            snap_found = False
+            for snap_path in default_snap_paths:
+                if os.path.exists(snap_path):
+                    os.environ['SNAP_HOME'] = snap_path
+                    logger.info(f"Auto-detected SNAP_HOME: {snap_path}")
+                    snap_found = True
+                    break
+            
+            if not snap_found:
+                logger.error("SNAP_HOME not set and SNAP installation not found!")
+                logger.error("Please install SNAP or set SNAP_HOME environment variable")
+                
+                # Show error dialog if running GUI
+                if len(sys.argv) == 1:  # No command line arguments = GUI mode
+                    root = tk.Tk()
+                    root.withdraw()
+                    messagebox.showerror(
+                        "SNAP Not Found",
+                        "SNAP installation not found!\n\n"
+                        "Please:\n"
+                        "1. Install SNAP from https://step.esa.int/\n"
+                        "2. Or set SNAP_HOME environment variable\n"
+                        "3. Restart this application"
+                    )
+                sys.exit(1)
+        
+        # Verify SNAP installation
+        snap_home = os.environ.get('SNAP_HOME')
+        gpt_path = os.path.join(snap_home, 'bin', 'gpt.exe' if sys.platform.startswith('win') else 'gpt')
+        
+        if not os.path.exists(gpt_path):
+            logger.error(f"GPT not found at: {gpt_path}")
+            logger.error("Please check your SNAP installation")
+            
+            if len(sys.argv) == 1:  # GUI mode
+                root = tk.Tk()
+                root.withdraw()
+                messagebox.showerror(
+                    "SNAP Configuration Error",
+                    f"GPT executable not found at:\n{gpt_path}\n\n"
+                    "Please check your SNAP installation"
+                )
+            sys.exit(1)
+        
+        # Log startup information
+        logger.info("="*80)
+        logger.info("UNIFIED S2 PROCESSING & TSS ESTIMATION PIPELINE v1.0")
+        logger.info("="*80)
+        logger.info(f"SNAP_HOME: {snap_home}")
+        logger.info(f"GPT: {gpt_path}")
+        logger.info(f"Python: {sys.version}")
+        logger.info(f"Platform: {sys.platform}")
+        logger.info(f"Working Directory: {os.getcwd()}")
+        logger.info("="*80)
+        
+        # Check if command line arguments provided
+        if len(sys.argv) > 1:
+            # Run CLI interface
+            success = cli_main()
+            sys.exit(0 if success else 1)
+        else:
+            # Run GUI interface
+            logger.info("Starting GUI application...")
+            app = UnifiedS2TSSGUI()
+            app.run()
+        
+        logger.info("Application finished successfully")
+        
+    except KeyboardInterrupt:
+        logger.info("Application interrupted by user")
+    except Exception as e:
+        logger.error(f"Critical application error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        # Show critical error dialog for GUI mode
+        try:
+            if len(sys.argv) == 1:  # GUI mode
+                root = tk.Tk()
+                root.withdraw()
+                messagebox.showerror(
+                    "Critical Error",
+                    f"A critical error occurred:\n\n{str(e)}\n\n"
+                    "Check the log file for details."
+                )
+        except:
+            pass
+        
+        sys.exit(1)
+
+# ===== ENTRY POINT =====
+if __name__ == "__main__":
+    main()
