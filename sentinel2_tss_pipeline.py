@@ -1,22 +1,26 @@
-#!/usr/bin/env python3
-"""
-Sentinel-2 Processing and TSS Estimation Pipeline
-========================================================
+import os
+import warnings
 
-Complete pipeline that combines:
-1. Enhanced S2 Pre-processing (Geometric + C2RCC with automatic SNAP TSM/CHL)
-2. Advanced TSS Estimation using Jiang et al. 2023 methodology
+# Fix PROJ database conflict
+def fix_proj_conflict():
+    """Fix PROJ database conflict with PostgreSQL"""
+    # Set PROJ data directory to conda environment
+    conda_prefix = os.environ.get('CONDA_PREFIX')
+    if conda_prefix:
+        proj_data = os.path.join(conda_prefix, 'share', 'proj')
+        if os.path.exists(proj_data):
+            os.environ['PROJ_DATA'] = proj_data
+            print(f"✓ PROJ_DATA set to: {proj_data}")
+    
+    # Suppress GDAL warnings about exceptions
+    import gdal
+    gdal.UseExceptions()  # Enable GDAL exceptions explicitly
+    
+    # Suppress the specific FutureWarning
+    warnings.filterwarnings("ignore", category=FutureWarning, module="osgeo.gdal")
 
-Features:
-- Complete pipeline from L1C to TSS products
-- ECMWF enabled by default for better atmospheric correction
-- Automatic SNAP TSM/CHL generation with uncertainties
-- Optional Jiang TSS methodology
-- Enhanced memory management and progress tracking
-- Professional GUI interface optimized for Spyder
-
-Author: Pedro Gonçalves v1.0
-"""
+# Call this before any processing
+fix_proj_conflict()
 
 import os
 import sys
@@ -32,6 +36,22 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple, NamedTuple
 from dataclasses import dataclass, asdict
 from enum import Enum
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+import logging
+
+# Add these imports for geometry handling
+try:
+    import geopandas as gpd
+    from shapely.geometry import Polygon, MultiPolygon, shape
+    from shapely.wkt import loads as wkt_loads
+    import fiona
+    HAS_GEOPANDAS = True
+except ImportError:
+    HAS_GEOPANDAS = False
+    print("⚠ GeoPandas not available - install with: conda install -c conda-forge geopandas")
+
+logger = logging.getLogger(__name__)
 
 # GUI imports
 import tkinter as tk
@@ -574,80 +594,55 @@ class SystemMonitor:
 
 @dataclass  
 class JiangTSSConstants:
-    """Complete TSS configuration constants from Jiang et al. (2023)"""
+    """Complete TSS configuration constants from Jiang et al. (2023) - FULL IMPLEMENTATION"""
     
-    # TSS conversion factors from Table 2 (page 366)
-    TSS_CONVERSION_FACTORS = {
-        443: 61.875,    # Band B1 (Blue)
-        490: 75.352,    # Band B2 (Blue)
-        560: 94.488,    # Band B3 (Green) - Type I
-        665: 113.875,   # Band B4 (Red) - Type II
-        705: 124.771,   # Band B5 (Red Edge)
-        740: 134.918,   # Band B6 (Red Edge) - Type III
-        783: 143.643,   # Band B7 (Red Edge)
-        865: 166.074    # Band B8A (NIR) - Type IV
-    }
-    
-    # Pure water absorption coefficients (aw) in m^-1
+    # Pure water absorption coefficients (aw) in m^-1 - FROM ORIGINAL R CODE
     PURE_WATER_ABSORPTION = {
-        560: 0.06299986,   # Type I
-        665: 0.41395333,   # Type II
-        740: 2.71167020,   # Type III
-        865: 4.61714226    # Type IV
+        443: 0.00515124,    # Band B1
+        490: 0.01919594,    # Band B2  
+        560: 0.06299986,    # Band B3 (Type I)
+        665: 0.41395333,    # Band B4 (Type II)
+        705: 0.70385758,    # Band B5
+        740: 2.71167020,    # Band B6 (Type III)
+        783: 2.62000141,    # Band B7
+        865: 4.61714226     # Band B8A (Type IV)
     }
     
-    # Pure water backscattering coefficients (bbw) in m^-1
+    # Pure water backscattering coefficients (bbw) in m^-1 - FROM ORIGINAL R CODE
     PURE_WATER_BACKSCATTERING = {
-        560: 0.00078491,   # Type I
-        665: 0.00037474,   # Type II
-        740: 0.00023499,   # Type III
-        865: 0.00012066    # Type IV
+        443: 0.00215037,    # Band B1
+        490: 0.00138116,    # Band B2
+        560: 0.00078491,    # Band B3 (Type I)
+        665: 0.00037474,    # Band B4 (Type II)
+        705: 0.00029185,    # Band B5
+        740: 0.00023499,    # Band B6 (Type III)
+        783: 0.00018516,    # Band B7
+        865: 0.00012066     # Band B8A (Type IV)
+    }
+    
+    # TSS conversion factors from Jiang et al. (2023) - FROM ORIGINAL R CODE
+    TSS_CONVERSION_FACTORS = {
+        560: 94.48785,      # Type I: Clear water
+        665: 113.87498,     # Type II: Moderately turbid
+        740: 134.91845,     # Type III: Highly turbid
+        865: 166.07382      # Type IV: Extremely turbid
+    }
+    
+    # Rrs620 estimation coefficients (from R code)
+    RRS620_COEFFICIENTS = {
+        'a': 1.693846e+02,
+        'b': -1.557556e+01,
+        'c': 1.316727e+00,
+        'd': 1.484814e-04
     }
 
 class JiangTSSProcessor:
-    """Complete implementation of Jiang et al. 2023 TSS methodology"""
+    """Complete implementation of Jiang et al. 2023 TSS methodology - FULL VERSION"""
     
     def __init__(self, config: JiangTSSConfig):
         self.config = config
         self.constants = JiangTSSConstants()
-        logger.info("Initialized Jiang TSS Processor")
-    
-    def process_jiang_tss(self, c2rcc_path: str, output_folder: str, 
-                         product_name: str) -> Dict[str, ProcessingResult]:
-        """
-        Complete TSS processing using Jiang et al. 2023 methodology
-        """
-        try:
-            logger.info(f"Starting Jiang TSS processing for {product_name}")
-            
-            # Step 1: Load spectral bands
-            rhow_bands = self._load_rhow_bands(c2rcc_path)
-            if not rhow_bands:
-                return {'error': ProcessingResult(False, "", None, "Failed to load required bands")}
-            
-            # Step 2: Load and validate bands data
-            bands_data, reference_metadata = self._load_bands_data(rhow_bands)
-            if bands_data is None:
-                return {'error': ProcessingResult(False, "", None, "Failed to load bands data")}
-            
-            # Step 3: Calculate TSS using simplified approach
-            tss_result = self._calculate_simplified_tss(bands_data)
-            
-            # Step 4: Apply quality control
-            tss_result = self._apply_quality_control(tss_result)
-            
-            # Step 5: Save results
-            results = self._save_jiang_results(
-                tss_result, output_folder, product_name, reference_metadata
-            )
-            
-            logger.info(f"Jiang TSS processing completed: {len(results)} products")
-            return results
-            
-        except Exception as e:
-            error_msg = f"Jiang TSS processing failed: {str(e)}"
-            logger.error(error_msg)
-            return {'error': ProcessingResult(False, "", None, error_msg)}
+        logger.info("Initialized Full Jiang TSS Processor with complete methodology")
     
     def _load_rhow_bands(self, c2rcc_path: str) -> Dict[int, str]:
         """Load water-leaving reflectance bands"""
@@ -705,56 +700,422 @@ class JiangTSSProcessor:
         
         return bands_data, reference_metadata
     
-    def _calculate_simplified_tss(self, bands_data: Dict[int, np.ndarray]) -> np.ndarray:
-        """Calculate TSS using simplified approach based on NIR band"""
-        # Use 865nm band (B8A) for TSS calculation
-        r865 = bands_data[865]
-        
-        # Apply TSS conversion factor
-        tss_factor = self.constants.TSS_CONVERSION_FACTORS[865]
-        
-        # Simple linear relationship (simplified from full methodology)
-        tss_result = tss_factor * r865 * 1000  # Convert to g/m³
-        
-        return tss_result
-    
-    def _apply_quality_control(self, tss_result: np.ndarray) -> np.ndarray:
-        """Apply quality control filters"""
-        tss_filtered = tss_result.copy()
-        
-        # Apply valid range filter
-        valid_range = self.config.tss_valid_range
-        invalid_mask = (tss_filtered < valid_range[0]) | (tss_filtered > valid_range[1])
-        tss_filtered[invalid_mask] = np.nan
-        
-        return tss_filtered
-    
-    def _save_jiang_results(self, tss_data: np.ndarray, output_folder: str, 
-                           product_name: str, reference_metadata: Dict) -> Dict[str, ProcessingResult]:
-        """Save Jiang TSS results"""
+    def process_jiang_tss(self, c2rcc_path: str, output_folder: str, 
+                         product_name: str) -> Dict[str, ProcessingResult]:
+        """
+        Complete TSS processing using full Jiang et al. 2023 methodology
+        """
         try:
-            output_path = os.path.join(output_folder, f"{product_name}_Jiang_TSS.tif")
+            logger.info(f"Starting FULL Jiang TSS processing for {product_name}")
             
-            success = RasterIO.write_raster(
-                tss_data, output_path, reference_metadata, 
-                "Total Suspended Solids (g/m³) - Jiang et al. 2023"
+            # Step 1: Load spectral bands
+            rhow_bands = self._load_rhow_bands(c2rcc_path)
+            if not rhow_bands:
+                return {'error': ProcessingResult(False, "", None, "Failed to load required bands")}
+            
+            # Step 2: Load and validate bands data
+            bands_data, reference_metadata = self._load_bands_data(rhow_bands)
+            if bands_data is None:
+                return {'error': ProcessingResult(False, "", None, "Failed to load bands data")}
+            
+            # Step 3: Apply complete Jiang methodology
+            results = self._apply_full_jiang_methodology(bands_data)
+            
+            # Step 4: Save all results (a, bbp, reference_band, TSS)
+            output_results = self._save_complete_results(
+                results, output_folder, product_name, reference_metadata
             )
             
-            if success:
-                stats = RasterIO.calculate_statistics(tss_data)
-                logger.info(f"Jiang TSS saved: {stats['coverage_percent']:.1f}% coverage")
-                return {
-                    'jiang_tss': ProcessingResult(True, output_path, stats, None)
-                }
-            else:
-                return {
-                    'error': ProcessingResult(False, output_path, None, "Failed to write output")
-                }
-                
+            logger.info(f"Full Jiang TSS processing completed: {len(output_results)} products")
+            return output_results
+            
         except Exception as e:
-            error_msg = f"Error saving Jiang TSS: {str(e)}"
+            error_msg = f"Full Jiang TSS processing failed: {str(e)}"
             logger.error(error_msg)
             return {'error': ProcessingResult(False, "", None, error_msg)}
+    
+    def _apply_full_jiang_methodology(self, bands_data: Dict[int, np.ndarray]) -> Dict[str, np.ndarray]:
+        """
+        Apply complete Jiang methodology with adaptive band selection
+        """
+        logger.info("Applying complete Jiang methodology with adaptive band selection")
+        
+        # Get array shape
+        shape = bands_data[443].shape
+        
+        # Initialize output arrays
+        absorption = np.full(shape, np.nan, dtype=np.float32)
+        backscattering = np.full(shape, np.nan, dtype=np.float32)
+        reference_band = np.full(shape, np.nan, dtype=np.float32)
+        tss_concentration = np.full(shape, np.nan, dtype=np.float32)
+        
+        # Convert to Rrs (sr^-1) - water-leaving reflectance to remote sensing reflectance
+        rrs_data = {}
+        for wavelength, rhow in bands_data.items():
+            # Convert rhow to Rrs (approximation: Rrs ≈ rhow / π)
+            rrs_data[wavelength] = rhow / np.pi
+        
+        # Process each pixel
+        logger.info("Processing pixels with adaptive band selection...")
+        
+        # Vectorized processing for efficiency
+        valid_mask = self._create_valid_pixel_mask(rrs_data)
+        
+        if np.any(valid_mask):
+            # Apply methodology to valid pixels
+            pixel_results = self._process_valid_pixels(rrs_data, valid_mask)
+            
+            # Fill output arrays
+            absorption[valid_mask] = pixel_results['absorption']
+            backscattering[valid_mask] = pixel_results['backscattering']
+            reference_band[valid_mask] = pixel_results['reference_band']
+            tss_concentration[valid_mask] = pixel_results['tss']
+        
+        # Calculate statistics
+        valid_pixels = np.sum(valid_mask)
+        total_pixels = shape[0] * shape[1]
+        coverage_percent = (valid_pixels / total_pixels) * 100
+        
+        logger.info(f"Processed {valid_pixels}/{total_pixels} pixels ({coverage_percent:.1f}% coverage)")
+        
+        return {
+            'absorption': absorption,
+            'backscattering': backscattering, 
+            'reference_band': reference_band,
+            'tss': tss_concentration,
+            'valid_mask': valid_mask
+        }
+    
+    def _create_valid_pixel_mask(self, rrs_data: Dict[int, np.ndarray]) -> np.ndarray:
+        """Create mask for valid pixels based on Jiang criteria"""
+        
+        # Required bands for processing
+        required_bands = [490, 560, 665, 740]
+        
+        # Initialize valid mask
+        valid_mask = np.ones(rrs_data[443].shape, dtype=bool)
+        
+        # Check for valid data in required bands
+        for band in required_bands:
+            if band in rrs_data:
+                band_valid = (~np.isnan(rrs_data[band])) & (rrs_data[band] > 0)
+                valid_mask &= band_valid
+        
+        # Additional quality checks
+        if 865 in rrs_data:
+            # Check for reasonable Rrs values
+            reasonable_mask = (rrs_data[865] >= 0) & (rrs_data[865] <= 0.1)
+            valid_mask &= reasonable_mask
+        
+        return valid_mask
+    
+    def _process_valid_pixels(self, rrs_data: Dict[int, np.ndarray], 
+                             valid_mask: np.ndarray) -> Dict[str, np.ndarray]:
+        """Process valid pixels using complete Jiang methodology"""
+        
+        # Extract valid pixel data
+        valid_pixels = {}
+        for wavelength, data in rrs_data.items():
+            valid_pixels[wavelength] = data[valid_mask]
+        
+        n_pixels = len(valid_pixels[443])
+        
+        # Initialize output arrays for valid pixels
+        absorption_out = np.full(n_pixels, np.nan, dtype=np.float32)
+        backscattering_out = np.full(n_pixels, np.nan, dtype=np.float32)
+        reference_band_out = np.full(n_pixels, np.nan, dtype=np.float32)
+        tss_out = np.full(n_pixels, np.nan, dtype=np.float32)
+        
+        # Process each valid pixel
+        for i in range(n_pixels):
+            # Extract Rrs values for this pixel
+            pixel_rrs = {wl: valid_pixels[wl][i] for wl in valid_pixels.keys()}
+            
+            # Apply Jiang methodology to this pixel
+            result = self._estimate_tss_single_pixel(pixel_rrs)
+            
+            if result is not None:
+                absorption_out[i] = result['a']
+                backscattering_out[i] = result['bbp']
+                reference_band_out[i] = result['band']
+                tss_out[i] = result['tss']
+        
+        return {
+            'absorption': absorption_out,
+            'backscattering': backscattering_out,
+            'reference_band': reference_band_out,
+            'tss': tss_out
+        }
+    
+    def _estimate_tss_single_pixel(self, pixel_rrs: Dict[int, float]) -> Optional[Dict]:
+        """
+        Apply complete Jiang methodology to a single pixel - EXACT R CODE TRANSLATION
+        """
+        try:
+            # Check for required bands
+            required_bands = [490, 560, 665, 740]
+            for band in required_bands:
+                if band not in pixel_rrs or np.isnan(pixel_rrs[band]) or pixel_rrs[band] <= 0:
+                    return None
+            
+            # Estimate Rrs620 from Rrs665 (from R code)
+            rrs665 = pixel_rrs[665]
+            coeffs = self.constants.RRS620_COEFFICIENTS
+            rrs620 = (coeffs['a'] * rrs665**3 + 
+                     coeffs['b'] * rrs665**2 + 
+                     coeffs['c'] * rrs665 + 
+                     coeffs['d'])
+            
+            # Band selection logic (EXACT FROM R CODE)
+            if pixel_rrs[490] > pixel_rrs[560]:
+                # Type I: Clear water - use 560nm
+                result = self._qaa_560(pixel_rrs)
+            elif pixel_rrs[490] > rrs620:
+                # Type II: Moderately turbid - use 665nm  
+                result = self._qaa_665(pixel_rrs)
+            elif (740 in pixel_rrs and 865 in pixel_rrs and 
+                  pixel_rrs[740] > pixel_rrs[490] and pixel_rrs[740] > 0.010):
+                # Type IV: Extremely turbid - use 865nm
+                result = self._qaa_865(pixel_rrs)
+            else:
+                # Type III: Highly turbid - use 740nm
+                result = self._qaa_740(pixel_rrs)
+            
+            return result
+            
+        except Exception as e:
+            logger.debug(f"Error processing pixel: {e}")
+            return None
+    
+    def _qaa_560(self, rrs: Dict[int, float]) -> Dict:
+        """QAA algorithm for 560nm (Type I: Clear water) - FROM R CODE"""
+        aw = self.constants.PURE_WATER_ABSORPTION
+        bbw = self.constants.PURE_WATER_BACKSCATTERING
+        
+        # Convert Rrs to rrs
+        rrs_norm = {}
+        for wl in rrs.keys():
+            rrs_norm[wl] = rrs[wl] / (0.52 + 1.7 * rrs[wl])
+        
+        # Calculate u values
+        u = {}
+        for wl in rrs_norm.keys():
+            u[wl] = (-0.089 + np.sqrt(0.089**2 + 4 * 0.125 * rrs_norm[wl])) / (2 * 0.125)
+        
+        # Calculate x parameter
+        numerator = rrs_norm[443] + rrs_norm[490]
+        denominator = rrs_norm[560] + 5 * rrs_norm[665]**2 / rrs_norm[490]
+        x = np.log10(numerator / denominator)
+        
+        # Calculate absorption at 560nm
+        a560 = aw[560] + 10**(-1.146 - 1.366*x - 0.469*x**2)
+        
+        # Calculate backscattering at 560nm
+        bbp560 = ((u[560] * a560) / (1 - u[560])) - bbw[560]
+        
+        # Calculate TSS
+        tss = self.constants.TSS_CONVERSION_FACTORS[560] * bbp560
+        
+        return {
+            'a': a560,
+            'bbp': bbp560,
+            'band': 560,
+            'tss': tss
+        }
+    
+    def _qaa_665(self, rrs: Dict[int, float]) -> Dict:
+        """QAA algorithm for 665nm (Type II: Moderately turbid) - FROM R CODE"""
+        aw = self.constants.PURE_WATER_ABSORPTION
+        bbw = self.constants.PURE_WATER_BACKSCATTERING
+        
+        # Convert Rrs to rrs
+        rrs_norm = {}
+        for wl in rrs.keys():
+            rrs_norm[wl] = rrs[wl] / (0.52 + 1.7 * rrs[wl])
+        
+        # Calculate u values
+        u = {}
+        for wl in rrs_norm.keys():
+            u[wl] = (-0.089 + np.sqrt(0.089**2 + 4 * 0.125 * rrs_norm[wl])) / (2 * 0.125)
+        
+        # Calculate absorption at 665nm
+        ratio = rrs[665] / (rrs[443] + rrs[490])
+        a665 = aw[665] + 0.39 * (ratio**1.14)
+        
+        # Calculate backscattering at 665nm
+        bbp665 = ((u[665] * a665) / (1 - u[665])) - bbw[665]
+        
+        # Calculate TSS
+        tss = self.constants.TSS_CONVERSION_FACTORS[665] * bbp665
+        
+        return {
+            'a': a665,
+            'bbp': bbp665,
+            'band': 665,
+            'tss': tss
+        }
+    
+    def _qaa_740(self, rrs: Dict[int, float]) -> Dict:
+        """QAA algorithm for 740nm (Type III: Highly turbid) - FROM R CODE"""
+        aw = self.constants.PURE_WATER_ABSORPTION
+        bbw = self.constants.PURE_WATER_BACKSCATTERING
+        
+        # Convert Rrs to rrs
+        rrs_norm = {}
+        for wl in rrs.keys():
+            rrs_norm[wl] = rrs[wl] / (0.52 + 1.7 * rrs[wl])
+        
+        # Calculate u values
+        u = {}
+        for wl in rrs_norm.keys():
+            u[wl] = (-0.089 + np.sqrt(0.089**2 + 4 * 0.125 * rrs_norm[wl])) / (2 * 0.125)
+        
+        # For 740nm, assume pure water absorption dominates
+        a740 = aw[740]
+        
+        # Calculate backscattering at 740nm
+        bbp740 = ((u[740] * a740) / (1 - u[740])) - bbw[740]
+        
+        # Calculate TSS
+        tss = self.constants.TSS_CONVERSION_FACTORS[740] * bbp740
+        
+        return {
+            'a': a740,
+            'bbp': bbp740,
+            'band': 740,
+            'tss': tss
+        }
+    
+    def _qaa_865(self, rrs: Dict[int, float]) -> Dict:
+        """QAA algorithm for 865nm (Type IV: Extremely turbid) - FROM R CODE"""
+        aw = self.constants.PURE_WATER_ABSORPTION
+        bbw = self.constants.PURE_WATER_BACKSCATTERING
+        
+        # Convert Rrs to rrs
+        rrs_norm = {}
+        for wl in rrs.keys():
+            rrs_norm[wl] = rrs[wl] / (0.52 + 1.7 * rrs[wl])
+        
+        # Calculate u values
+        u = {}
+        for wl in rrs_norm.keys():
+            u[wl] = (-0.089 + np.sqrt(0.089**2 + 4 * 0.125 * rrs_norm[wl])) / (2 * 0.125)
+        
+        # For 865nm, assume pure water absorption dominates
+        a865 = aw[865]
+        
+        # Calculate backscattering at 865nm
+        bbp865 = ((u[865] * a865) / (1 - u[865])) - bbw[865]
+        
+        # Calculate TSS
+        tss = self.constants.TSS_CONVERSION_FACTORS[865] * bbp865
+        
+        return {
+            'a': a865,
+            'bbp': bbp865,
+            'band': 865,
+            'tss': tss
+        }
+    
+    def _save_complete_results(self, results: Dict[str, np.ndarray], output_folder: str, 
+                              product_name: str, reference_metadata: Dict) -> Dict[str, ProcessingResult]:
+        """Save complete Jiang results (a, bbp, reference_band, TSS)"""
+        try:
+            output_results = {}
+            
+            # Product definitions
+            products = {
+                'absorption': {
+                    'data': results['absorption'],
+                    'filename': f"{product_name}_Jiang_Absorption.tif",
+                    'description': "Absorption coefficient (m⁻¹) - Jiang et al. 2023"
+                },
+                'backscattering': {
+                    'data': results['backscattering'],
+                    'filename': f"{product_name}_Jiang_Backscattering.tif", 
+                    'description': "Particulate backscattering coefficient (m⁻¹) - Jiang et al. 2023"
+                },
+                'reference_band': {
+                    'data': results['reference_band'],
+                    'filename': f"{product_name}_Jiang_ReferenceBand.tif",
+                    'description': "Reference wavelength used (nm) - Jiang et al. 2023"
+                },
+                'tss': {
+                    'data': results['tss'],
+                    'filename': f"{product_name}_Jiang_TSS.tif",
+                    'description': "Total Suspended Solids (g/m³) - Jiang et al. 2023"
+                }
+            }
+            
+            # Save each product
+            for product_key, product_info in products.items():
+                output_path = os.path.join(output_folder, product_info['filename'])
+                
+                success = RasterIO.write_raster(
+                    product_info['data'], 
+                    output_path, 
+                    reference_metadata, 
+                    product_info['description']
+                )
+                
+                if success:
+                    stats = RasterIO.calculate_statistics(product_info['data'])
+                    logger.info(f"Saved {product_key}: {stats['coverage_percent']:.1f}% coverage")
+                    
+                    output_results[product_key] = ProcessingResult(
+                        True, output_path, stats, None
+                    )
+                else:
+                    output_results[product_key] = ProcessingResult(
+                        False, output_path, None, f"Failed to write {product_key}"
+                    )
+            
+            # Create summary statistics
+            if 'tss' in output_results and output_results['tss'].success:
+                self._log_processing_summary(results, product_name)
+            
+            return output_results
+            
+        except Exception as e:
+            error_msg = f"Error saving complete Jiang results: {str(e)}"
+            logger.error(error_msg)
+            return {'error': ProcessingResult(False, "", None, error_msg)}
+    
+    def _log_processing_summary(self, results: Dict[str, np.ndarray], product_name: str):
+        """Log comprehensive processing summary"""
+        
+        tss_data = results['tss']
+        reference_bands = results['reference_band']
+        valid_mask = results['valid_mask']
+        
+        # Overall statistics
+        tss_stats = RasterIO.calculate_statistics(tss_data)
+        
+        logger.info(f"=== FULL JIANG TSS PROCESSING SUMMARY: {product_name} ===")
+        logger.info(f"Total coverage: {tss_stats['coverage_percent']:.1f}%")
+        logger.info(f"TSS range: {tss_stats['min']:.2f} - {tss_stats['max']:.2f} g/m³")
+        logger.info(f"TSS mean: {tss_stats['mean']:.2f} g/m³")
+        
+        # Band usage statistics
+        if np.any(valid_mask):
+            ref_bands_valid = reference_bands[valid_mask]
+            ref_bands_valid = ref_bands_valid[~np.isnan(ref_bands_valid)]
+            
+            if len(ref_bands_valid) > 0:
+                logger.info("Water type classification results:")
+                for band in [560, 665, 740, 865]:
+                    count = np.sum(ref_bands_valid == band)
+                    percentage = (count / len(ref_bands_valid)) * 100
+                    if count > 0:
+                        water_type = {
+                            560: "Type I (Clear)",
+                            665: "Type II (Moderately turbid)", 
+                            740: "Type III (Highly turbid)",
+                            865: "Type IV (Extremely turbid)"
+                        }[band]
+                        logger.info(f"  {band}nm ({water_type}): {count} pixels ({percentage:.1f}%)")
+        
+        logger.info("=" * 60)
 
 # ===== S2 PROCESSOR =====
 
@@ -1292,15 +1653,15 @@ class S2Processor:
             return {'tss_error': ProcessingResult(False, "", None, error_msg)}
     
     def get_processing_status(self) -> ProcessingStatus:
-        """Get current processing status"""
+        """Get current processing status with division by zero protection"""
         total = self.processed_count + self.failed_count + self.skipped_count
         if total == 0:
             return ProcessingStatus(0, 0, 0, 0, "", "", 0.0, 0.0, 0.0)
         
         elapsed_time = time.time() - self.start_time
         
-        # Calculate ETA
-        if self.processed_count > 0:
+        # Calculate ETA with protection against division by zero
+        if self.processed_count > 0 and elapsed_time > 0:
             avg_time_per_product = elapsed_time / self.processed_count
             # Estimate based on a typical batch size
             eta_minutes = avg_time_per_product / 60
@@ -1309,6 +1670,9 @@ class S2Processor:
             eta_minutes = 0.0
             processing_speed = 0.0
         
+        # Fix: Ensure no division by zero in progress calculation
+        progress_percent = (total / max(total, 1)) * 100 if total > 0 else 0.0
+        
         return ProcessingStatus(
             total_products=total,
             processed=self.processed_count,
@@ -1316,7 +1680,7 @@ class S2Processor:
             skipped=self.skipped_count,
             current_product=self.current_product,
             current_stage=self.current_stage,
-            progress_percent=(total / max(total, 1)) * 100,
+            progress_percent=progress_percent,
             eta_minutes=eta_minutes,
             processing_speed=processing_speed
         )
@@ -1613,13 +1977,183 @@ class UnifiedS2TSSProcessor:
 
 # ===== GEOMETRY UTILITIES =====
 
+def load_geometry_from_file(file_path: str) -> tuple:
+    """
+    Load geometry from various file formats and convert to WKT
+    
+    Returns:
+        tuple: (wkt_string, info_message, success)
+    """
+    if not HAS_GEOPANDAS:
+        return None, "GeoPandas not installed. Install with: conda install -c conda-forge geopandas", False
+    
+    try:
+        file_extension = file_path.lower().split('.')[-1]
+        
+        if file_extension == 'shp':
+            return load_shapefile_geometry(file_path)
+        elif file_extension == 'kml':
+            return load_kml_geometry(file_path)
+        elif file_extension in ['geojson', 'json']:
+            return load_geojson_geometry(file_path)
+        else:
+            return None, f"Unsupported file format: {file_extension}", False
+            
+    except Exception as e:
+        logger.error(f"Error loading geometry from file: {e}")
+        return None, f"Error loading file: {str(e)}", False
+
+def load_shapefile_geometry(shapefile_path: str) -> tuple:
+    """Load geometry from shapefile and convert to WKT"""
+    try:
+        # Read shapefile using geopandas
+        gdf = gpd.read_file(shapefile_path)
+        
+        if len(gdf) == 0:
+            return None, "Shapefile contains no features", False
+        
+        # Get info about the shapefile
+        feature_count = len(gdf)
+        geometry_types = gdf.geometry.geom_type.unique()
+        
+        # Handle multiple features
+        if len(gdf) > 1:
+            # Union all features into single geometry
+            combined_geometry = gdf.geometry.unary_union
+            info_msg = f"Loaded {feature_count} features, combined into single geometry"
+        else:
+            combined_geometry = gdf.geometry.iloc[0]
+            info_msg = f"Loaded single feature"
+        
+        # Convert to WGS84 if not already
+        original_crs = gdf.crs
+        if gdf.crs and gdf.crs != 'EPSG:4326':
+            gdf_wgs84 = gdf.to_crs('EPSG:4326')
+            if len(gdf) > 1:
+                combined_geometry = gdf_wgs84.geometry.unary_union
+            else:
+                combined_geometry = gdf_wgs84.geometry.iloc[0]
+            info_msg += f"\nReprojected from {original_crs} to WGS84"
+        
+        # Validate and fix geometry if needed
+        if not combined_geometry.is_valid:
+            logger.warning("Geometry is not valid, attempting to fix...")
+            combined_geometry = combined_geometry.buffer(0)  # Often fixes invalid polygons
+            info_msg += "\nFixed invalid geometry"
+        
+        # Convert to WKT
+        wkt_string = combined_geometry.wkt
+        
+        # Add bounds information
+        bounds = combined_geometry.bounds
+        info_msg += f"\nGeometry type: {combined_geometry.geom_type}"
+        info_msg += f"\nBounds: W={bounds[0]:.6f}, S={bounds[1]:.6f}, E={bounds[2]:.6f}, N={bounds[3]:.6f}"
+        
+        logger.info(f"Successfully loaded geometry from shapefile: {os.path.basename(shapefile_path)}")
+        
+        return wkt_string, info_msg, True
+        
+    except Exception as e:
+        logger.error(f"Error loading shapefile: {e}")
+        return None, f"Error loading shapefile: {str(e)}", False
+
+def load_kml_geometry(kml_path: str) -> tuple:
+    """Load geometry from KML file"""
+    try:
+        # Enable KML driver
+        fiona.drvsupport.supported_drivers['KML'] = 'rw'
+        
+        # Read KML using geopandas
+        gdf = gpd.read_file(kml_path, driver='KML')
+        
+        if len(gdf) == 0:
+            return None, "KML file contains no features", False
+        
+        # Combine multiple geometries
+        if len(gdf) > 1:
+            combined_geometry = gdf.geometry.unary_union
+            info_msg = f"Loaded {len(gdf)} features from KML, combined into single geometry"
+        else:
+            combined_geometry = gdf.geometry.iloc[0]
+            info_msg = f"Loaded single feature from KML"
+        
+        # Ensure WGS84 (KML is always WGS84)
+        wkt_string = combined_geometry.wkt
+        bounds = combined_geometry.bounds
+        info_msg += f"\nGeometry type: {combined_geometry.geom_type}"
+        info_msg += f"\nBounds: W={bounds[0]:.6f}, S={bounds[1]:.6f}, E={bounds[2]:.6f}, N={bounds[3]:.6f}"
+        
+        logger.info(f"Successfully loaded geometry from KML: {os.path.basename(kml_path)}")
+        return wkt_string, info_msg, True
+        
+    except Exception as e:
+        logger.error(f"Error loading KML file: {e}")
+        return None, f"Error loading KML file: {str(e)}", False
+
+def load_geojson_geometry(geojson_path: str) -> tuple:
+    """Load geometry from GeoJSON file"""
+    try:
+        gdf = gpd.read_file(geojson_path)
+        
+        if len(gdf) == 0:
+            return None, "GeoJSON contains no features", False
+        
+        # Combine all geometries
+        if len(gdf) > 1:
+            combined_geometry = gdf.geometry.unary_union
+            info_msg = f"Loaded {len(gdf)} features from GeoJSON, combined into single geometry"
+        else:
+            combined_geometry = gdf.geometry.iloc[0]
+            info_msg = f"Loaded single feature from GeoJSON"
+        
+        # Ensure WGS84
+        if gdf.crs and gdf.crs != 'EPSG:4326':
+            gdf_wgs84 = gdf.to_crs('EPSG:4326')
+            if len(gdf) > 1:
+                combined_geometry = gdf_wgs84.geometry.unary_union
+            else:
+                combined_geometry = gdf_wgs84.geometry.iloc[0]
+            info_msg += f"\nReprojected from {gdf.crs} to WGS84"
+        
+        wkt_string = combined_geometry.wkt
+        bounds = combined_geometry.bounds
+        info_msg += f"\nGeometry type: {combined_geometry.geom_type}"
+        info_msg += f"\nBounds: W={bounds[0]:.6f}, S={bounds[1]:.6f}, E={bounds[2]:.6f}, N={bounds[3]:.6f}"
+        
+        logger.info(f"Successfully loaded geometry from GeoJSON: {os.path.basename(geojson_path)}")
+        return wkt_string, info_msg, True
+        
+    except Exception as e:
+        logger.error(f"Error loading GeoJSON file: {e}")
+        return None, f"Error loading GeoJSON file: {str(e)}", False
+
+def validate_wkt_geometry(wkt_string: str) -> tuple:
+    """Validate WKT geometry string"""
+    try:
+        if not HAS_GEOPANDAS:
+            return True, "GeoPandas not available for validation"
+        
+        test_geom = wkt_loads(wkt_string)
+        
+        if not test_geom.is_valid:
+            return False, "WKT geometry is not valid"
+        
+        bounds = test_geom.bounds
+        info_msg = f"Valid {test_geom.geom_type} geometry"
+        info_msg += f"\nBounds: W={bounds[0]:.6f}, S={bounds[1]:.6f}, E={bounds[2]:.6f}, N={bounds[3]:.6f}"
+        
+        return True, info_msg
+        
+    except Exception as e:
+        return False, f"Invalid WKT string: {str(e)}"
+
 def get_geometry_input():
-    """Simple geometry input dialog"""
+    """Enhanced geometry input dialog with full file format support"""
     
     # Create a simple dialog window
     dialog = tk.Toplevel()
-    dialog.title("Geometry Input")
-    dialog.geometry("600x400")
+    dialog.title("Geometry Input - Enhanced")
+    dialog.geometry("700x500")
     dialog.transient()
     dialog.focus_set()
     
@@ -1630,8 +2164,21 @@ def get_geometry_input():
     main_frame.pack(fill=tk.BOTH, expand=True)
     
     # Title
-    ttk.Label(main_frame, text="Select Geometry Input Method", 
-             font=("Arial", 12, "bold")).pack(pady=(0, 20))
+    title_label = ttk.Label(main_frame, text="Select Geometry Input Method", 
+                           font=("Arial", 12, "bold"))
+    title_label.pack(pady=(0, 10))
+    
+    # Subtitle with file format support
+    if HAS_GEOPANDAS:
+        subtitle_text = "✓ Full file format support: Shapefile, KML, GeoJSON"
+        subtitle_color = "darkgreen"
+    else:
+        subtitle_text = "⚠ Limited support - install GeoPandas for full functionality"
+        subtitle_color = "darkorange"
+    
+    subtitle_label = ttk.Label(main_frame, text=subtitle_text, 
+                              font=("Arial", 9), foreground=subtitle_color)
+    subtitle_label.pack(pady=(0, 20))
     
     # Method selection
     method_var = tk.StringVar(value="none")
@@ -1642,7 +2189,7 @@ def get_geometry_input():
                    variable=method_var, value="coords").pack(anchor=tk.W, pady=5)
     ttk.Radiobutton(main_frame, text="Enter WKT string", 
                    variable=method_var, value="wkt").pack(anchor=tk.W, pady=5)
-    ttk.Radiobutton(main_frame, text="Load from file (Shapefile/KML)", 
+    ttk.Radiobutton(main_frame, text="Load from file (Shapefile/KML/GeoJSON)", 
                    variable=method_var, value="file").pack(anchor=tk.W, pady=5)
     
     # Input areas
@@ -1652,7 +2199,7 @@ def get_geometry_input():
     # Coordinates input
     coords_frame = ttk.Frame(input_frame)
     
-    ttk.Label(coords_frame, text="Coordinate Bounds:").pack(anchor=tk.W)
+    ttk.Label(coords_frame, text="Coordinate Bounds (WGS84):").pack(anchor=tk.W)
     coord_grid = ttk.Frame(coords_frame)
     coord_grid.pack(fill=tk.X, pady=5)
     
@@ -1675,8 +2222,26 @@ def get_geometry_input():
     # WKT input
     wkt_frame = ttk.Frame(input_frame)
     ttk.Label(wkt_frame, text="WKT String:").pack(anchor=tk.W)
-    wkt_text = tk.Text(wkt_frame, height=4, wrap=tk.WORD)
+    wkt_text = tk.Text(wkt_frame, height=4, wrap=tk.WORD, font=("Consolas", 9))
     wkt_text.pack(fill=tk.BOTH, expand=True, pady=5)
+    
+    # Add WKT validation button
+    wkt_button_frame = ttk.Frame(wkt_frame)
+    wkt_button_frame.pack(fill=tk.X, pady=(5, 0))
+    
+    def validate_wkt():
+        wkt_string = wkt_text.get(1.0, tk.END).strip()
+        if not wkt_string:
+            messagebox.showwarning("Warning", "No WKT string to validate", parent=dialog)
+            return
+        
+        is_valid, message = validate_wkt_geometry(wkt_string)
+        if is_valid:
+            messagebox.showinfo("Validation", f"✓ Valid WKT geometry!\n\n{message}", parent=dialog)
+        else:
+            messagebox.showerror("Validation", f"✗ Invalid WKT geometry!\n\n{message}", parent=dialog)
+    
+    ttk.Button(wkt_button_frame, text="Validate WKT", command=validate_wkt).pack(side=tk.LEFT)
     
     # File input
     file_frame = ttk.Frame(input_frame)
@@ -1687,15 +2252,37 @@ def get_geometry_input():
     ttk.Entry(file_path_frame, textvariable=file_path_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
     
     def browse_file():
+        if HAS_GEOPANDAS:
+            filetypes = [
+                ("Shapefiles", "*.shp"),
+                ("KML files", "*.kml"), 
+                ("GeoJSON files", "*.geojson;*.json"),
+                ("All supported", "*.shp;*.kml;*.geojson;*.json"),
+                ("All files", "*.*")
+            ]
+        else:
+            filetypes = [
+                ("Shapefiles", "*.shp"),
+                ("All files", "*.*")
+            ]
+        
         filename = filedialog.askopenfilename(
             title="Select Geometry File",
-            filetypes=[("Shapefiles", "*.shp"), ("KML files", "*.kml"), ("All files", "*.*")],
+            filetypes=filetypes,
             parent=dialog
         )
         if filename:
             file_path_var.set(filename)
     
     ttk.Button(file_path_frame, text="Browse...", command=browse_file).pack(side=tk.RIGHT, padx=(5,0))
+    
+    # File info display
+    file_info_frame = ttk.Frame(file_frame)
+    file_info_frame.pack(fill=tk.X, pady=(5, 0))
+    
+    file_info_text = tk.Text(file_info_frame, height=3, wrap=tk.WORD, font=("Arial", 8))
+    file_info_text.pack(fill=tk.X)
+    file_info_text.config(state=tk.DISABLED)
     
     def update_visibility(*args):
         # Hide all frames
@@ -1710,7 +2297,7 @@ def get_geometry_input():
         elif method == "wkt":
             wkt_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         elif method == "file":
-            file_frame.pack(fill=tk.X, pady=5)
+            file_frame.pack(fill=tk.BOTH, expand=True, pady=5)
     
     method_var.trace("w", update_visibility)
     update_visibility()  # Initial call
@@ -1724,6 +2311,7 @@ def get_geometry_input():
         
         if method == "none":
             result["geometry"] = None
+            
         elif method == "coords":
             try:
                 north = float(north_var.get())
@@ -1731,27 +2319,68 @@ def get_geometry_input():
                 east = float(east_var.get())
                 west = float(west_var.get())
                 
+                # Validate coordinate ranges
+                if not (-90 <= south <= north <= 90):
+                    messagebox.showerror("Error", "Invalid latitude values!\nMust be between -90 and 90 degrees.", parent=dialog)
+                    return
+                
+                if not (-180 <= west <= east <= 180):
+                    messagebox.showerror("Error", "Invalid longitude values!\nMust be between -180 and 180 degrees.", parent=dialog)
+                    return
+                
                 # Create WKT polygon from coordinates
                 wkt = f"POLYGON (({west} {south}, {east} {south}, {east} {north}, {west} {north}, {west} {south}))"
                 result["geometry"] = wkt
+                
             except ValueError:
                 messagebox.showerror("Error", "Invalid coordinates! Please enter numeric values.", parent=dialog)
                 return
+        
         elif method == "wkt":
             wkt = wkt_text.get(1.0, tk.END).strip()
             if not wkt:
                 messagebox.showerror("Error", "Please enter a WKT string!", parent=dialog)
                 return
+            
+            # Validate WKT
+            is_valid, message = validate_wkt_geometry(wkt)
+            if not is_valid:
+                response = messagebox.askyesno("Invalid WKT", 
+                                             f"WKT validation failed:\n{message}\n\nUse anyway?", 
+                                             parent=dialog)
+                if not response:
+                    return
+            
             result["geometry"] = wkt
+        
         elif method == "file":
             file_path = file_path_var.get()
             if not file_path:
                 messagebox.showerror("Error", "Please select a file!", parent=dialog)
                 return
             
-            # For now, return a default WKT (you can implement proper parsing later)
-            messagebox.showinfo("Info", "File loading implemented as default Douro River area for now.", parent=dialog)
-            result["geometry"] = "POLYGON ((-9.011150360107422 41.346405029296875, -7.6896185874938965 41.346405029296875, -7.6896185874938965 40.82782745361328, -9.011150360107422 40.82782745361328, -9.011150360107422 41.346405029296875))"
+            # Load geometry from the selected file
+            try:
+                wkt_string, info_message, success = load_geometry_from_file(file_path)
+                
+                if success and wkt_string:
+                    result["geometry"] = wkt_string
+                    
+                    # Show detailed information about loaded geometry
+                    messagebox.showinfo("Success", 
+                                      f"Successfully loaded geometry from:\n{os.path.basename(file_path)}\n\n{info_message}", 
+                                      parent=dialog)
+                else:
+                    messagebox.showerror("Error", 
+                                       f"Failed to load geometry from:\n{os.path.basename(file_path)}\n\n{info_message}", 
+                                       parent=dialog)
+                    return
+                    
+            except Exception as e:
+                messagebox.showerror("Error", 
+                                   f"Unexpected error loading file:\n{str(e)}", 
+                                   parent=dialog)
+                return
         
         dialog.destroy()
     
@@ -1768,9 +2397,17 @@ def get_geometry_input():
     return result["geometry"]
 
 def get_area_name(wkt_string: str) -> str:
-    """Generates a simple area name from a WKT string."""
+    """Generates a descriptive area name from a WKT string."""
     if wkt_string:
-        return "CustomArea"
+        try:
+            if HAS_GEOPANDAS:
+                geom = wkt_loads(wkt_string)
+                bounds = geom.bounds
+                return f"CustomArea_{bounds[0]:.3f}_{bounds[1]:.3f}_{bounds[2]:.3f}_{bounds[3]:.3f}"
+            else:
+                return "CustomArea"
+        except:
+            return "CustomArea"
     return "FullScene"
 
 def bring_window_to_front(window):
@@ -3133,14 +3770,19 @@ class UnifiedS2TSSGUI:
         self.root.after(2000, self.start_gui_updates)  # Update every 2 seconds
     
     def update_system_info(self):
-        """Update system information display"""
+        """Update system information display with error protection"""
         try:
             info = self.system_monitor.get_current_info()
             
             # Update system labels
             self.cpu_label.config(text=f"CPU: {info['cpu_percent']:.1f}%")
             
-            memory_percent = (info['memory_used_gb'] / info['memory_total_gb']) * 100
+            # Fix: Protect against division by zero
+            if info['memory_total_gb'] > 0:
+                memory_percent = (info['memory_used_gb'] / info['memory_total_gb']) * 100
+            else:
+                memory_percent = 0.0
+                
             self.memory_label.config(text=f"Memory: {info['memory_used_gb']:.1f}/{info['memory_total_gb']:.1f} GB ({memory_percent:.1f}%)")
             
             self.disk_label.config(text=f"Disk Free: {info['disk_free_gb']:.1f} GB")
@@ -3166,6 +3808,13 @@ class UnifiedS2TSSGUI:
                 
         except Exception as e:
             logger.warning(f"GUI update error: {e}")
+            # Set default values to prevent repeated errors
+            try:
+                self.cpu_label.config(text="CPU: --")
+                self.memory_label.config(text="Memory: --")
+                self.disk_label.config(text="Disk: --")
+            except:
+                pass
     
     def update_processing_stats(self):
         """Update processing statistics display"""
