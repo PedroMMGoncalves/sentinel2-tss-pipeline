@@ -819,7 +819,7 @@ class JiangTSSProcessor:
                 return {'error': ProcessingResult(False, "", None, "Failed to load bands data")}
             
             # Step 3: Apply CORRECTED Jiang methodology
-            jiang_results = self._apply_full_jiang_methodology_corrected(bands_data)
+            jiang_results = self._apply_full_jiang_methodology(bands_data)
             
             # Step 4: Advanced algorithms processing (if enabled) - unchanged
             all_results = jiang_results.copy()
@@ -1002,11 +1002,11 @@ class JiangTSSProcessor:
             rrs_data[wavelength] = rhow / np.pi
         
         # Create valid pixel mask using corrected validation
-        valid_mask = self._create_valid_pixel_mask_corrected(rrs_data)
+        valid_mask = self._create_valid_pixel_mask(rrs_data)
         
         if np.any(valid_mask):
             # Apply corrected methodology to valid pixels
-            pixel_results = self._process_valid_pixels_corrected(rrs_data, valid_mask)
+            pixel_results = self._process_valid_pixels(rrs_data, valid_mask)
             
             # Fill output arrays
             absorption[valid_mask] = pixel_results['absorption']
@@ -1097,7 +1097,7 @@ class JiangTSSProcessor:
             pixel_rrs = {wl: valid_pixels[wl][i] for wl in valid_pixels.keys()}
             
             # Apply corrected Jiang methodology to this pixel
-            result = self._estimate_tss_single_pixel_corrected(pixel_rrs)
+            result = self._estimate_tss_single_pixel(pixel_rrs)
             
             if result is not None:
                 absorption_out[i] = result['a']
@@ -1155,16 +1155,16 @@ class JiangTSSProcessor:
             
             if pixel_rrs[490] > pixel_rrs[560]:
                 # Type I: Clear water
-                result = self._qaa_560_corrected(pixel_rrs)
+                result = self._qaa_560(pixel_rrs)
             elif pixel_rrs[490] > rrs620:
                 # Type II: Moderately turbid
-                result = self._qaa_665_corrected(pixel_rrs)
+                result = self._qaa_665(pixel_rrs)
             elif pixel_rrs[740] > pixel_rrs[490] and pixel_rrs[740] > 0.010:
                 # Type IV: Extremely turbid (note: uses 865nm algorithm)
-                result = self._qaa_865_corrected(pixel_rrs)
+                result = self._qaa_865(pixel_rrs)
             else:
                 # Type III: Highly turbid
-                result = self._qaa_740_corrected(pixel_rrs)
+                result = self._qaa_740(pixel_rrs)
             
             return result
             
