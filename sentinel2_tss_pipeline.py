@@ -836,8 +836,6 @@ class JiangTSSConfig:
     water_mask_threshold: float = 0.01
     tss_valid_range: tuple = (0.01, 10000)  # g/m³
     output_comparison_stats: bool = True
-    
-    # THESE ARE THE MISSING ATTRIBUTES THAT CAUSE THE ERROR:
     enable_advanced_algorithms: bool = True
     advanced_config: Optional['AdvancedAquaticConfig'] = None
     
@@ -845,6 +843,37 @@ class JiangTSSConfig:
         """Initialize advanced config if enabled"""
         if self.enable_advanced_algorithms and self.advanced_config is None:
             self.advanced_config = AdvancedAquaticConfig()
+
+class JiangTSSProcessor:
+    """Complete implementation of Jiang et al. 2023 TSS methodology - FULL VERSION"""
+    
+    def __init__(self, config: JiangTSSConfig):
+        # PATCH: Fix missing attributes
+        self.config = patch_jiang_config(config)
+        self.constants = JiangTSSConstants()
+        
+        # Initialize advanced processor if enabled
+        if self.config.enable_advanced_algorithms:
+            self.advanced_processor = AdvancedAquaticProcessor()
+            if self.config.advanced_config is None:
+                self.config.advanced_config = AdvancedAquaticConfig()
+        else:
+            self.advanced_processor = None
+            
+        logger.info("Initialized Full Jiang TSS Processor with complete methodology")
+        
+        # Log configuration status
+        logger.info(f"Jiang TSS enabled: {self.config.enable_jiang_tss}")
+        logger.info(f"Advanced algorithms enabled: {self.config.enable_advanced_algorithms}")
+        if self.config.enable_advanced_algorithms and self.config.advanced_config:
+            logger.info("Advanced algorithms configuration:")
+            logger.info(f"  - Trophic State Index: {self.config.advanced_config.enable_trophic_state}")
+            logger.info(f"  - Water Clarity: {self.config.advanced_config.enable_water_clarity}")
+            logger.info(f"  - HAB Detection: {self.config.advanced_config.enable_hab_detection}")
+            logger.info(f"  - Upwelling Detection: {self.config.advanced_config.enable_upwelling_detection}")
+            logger.info(f"  - River Plume Tracking: {self.config.advanced_config.enable_river_plume_tracking}")
+            logger.info(f"  - Particle Size Estimation: {self.config.advanced_config.enable_particle_size}")
+            logger.info(f"  - Primary Productivity: {self.config.advanced_config.enable_primary_productivity}")
     
     def _load_rhow_bands(self, c2rcc_path: str) -> Dict[int, str]:
         """Load water-leaving reflectance bands"""
