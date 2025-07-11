@@ -1,0 +1,16 @@
+2025-07-11 19:50:46,414 - INFO - [sentinel2_tss_pipeline.py:6253] - ================================================================================
+2025-07-11 19:50:46,415 - INFO - [sentinel2_tss_pipeline.py:6254] - UNIFIED S2 PROCESSING & TSS ESTIMATION PIPELINE v1.0
+2025-07-11 19:50:46,415 - INFO - [sentinel2_tss_pipeline.py:6255] - ================================================================================
+2025-07-11 19:50:46,416 - INFO - [sentinel2_tss_pipeline.py:6256] - SNAP_HOME: C:\Program Files\esa-snap
+2025-07-11 19:50:46,417 - INFO - [sentinel2_tss_pipeline.py:6257] - GPT: C:\Program Files\esa-snap\bin\gpt.exe
+2025-07-11 19:50:46,424 - INFO - [sentinel2_tss_pipeline.py:6258] - Python: 3.9.22 | packaged by conda-forge | (main, Apr 10 2025, 22:07:06) [MSC v.1929 64 bit (AMD64)]
+2025-07-11 19:50:46,425 - INFO - [sentinel2_tss_pipeline.py:6259] - Platform: win32
+2025-07-11 19:50:46,425 - INFO - [sentinel2_tss_pipeline.py:6260] - Working Directory: C:\Users\pedro.goncalves\OneDrive - LNEG - Laboratorio Nacional de Energia e Geologia\GitHub\sentinel2-tss-pipeline
+2025-07-11 19:50:46,426 - INFO - [sentinel2_tss_pipeline.py:6261] - ================================================================================
+2025-07-11 19:50:46,426 - INFO - [sentinel2_tss_pipeline.py:6270] - Starting GUI application...
+2025-07-11 19:51:26,222 - INFO - [sentinel2_tss_pipeline.py:2801] - SNAP_HOME: C:\Program Files\esa-snap
+2025-07-11 19:51:30,926 - INFO - [sentinel2_tss_pipeline.py:2812] - ✓ GPT validated: C:\Program Files\esa-snap\bin\gpt.exe
+2025-07-11 19:51:30,927 - INFO - [sentinel2_tss_pipeline.py:2919] - Complete processing graph saved: s2_complete_processing_with_subset.xml
+2025-07-11 19:51:30,928 - INFO - [sentinel2_tss_pipeline.py:2841] - ✓ Processing graph created for mode: complete_pipeline
+2025-07-11 19:51:30,928 - ERROR - [sentinel2_tss_pipeline.py:5810] - Processing thread error: 'JiangTSSConfig' object has no attribute 'enable_advanced_algorithms'
+2025-07-11 19:52:22,517 - INFO - [sentinel2_tss_pipeline.py:6274] - Application finished successfully
