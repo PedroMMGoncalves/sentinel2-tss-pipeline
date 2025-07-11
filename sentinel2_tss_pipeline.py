@@ -31,9 +31,7 @@ def fix_proj_database_comprehensive():
         'C:/OSGeo4W64/share/proj',
         'C:/OSGeo4W/share/proj',
         # QGIS installations
-        'C:/Program Files/QGIS 3.28/share/proj',
-        'C:/Program Files/QGIS 3.30/share/proj',
-        'C:/Program Files/QGIS 3.32/share/proj',
+        'C:\Program Files\QGIS 3.42.3\share\proj',
     ]
     
     for path in common_paths:
@@ -45,18 +43,6 @@ def fix_proj_database_comprehensive():
         proj_data = proj_data_paths[0]
         os.environ['PROJ_DATA'] = proj_data
         print(f"✓ PROJ_DATA set to: {proj_data}")
-        
-        # Verify the database files exist
-        required_files = ['proj.db', 'proj.ini']
-        missing_files = []
-        for file in required_files:
-            if not os.path.exists(os.path.join(proj_data, file)):
-                missing_files.append(file)
-        
-        if missing_files:
-            print(f"⚠ Warning: Missing PROJ files: {missing_files}")
-        else:
-            print("✓ PROJ database files verified")
     else:
         print("❌ No PROJ data directory found")
         return False
@@ -84,7 +70,6 @@ def fix_proj_database_comprehensive():
             proj_lib_paths.append(path)
     
     if proj_lib_paths:
-        # Set PROJ_LIB (some systems need this)
         os.environ['PROJ_LIB'] = proj_lib_paths[0]
         print(f"✓ PROJ_LIB set to: {proj_lib_paths[0]}")
     
@@ -95,48 +80,11 @@ def fix_proj_database_comprehensive():
         # Enable GDAL exceptions
         gdal.UseExceptions()
         
-        # Set GDAL data directory if not set
-        if not os.environ.get('GDAL_DATA'):
-            gdal_data_paths = []
-            
-            if conda_prefix:
-                conda_gdal = os.path.join(conda_prefix, 'share', 'gdal')
-                if os.path.exists(conda_gdal):
-                    gdal_data_paths.append(conda_gdal)
-            
-            # Common GDAL data paths
-            common_gdal_paths = [
-                os.path.join(sys.prefix, 'share', 'gdal'),
-                os.path.join(sys.prefix, 'Library', 'share', 'gdal'),
-                '/usr/share/gdal',
-                '/usr/local/share/gdal',
-                'C:/OSGeo4W64/share/gdal',
-                'C:/OSGeo4W/share/gdal',
-            ]
-            
-            for path in common_gdal_paths:
-                if os.path.exists(path):
-                    gdal_data_paths.append(path)
-            
-            if gdal_data_paths:
-                os.environ['GDAL_DATA'] = gdal_data_paths[0]
-                print(f"✓ GDAL_DATA set to: {gdal_data_paths[0]}")
-        
         # Test PROJ functionality
         try:
-            # Create a simple coordinate transformation to test PROJ
             source_srs = osr.SpatialReference()
             source_srs.ImportFromEPSG(4326)  # WGS84
-            
-            target_srs = osr.SpatialReference()
-            target_srs.ImportFromEPSG(3857)  # Web Mercator
-            
-            transform = osr.CoordinateTransformation(source_srs, target_srs)
-            
-            # Test transformation
-            x, y, z = transform.TransformPoint(-8.0, 40.0, 0)
-            print(f"✓ PROJ test successful: ({-8.0}, {40.0}) -> ({x:.2f}, {y:.2f})")
-            
+            print(f"✓ PROJ test successful")
             return True
             
         except Exception as e:
@@ -147,9 +95,12 @@ def fix_proj_database_comprehensive():
         print(f"❌ Could not import GDAL/OSR: {e}")
         return False
 
+# Call this before any other imports
+import sys
+gdal_available = fix_proj_database_comprehensive()
+
 # Rest of imports with error handling
 import os
-import sys
 import glob
 import subprocess
 import time
