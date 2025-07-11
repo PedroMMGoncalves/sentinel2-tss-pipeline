@@ -2,33 +2,150 @@ import os
 import warnings
 
 # Fix PROJ database conflict
-def fix_proj_conflict():
-    """Fix PROJ database conflict with PostgreSQL"""
-    # Set PROJ data directory to conda environment
+def fix_proj_database_comprehensive():
+    """
+    Comprehensive fix for PROJ database issues
+    This resolves the "no database context specified" error
+    """
+    print("🔧 Fixing PROJ database configuration...")
+    
+    # Method 1: Set PROJ_DATA environment variable
+    proj_data_paths = []
+    
+    # Check conda environment first
     conda_prefix = os.environ.get('CONDA_PREFIX')
     if conda_prefix:
-        proj_data = os.path.join(conda_prefix, 'share', 'proj')
-        if os.path.exists(proj_data):
-            os.environ['PROJ_DATA'] = proj_data
-            print(f"✓ PROJ_DATA set to: {proj_data}")
+        conda_proj = os.path.join(conda_prefix, 'share', 'proj')
+        if os.path.exists(conda_proj):
+            proj_data_paths.append(conda_proj)
     
-    # Suppress GDAL warnings about exceptions
-    try:
-        from osgeo import gdal  # Correct import statement
-        gdal.UseExceptions()  # Enable GDAL exceptions explicitly
-        print("✓ GDAL exceptions enabled")
-    except ImportError as e:
-        print(f"⚠ Warning: Could not import GDAL: {e}")
-        print("GDAL functionality will be limited")
+    # Check common PROJ installation paths
+    common_paths = [
+        # Conda-forge typical locations
+        os.path.join(sys.prefix, 'share', 'proj'),
+        os.path.join(sys.prefix, 'Library', 'share', 'proj'),  # Windows conda
+        # System installations
+        '/usr/share/proj',
+        '/usr/local/share/proj',
+        # OSGeo4W (Windows)
+        'C:/OSGeo4W64/share/proj',
+        'C:/OSGeo4W/share/proj',
+        # QGIS installations
+        'C:/Program Files/QGIS 3.28/share/proj',
+        'C:/Program Files/QGIS 3.30/share/proj',
+        'C:/Program Files/QGIS 3.32/share/proj',
+    ]
+    
+    for path in common_paths:
+        if os.path.exists(path):
+            proj_data_paths.append(path)
+    
+    # Set PROJ_DATA to the first valid path found
+    if proj_data_paths:
+        proj_data = proj_data_paths[0]
+        os.environ['PROJ_DATA'] = proj_data
+        print(f"✓ PROJ_DATA set to: {proj_data}")
+        
+        # Verify the database files exist
+        required_files = ['proj.db', 'proj.ini']
+        missing_files = []
+        for file in required_files:
+            if not os.path.exists(os.path.join(proj_data, file)):
+                missing_files.append(file)
+        
+        if missing_files:
+            print(f"⚠ Warning: Missing PROJ files: {missing_files}")
+        else:
+            print("✓ PROJ database files verified")
+    else:
+        print("❌ No PROJ data directory found")
         return False
     
-    # Suppress the specific FutureWarning
-    warnings.filterwarnings("ignore", category=FutureWarning, module="osgeo.gdal")
+    # Method 2: Set additional PROJ environment variables
+    proj_lib_paths = []
     
-    return True
-
-# Call this before any processing
-gdal_available = fix_proj_conflict()
+    if conda_prefix:
+        conda_lib = os.path.join(conda_prefix, 'lib')
+        if os.path.exists(conda_lib):
+            proj_lib_paths.append(conda_lib)
+    
+    # Common library paths
+    lib_paths = [
+        os.path.join(sys.prefix, 'lib'),
+        os.path.join(sys.prefix, 'Library', 'lib'),  # Windows conda
+        '/usr/lib',
+        '/usr/local/lib',
+        'C:/OSGeo4W64/lib',
+        'C:/OSGeo4W/lib',
+    ]
+    
+    for path in lib_paths:
+        if os.path.exists(path):
+            proj_lib_paths.append(path)
+    
+    if proj_lib_paths:
+        # Set PROJ_LIB (some systems need this)
+        os.environ['PROJ_LIB'] = proj_lib_paths[0]
+        print(f"✓ PROJ_LIB set to: {proj_lib_paths[0]}")
+    
+    # Method 3: Configure GDAL to use PROJ properly
+    try:
+        from osgeo import gdal, osr
+        
+        # Enable GDAL exceptions
+        gdal.UseExceptions()
+        
+        # Set GDAL data directory if not set
+        if not os.environ.get('GDAL_DATA'):
+            gdal_data_paths = []
+            
+            if conda_prefix:
+                conda_gdal = os.path.join(conda_prefix, 'share', 'gdal')
+                if os.path.exists(conda_gdal):
+                    gdal_data_paths.append(conda_gdal)
+            
+            # Common GDAL data paths
+            common_gdal_paths = [
+                os.path.join(sys.prefix, 'share', 'gdal'),
+                os.path.join(sys.prefix, 'Library', 'share', 'gdal'),
+                '/usr/share/gdal',
+                '/usr/local/share/gdal',
+                'C:/OSGeo4W64/share/gdal',
+                'C:/OSGeo4W/share/gdal',
+            ]
+            
+            for path in common_gdal_paths:
+                if os.path.exists(path):
+                    gdal_data_paths.append(path)
+            
+            if gdal_data_paths:
+                os.environ['GDAL_DATA'] = gdal_data_paths[0]
+                print(f"✓ GDAL_DATA set to: {gdal_data_paths[0]}")
+        
+        # Test PROJ functionality
+        try:
+            # Create a simple coordinate transformation to test PROJ
+            source_srs = osr.SpatialReference()
+            source_srs.ImportFromEPSG(4326)  # WGS84
+            
+            target_srs = osr.SpatialReference()
+            target_srs.ImportFromEPSG(3857)  # Web Mercator
+            
+            transform = osr.CoordinateTransformation(source_srs, target_srs)
+            
+            # Test transformation
+            x, y, z = transform.TransformPoint(-8.0, 40.0, 0)
+            print(f"✓ PROJ test successful: ({-8.0}, {40.0}) -> ({x:.2f}, {y:.2f})")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ PROJ test failed: {e}")
+            return False
+            
+    except ImportError as e:
+        print(f"❌ Could not import GDAL/OSR: {e}")
+        return False
 
 # Rest of imports with error handling
 import os
@@ -3669,128 +3786,417 @@ def load_geometry_from_file(file_path: str) -> tuple:
         return None, f"Error loading file: {str(e)}", False
 
 def load_shapefile_geometry(shapefile_path: str) -> tuple:
-    """Load geometry from shapefile and convert to WKT"""
+    """
+    Load geometry from shapefile using Fiona (bypasses GeoPandas PROJ issues)
+    """
     try:
-        # Read shapefile using geopandas
-        gdf = gpd.read_file(shapefile_path)
+        import os
+        print(f"Loading shapefile: {shapefile_path}")
         
-        if len(gdf) == 0:
-            return None, "Shapefile contains no features", False
-        
-        # Get info about the shapefile
-        feature_count = len(gdf)
-        geometry_types = gdf.geometry.geom_type.unique()
-        
-        # Handle multiple features
-        if len(gdf) > 1:
-            # Union all features into single geometry
-            combined_geometry = gdf.geometry.unary_union
-            info_msg = f"Loaded {feature_count} features, combined into single geometry"
-        else:
-            combined_geometry = gdf.geometry.iloc[0]
-            info_msg = f"Loaded single feature"
-        
-        # Convert to WGS84 if not already
-        original_crs = gdf.crs
-        if gdf.crs and gdf.crs != 'EPSG:4326':
-            gdf_wgs84 = gdf.to_crs('EPSG:4326')
-            if len(gdf) > 1:
-                combined_geometry = gdf_wgs84.geometry.unary_union
+        # Method 1: Use Fiona (works based on your test)
+        try:
+            import fiona
+            from shapely.geometry import shape
+            
+            features = []
+            with fiona.open(shapefile_path) as src:
+                print(f"✓ Opened with Fiona - CRS: {src.crs}, Features: {len(src)}")
+                
+                for feature in src:
+                    features.append(feature)
+            
+            if not features:
+                return None, "Shapefile contains no features", False
+            
+            # Convert to shapely geometries
+            geometries = []
+            for feature in features:
+                try:
+                    geom = shape(feature['geometry'])
+                    geometries.append(geom)
+                except Exception as e:
+                    print(f"Warning: Skipped invalid geometry: {e}")
+            
+            if not geometries:
+                return None, "No valid geometries found", False
+            
+            # Combine geometries if multiple
+            if len(geometries) > 1:
+                from shapely.ops import unary_union
+                combined_geometry = unary_union(geometries)
+                info_msg = f"Loaded {len(geometries)} features with Fiona, combined into single geometry"
             else:
-                combined_geometry = gdf_wgs84.geometry.iloc[0]
-            info_msg += f"\nReprojected from {original_crs} to WGS84"
+                combined_geometry = geometries[0]
+                info_msg = f"Loaded single feature with Fiona"
+            
+            print(f"✓ Geometry type: {combined_geometry.geom_type}")
+            
+        except ImportError:
+            print("Fiona not available, trying OGR...")
+            raise Exception("Fiona not available")
+        
+        except Exception as fiona_error:
+            print(f"Fiona failed: {fiona_error}, trying OGR...")
+            
+            # Method 2: Use OGR (also works based on your test)
+            try:
+                from osgeo import ogr
+                from shapely.wkt import loads
+                
+                driver = ogr.GetDriverByName("ESRI Shapefile")
+                datasource = driver.Open(shapefile_path, 0)
+                
+                if datasource is None:
+                    return None, "Could not open shapefile with OGR", False
+                
+                layer = datasource.GetLayer()
+                feature_count = layer.GetFeatureCount()
+                print(f"✓ Opened with OGR - Features: {feature_count}")
+                
+                # Get all geometries
+                geometries = []
+                for feature in layer:
+                    geom = feature.GetGeometryRef()
+                    if geom:
+                        wkt = geom.ExportToWkt()
+                        try:
+                            shapely_geom = loads(wkt)
+                            geometries.append(shapely_geom)
+                        except Exception as e:
+                            print(f"Warning: Could not convert geometry: {e}")
+                
+                if not geometries:
+                    return None, "No valid geometries found with OGR", False
+                
+                # Combine geometries
+                if len(geometries) > 1:
+                    from shapely.ops import unary_union
+                    combined_geometry = unary_union(geometries)
+                    info_msg = f"Loaded {len(geometries)} features with OGR, combined into single geometry"
+                else:
+                    combined_geometry = geometries[0]
+                    info_msg = f"Loaded single feature with OGR"
+                
+                print(f"✓ Geometry type: {combined_geometry.geom_type}")
+                
+            except Exception as ogr_error:
+                return None, f"Both Fiona and OGR failed: {fiona_error} | {ogr_error}", False
         
         # Validate and fix geometry if needed
-        if not combined_geometry.is_valid:
-            logger.warning("Geometry is not valid, attempting to fix...")
-            combined_geometry = combined_geometry.buffer(0)  # Often fixes invalid polygons
-            info_msg += "\nFixed invalid geometry"
+        if hasattr(combined_geometry, 'is_valid') and not combined_geometry.is_valid:
+            print("⚠ Geometry is not valid, attempting to fix...")
+            try:
+                combined_geometry = combined_geometry.buffer(0)
+                info_msg += " (fixed invalid geometry)"
+                print("✓ Geometry fixed")
+            except Exception as e:
+                print(f"⚠ Could not fix geometry: {e}")
+                info_msg += " (warning: geometry may be invalid)"
         
         # Convert to WKT
-        wkt_string = combined_geometry.wkt
+        try:
+            wkt_string = combined_geometry.wkt
+            print(f"✓ Converted to WKT ({len(wkt_string)} characters)")
+        except Exception as e:
+            return None, f"Failed to convert geometry to WKT: {str(e)}", False
         
         # Add bounds information
-        bounds = combined_geometry.bounds
-        info_msg += f"\nGeometry type: {combined_geometry.geom_type}"
-        info_msg += f"\nBounds: W={bounds[0]:.6f}, S={bounds[1]:.6f}, E={bounds[2]:.6f}, N={bounds[3]:.6f}"
+        try:
+            bounds = combined_geometry.bounds
+            info_msg += f"\nGeometry type: {combined_geometry.geom_type}"
+            info_msg += f"\nBounds: W={bounds[0]:.6f}, S={bounds[1]:.6f}, E={bounds[2]:.6f}, N={bounds[3]:.6f}"
+            info_msg += f"\nCoordinates: Assumed WGS84 (EPSG:4326)"
+        except Exception as e:
+            info_msg += f"\nWarning: Could not calculate bounds: {e}"
         
-        logger.info(f"Successfully loaded geometry from shapefile: {os.path.basename(shapefile_path)}")
+        print(f"✓ Successfully loaded geometry from: {os.path.basename(shapefile_path)}")
         
         return wkt_string, info_msg, True
         
     except Exception as e:
-        logger.error(f"Error loading shapefile: {e}")
-        return None, f"Error loading shapefile: {str(e)}", False
+        print(f"Critical error in load_shapefile_geometry: {e}")
+        import traceback
+        traceback.print_exc()
+        return None, f"Critical error loading shapefile: {str(e)}", False
+
 
 def load_kml_geometry(kml_path: str) -> tuple:
-    """Load geometry from KML file"""
+    """
+    Load geometry from KML file using Fiona/OGR (bypasses GeoPandas PROJ issues)
+    """
     try:
-        # Enable KML driver
-        fiona.drvsupport.supported_drivers['KML'] = 'rw'
+        import os
+        print(f"Loading KML file: {kml_path}")
         
-        # Read KML using geopandas
-        gdf = gpd.read_file(kml_path, driver='KML')
+        # Method 1: Use Fiona (should work like with shapefiles)
+        try:
+            import fiona
+            from shapely.geometry import shape
+            
+            # Enable KML driver for fiona
+            with fiona.open(kml_path, driver='KML') as src:
+                print(f"✓ Opened KML with Fiona - CRS: {src.crs}, Features: {len(src)}")
+                
+                features = list(src)
+            
+            if not features:
+                return None, "KML file contains no features", False
+            
+            # Convert to shapely geometries
+            geometries = []
+            for feature in features:
+                try:
+                    geom = shape(feature['geometry'])
+                    geometries.append(geom)
+                except Exception as e:
+                    print(f"Warning: Skipped invalid geometry: {e}")
+            
+            if not geometries:
+                return None, "No valid geometries found", False
+            
+            # Combine geometries if multiple
+            if len(geometries) > 1:
+                from shapely.ops import unary_union
+                combined_geometry = unary_union(geometries)
+                info_msg = f"Loaded {len(geometries)} features from KML with Fiona, combined into single geometry"
+            else:
+                combined_geometry = geometries[0]
+                info_msg = f"Loaded single feature from KML with Fiona"
+            
+            print(f"✓ Geometry type: {combined_geometry.geom_type}")
+            
+        except Exception as fiona_error:
+            print(f"Fiona failed: {fiona_error}, trying OGR...")
+            
+            # Method 2: Use OGR (KML is well supported by OGR)
+            try:
+                from osgeo import ogr
+                from shapely.wkt import loads
+                
+                # OGR can handle KML directly
+                driver = ogr.GetDriverByName("KML")
+                if driver is None:
+                    # Try libkml driver if available
+                    driver = ogr.GetDriverByName("LIBKML")
+                
+                if driver is None:
+                    return None, "KML driver not available in OGR", False
+                
+                datasource = driver.Open(kml_path, 0)
+                if datasource is None:
+                    return None, "Could not open KML file with OGR", False
+                
+                # KML files can have multiple layers, get all features from all layers
+                geometries = []
+                layer_count = datasource.GetLayerCount()
+                print(f"✓ Opened KML with OGR - Layers: {layer_count}")
+                
+                total_features = 0
+                for layer_idx in range(layer_count):
+                    layer = datasource.GetLayer(layer_idx)
+                    layer_feature_count = layer.GetFeatureCount()
+                    total_features += layer_feature_count
+                    print(f"  Layer {layer_idx}: {layer_feature_count} features")
+                    
+                    # Get geometries from this layer
+                    for feature in layer:
+                        geom = feature.GetGeometryRef()
+                        if geom:
+                            wkt = geom.ExportToWkt()
+                            try:
+                                shapely_geom = loads(wkt)
+                                geometries.append(shapely_geom)
+                            except Exception as e:
+                                print(f"Warning: Could not convert geometry: {e}")
+                
+                if not geometries:
+                    return None, f"No valid geometries found in KML (total features: {total_features})", False
+                
+                # Combine geometries
+                if len(geometries) > 1:
+                    from shapely.ops import unary_union
+                    combined_geometry = unary_union(geometries)
+                    info_msg = f"Loaded {len(geometries)} features from KML with OGR, combined into single geometry"
+                else:
+                    combined_geometry = geometries[0]
+                    info_msg = f"Loaded single feature from KML with OGR"
+                
+                print(f"✓ Geometry type: {combined_geometry.geom_type}")
+                
+            except Exception as ogr_error:
+                return None, f"Both Fiona and OGR failed for KML: {fiona_error} | {ogr_error}", False
         
-        if len(gdf) == 0:
-            return None, "KML file contains no features", False
+        # Validate and fix geometry if needed
+        if hasattr(combined_geometry, 'is_valid') and not combined_geometry.is_valid:
+            print("⚠ Geometry is not valid, attempting to fix...")
+            try:
+                combined_geometry = combined_geometry.buffer(0)
+                info_msg += " (fixed invalid geometry)"
+                print("✓ Geometry fixed")
+            except Exception as e:
+                print(f"⚠ Could not fix geometry: {e}")
+                info_msg += " (warning: geometry may be invalid)"
         
-        # Combine multiple geometries
-        if len(gdf) > 1:
-            combined_geometry = gdf.geometry.unary_union
-            info_msg = f"Loaded {len(gdf)} features from KML, combined into single geometry"
-        else:
-            combined_geometry = gdf.geometry.iloc[0]
-            info_msg = f"Loaded single feature from KML"
+        # Convert to WKT
+        try:
+            wkt_string = combined_geometry.wkt
+            print(f"✓ Converted to WKT ({len(wkt_string)} characters)")
+        except Exception as e:
+            return None, f"Failed to convert geometry to WKT: {str(e)}", False
         
-        # Ensure WGS84 (KML is always WGS84)
-        wkt_string = combined_geometry.wkt
-        bounds = combined_geometry.bounds
-        info_msg += f"\nGeometry type: {combined_geometry.geom_type}"
-        info_msg += f"\nBounds: W={bounds[0]:.6f}, S={bounds[1]:.6f}, E={bounds[2]:.6f}, N={bounds[3]:.6f}"
+        # Add bounds information
+        try:
+            bounds = combined_geometry.bounds
+            info_msg += f"\nGeometry type: {combined_geometry.geom_type}"
+            info_msg += f"\nBounds: W={bounds[0]:.6f}, S={bounds[1]:.6f}, E={bounds[2]:.6f}, N={bounds[3]:.6f}"
+            info_msg += f"\nCoordinates: KML is always in WGS84 (EPSG:4326)"
+        except Exception as e:
+            info_msg += f"\nWarning: Could not calculate bounds: {e}"
         
-        logger.info(f"Successfully loaded geometry from KML: {os.path.basename(kml_path)}")
+        print(f"✓ Successfully loaded geometry from KML: {os.path.basename(kml_path)}")
+        
         return wkt_string, info_msg, True
         
     except Exception as e:
-        logger.error(f"Error loading KML file: {e}")
-        return None, f"Error loading KML file: {str(e)}", False
+        print(f"Critical error in load_kml_geometry: {e}")
+        import traceback
+        traceback.print_exc()
+        return None, f"Critical error loading KML: {str(e)}", False
+
 
 def load_geojson_geometry(geojson_path: str) -> tuple:
-    """Load geometry from GeoJSON file"""
+    """
+    Load geometry from GeoJSON file using Fiona/OGR (bypasses GeoPandas PROJ issues)
+    """
     try:
-        gdf = gpd.read_file(geojson_path)
+        import os
+        print(f"Loading GeoJSON file: {geojson_path}")
         
-        if len(gdf) == 0:
-            return None, "GeoJSON contains no features", False
-        
-        # Combine all geometries
-        if len(gdf) > 1:
-            combined_geometry = gdf.geometry.unary_union
-            info_msg = f"Loaded {len(gdf)} features from GeoJSON, combined into single geometry"
-        else:
-            combined_geometry = gdf.geometry.iloc[0]
-            info_msg = f"Loaded single feature from GeoJSON"
-        
-        # Ensure WGS84
-        if gdf.crs and gdf.crs != 'EPSG:4326':
-            gdf_wgs84 = gdf.to_crs('EPSG:4326')
-            if len(gdf) > 1:
-                combined_geometry = gdf_wgs84.geometry.unary_union
+        # Method 1: Use Fiona 
+        try:
+            import fiona
+            from shapely.geometry import shape
+            
+            with fiona.open(geojson_path, driver='GeoJSON') as src:
+                print(f"✓ Opened GeoJSON with Fiona - CRS: {src.crs}, Features: {len(src)}")
+                
+                features = list(src)
+            
+            if not features:
+                return None, "GeoJSON contains no features", False
+            
+            # Convert to shapely geometries
+            geometries = []
+            for feature in features:
+                try:
+                    geom = shape(feature['geometry'])
+                    geometries.append(geom)
+                except Exception as e:
+                    print(f"Warning: Skipped invalid geometry: {e}")
+            
+            if not geometries:
+                return None, "No valid geometries found", False
+            
+            # Combine geometries if multiple
+            if len(geometries) > 1:
+                from shapely.ops import unary_union
+                combined_geometry = unary_union(geometries)
+                info_msg = f"Loaded {len(geometries)} features from GeoJSON with Fiona, combined into single geometry"
             else:
-                combined_geometry = gdf_wgs84.geometry.iloc[0]
-            info_msg += f"\nReprojected from {gdf.crs} to WGS84"
+                combined_geometry = geometries[0]
+                info_msg = f"Loaded single feature from GeoJSON with Fiona"
+            
+            print(f"✓ Geometry type: {combined_geometry.geom_type}")
+            
+        except Exception as fiona_error:
+            print(f"Fiona failed: {fiona_error}, trying OGR...")
+            
+            # Method 2: Use OGR
+            try:
+                from osgeo import ogr
+                from shapely.wkt import loads
+                
+                driver = ogr.GetDriverByName("GeoJSON")
+                if driver is None:
+                    return None, "GeoJSON driver not available in OGR", False
+                
+                datasource = driver.Open(geojson_path, 0)
+                if datasource is None:
+                    return None, "Could not open GeoJSON file with OGR", False
+                
+                layer = datasource.GetLayer()
+                feature_count = layer.GetFeatureCount()
+                print(f"✓ Opened GeoJSON with OGR - Features: {feature_count}")
+                
+                # Get all geometries
+                geometries = []
+                for feature in layer:
+                    geom = feature.GetGeometryRef()
+                    if geom:
+                        wkt = geom.ExportToWkt()
+                        try:
+                            shapely_geom = loads(wkt)
+                            geometries.append(shapely_geom)
+                        except Exception as e:
+                            print(f"Warning: Could not convert geometry: {e}")
+                
+                if not geometries:
+                    return None, "No valid geometries found with OGR", False
+                
+                # Combine geometries
+                if len(geometries) > 1:
+                    from shapely.ops import unary_union
+                    combined_geometry = unary_union(geometries)
+                    info_msg = f"Loaded {len(geometries)} features from GeoJSON with OGR, combined into single geometry"
+                else:
+                    combined_geometry = geometries[0]
+                    info_msg = f"Loaded single feature from GeoJSON with OGR"
+                
+                print(f"✓ Geometry type: {combined_geometry.geom_type}")
+                
+            except Exception as ogr_error:
+                return None, f"Both Fiona and OGR failed for GeoJSON: {fiona_error} | {ogr_error}", False
         
-        wkt_string = combined_geometry.wkt
-        bounds = combined_geometry.bounds
-        info_msg += f"\nGeometry type: {combined_geometry.geom_type}"
-        info_msg += f"\nBounds: W={bounds[0]:.6f}, S={bounds[1]:.6f}, E={bounds[2]:.6f}, N={bounds[3]:.6f}"
+        # Handle CRS conversion (GeoJSON might not be WGS84)
+        # Note: Since we're bypassing GeoPandas, we assume coordinates are already in WGS84
+        # If they're not, this would need external conversion
         
-        logger.info(f"Successfully loaded geometry from GeoJSON: {os.path.basename(geojson_path)}")
+        # Validate and fix geometry if needed
+        if hasattr(combined_geometry, 'is_valid') and not combined_geometry.is_valid:
+            print("⚠ Geometry is not valid, attempting to fix...")
+            try:
+                combined_geometry = combined_geometry.buffer(0)
+                info_msg += " (fixed invalid geometry)"
+                print("✓ Geometry fixed")
+            except Exception as e:
+                print(f"⚠ Could not fix geometry: {e}")
+                info_msg += " (warning: geometry may be invalid)"
+        
+        # Convert to WKT
+        try:
+            wkt_string = combined_geometry.wkt
+            print(f"✓ Converted to WKT ({len(wkt_string)} characters)")
+        except Exception as e:
+            return None, f"Failed to convert geometry to WKT: {str(e)}", False
+        
+        # Add bounds information
+        try:
+            bounds = combined_geometry.bounds
+            info_msg += f"\nGeometry type: {combined_geometry.geom_type}"
+            info_msg += f"\nBounds: W={bounds[0]:.6f}, S={bounds[1]:.6f}, E={bounds[2]:.6f}, N={bounds[3]:.6f}"
+            info_msg += f"\nCoordinates: Assumed WGS84 (GeoJSON default)"
+        except Exception as e:
+            info_msg += f"\nWarning: Could not calculate bounds: {e}"
+        
+        print(f"✓ Successfully loaded geometry from GeoJSON: {os.path.basename(geojson_path)}")
+        
         return wkt_string, info_msg, True
         
     except Exception as e:
-        logger.error(f"Error loading GeoJSON file: {e}")
-        return None, f"Error loading GeoJSON file: {str(e)}", False
+        print(f"Critical error in load_geojson_geometry: {e}")
+        import traceback
+        traceback.print_exc()
+        return None, f"Critical error loading GeoJSON: {str(e)}", False
 
 def validate_wkt_geometry(wkt_string: str) -> tuple:
     """Validate WKT geometry string"""

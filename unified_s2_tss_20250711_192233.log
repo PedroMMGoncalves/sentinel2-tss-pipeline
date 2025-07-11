@@ -10,3 +10,4 @@
 2025-07-11 19:22:33,643 - INFO - [sentinel2_tss_pipeline.py:5904] - ================================================================================
 2025-07-11 19:22:33,643 - INFO - [sentinel2_tss_pipeline.py:5913] - Starting GUI application...
 2025-07-11 19:24:16,385 - ERROR - [sentinel2_tss_pipeline.py:3722] - Error loading shapefile: Invalid projection: EPSG:4326: (Internal Proj Error: proj_create: no database context specified)
+2025-07-11 19:35:16,341 - INFO - [sentinel2_tss_pipeline.py:5917] - Application finished successfully
