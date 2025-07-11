@@ -13,15 +13,24 @@ def fix_proj_conflict():
             print(f"✓ PROJ_DATA set to: {proj_data}")
     
     # Suppress GDAL warnings about exceptions
-    import gdal
-    gdal.UseExceptions()  # Enable GDAL exceptions explicitly
+    try:
+        from osgeo import gdal  # Correct import statement
+        gdal.UseExceptions()  # Enable GDAL exceptions explicitly
+        print("✓ GDAL exceptions enabled")
+    except ImportError as e:
+        print(f"⚠ Warning: Could not import GDAL: {e}")
+        print("GDAL functionality will be limited")
+        return False
     
     # Suppress the specific FutureWarning
     warnings.filterwarnings("ignore", category=FutureWarning, module="osgeo.gdal")
+    
+    return True
 
 # Call this before any processing
-fix_proj_conflict()
+gdal_available = fix_proj_conflict()
 
+# Rest of imports with error handling
 import os
 import sys
 import glob
@@ -40,35 +49,54 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import logging
 
-# Add these imports for geometry handling
+# Add these imports for geometry handling with better error handling
 try:
     import geopandas as gpd
     from shapely.geometry import Polygon, MultiPolygon, shape
     from shapely.wkt import loads as wkt_loads
     import fiona
     HAS_GEOPANDAS = True
-except ImportError:
+    print("✓ GeoPandas available")
+except ImportError as e:
     HAS_GEOPANDAS = False
-    print("⚠ GeoPandas not available - install with: conda install -c conda-forge geopandas")
+    print(f"⚠ GeoPandas not available: {e}")
+    print("Install with: conda install -c conda-forge geopandas")
 
-logger = logging.getLogger(__name__)
+# Required dependencies with error handling
+try:
+    import numpy as np
+    print("✓ NumPy available")
+except ImportError:
+    print("❌ NumPy not found - install with: pip install numpy")
+    sys.exit(1)
 
-# GUI imports
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, simpledialog
+try:
+    import psutil
+    print("✓ psutil available")
+except ImportError:
+    print("❌ psutil not found - install with: pip install psutil")
+    sys.exit(1)
 
-# Required dependencies
-import numpy as np
-import psutil
-from osgeo import gdal, gdalconst
+# GDAL import with proper error handling
+if gdal_available:
+    from osgeo import gdal, gdalconst
+    print("✓ GDAL available")
+else:
+    print("❌ GDAL not available - install with: conda install gdal")
+    sys.exit(1)
 
 # Optional imports with fallbacks
 try:
     from tqdm import tqdm
     HAS_TQDM = True
+    print("✓ tqdm available")
 except ImportError:
     HAS_TQDM = False
     print("⚠ tqdm not available - install with: pip install tqdm")
+
+print("="*60)
+print("Dependency check completed")
+print("="*60)
 
 # Configure enhanced logging
 class ColoredFormatter(logging.Formatter):
