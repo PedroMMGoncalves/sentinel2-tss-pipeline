@@ -166,6 +166,16 @@ print("="*60)
 print("Dependency check completed")
 print("="*60)
 
+def patch_jiang_config(jiang_config):
+    """Fix missing attributes in JiangTSSConfig"""
+    if not hasattr(jiang_config, 'enable_advanced_algorithms'):
+        jiang_config.enable_advanced_algorithms = True
+    
+    if not hasattr(jiang_config, 'advanced_config'):
+        jiang_config.advanced_config = AdvancedAquaticConfig() if jiang_config.enable_advanced_algorithms else None
+    
+    return jiang_config
+
 # Configure enhanced logging
 class ColoredFormatter(logging.Formatter):
     """Custom formatter with colors and enhanced formatting"""
@@ -317,15 +327,21 @@ class C2RCCConfig:
 
 @dataclass
 class JiangTSSConfig:
-    """Jiang TSS methodology configuration"""
+    """Jiang TSS methodology configuration with advanced algorithms support"""
     enable_jiang_tss: bool = False  # Optional by default
-    use_full_methodology: bool = True
     output_intermediates: bool = True
     water_mask_threshold: float = 0.01
     tss_valid_range: tuple = (0.01, 10000)  # g/m³
     output_comparison_stats: bool = True
-    enable_advanced_algorithms: bool = True  
-    advanced_config: Optional['AdvancedAquaticConfig'] = None  
+    
+    # Advanced algorithms configuration - THESE ARE THE MISSING ATTRIBUTES
+    enable_advanced_algorithms: bool = True
+    advanced_config: Optional['AdvancedAquaticConfig'] = None
+    
+    def __post_init__(self):
+        """Initialize advanced config if enabled"""
+        if self.enable_advanced_algorithms and self.advanced_config is None:
+            self.advanced_config = AdvancedAquaticConfig()
 
 @dataclass
 class AdvancedAquaticConfig:
@@ -371,16 +387,6 @@ class AdvancedAquaticConfig:
     def __post_init__(self):
         if self.particle_size_wavelengths is None:
             self.particle_size_wavelengths = [443, 490, 560, 665, 705]
-            
-@dataclass
-class JiangTSSConfig:
-    """Jiang TSS methodology configuration"""
-    enable_jiang_tss: bool = False  # Optional by default
-    output_intermediates: bool = True
-    water_mask_threshold: float = 0.01
-    tss_valid_range: tuple = (0.01, 10000)  # g/m³
-    output_comparison_stats: bool = True
-
 @dataclass
 class ProcessingConfig:
     """Complete processing configuration"""
@@ -822,21 +828,23 @@ class JiangTSSConstants:
         'd': 1.484814e-04   # d <- 1.484814e-04
     }
 
-class JiangTSSProcessor:
-    """Complete implementation of Jiang et al. 2023 TSS methodology - FULL VERSION"""
+@dataclass
+class JiangTSSConfig:
+    """Jiang TSS methodology configuration with advanced algorithms support"""
+    enable_jiang_tss: bool = False  # Optional by default
+    output_intermediates: bool = True
+    water_mask_threshold: float = 0.01
+    tss_valid_range: tuple = (0.01, 10000)  # g/m³
+    output_comparison_stats: bool = True
     
-    def __init__(self, config: JiangTSSConfig):
-        self.config = config
-        self.constants = JiangTSSConstants()
-        
-        if config.enable_advanced_algorithms:
-            self.advanced_processor = AdvancedAquaticProcessor()
-            if config.advanced_config is None:
-                config.advanced_config = AdvancedAquaticConfig()
-        else:
-            self.advanced_processor = None
-            
-        logger.info("Initialized Full Jiang TSS Processor with complete methodology")
+    # THESE ARE THE MISSING ATTRIBUTES THAT CAUSE THE ERROR:
+    enable_advanced_algorithms: bool = True
+    advanced_config: Optional['AdvancedAquaticConfig'] = None
+    
+    def __post_init__(self):
+        """Initialize advanced config if enabled"""
+        if self.enable_advanced_algorithms and self.advanced_config is None:
+            self.advanced_config = AdvancedAquaticConfig()
     
     def _load_rhow_bands(self, c2rcc_path: str) -> Dict[int, str]:
         """Load water-leaving reflectance bands"""
@@ -2646,46 +2654,50 @@ class AdvancedAquaticProcessor:
             logger.error(f"Error estimating primary productivity: {e}")
             return {}
 
+@dataclass
 class AdvancedAquaticConfig:
     """Configuration for advanced aquatic algorithms"""
     
-    def __init__(self):
-        # Trophic state calculation
-        self.enable_trophic_state = True
-        self.tsi_include_secchi = False  # Set to True if Secchi depth available
-        self.tsi_include_phosphorus = False  # Set to True if phosphorus data available
-        
-        # Water clarity calculation
-        self.enable_water_clarity = True
-        self.solar_zenith_angle = 30.0  # degrees
-        
-        # HAB detection
-        self.enable_hab_detection = True
-        self.hab_biomass_threshold = 20.0  # mg/m³
-        self.hab_extreme_threshold = 100.0  # mg/m³
-        
-        # Upwelling detection
-        self.enable_upwelling_detection = True
-        self.upwelling_chl_threshold = 10.0  # mg/m³
-        
-        # River plume tracking
-        self.enable_river_plume_tracking = True
-        self.plume_tss_threshold = 15.0  # g/m³
-        self.plume_distance_threshold = 10000  # meters
-        
-        # Particle size estimation
-        self.enable_particle_size = True
-        self.particle_size_wavelengths = [443, 490, 560, 665, 705]  # nm
-        
-        # Primary productivity
-        self.enable_primary_productivity = True
-        self.productivity_model = 'vgpm'  # 'vgpm', 'cbpm', 'eppley'
-        self.day_length = 12.0  # hours
-        
-        # Output options
-        self.save_intermediate_products = True
-        self.create_classification_maps = True
-        self.generate_statistics = True
+    # Trophic state calculation
+    enable_trophic_state: bool = True
+    tsi_include_secchi: bool = False
+    tsi_include_phosphorus: bool = False
+    
+    # Water clarity calculation
+    enable_water_clarity: bool = True
+    solar_zenith_angle: float = 30.0
+    
+    # HAB detection
+    enable_hab_detection: bool = True
+    hab_biomass_threshold: float = 20.0
+    hab_extreme_threshold: float = 100.0
+    
+    # Upwelling detection
+    enable_upwelling_detection: bool = True
+    upwelling_chl_threshold: float = 10.0
+    
+    # River plume tracking
+    enable_river_plume_tracking: bool = True
+    plume_tss_threshold: float = 15.0
+    plume_distance_threshold: float = 10000
+    
+    # Particle size estimation
+    enable_particle_size: bool = True
+    particle_size_wavelengths: List[int] = None
+    
+    # Primary productivity
+    enable_primary_productivity: bool = True
+    productivity_model: str = 'vgpm'
+    day_length: float = 12.0
+    
+    # Output options
+    save_intermediate_products: bool = True
+    create_classification_maps: bool = True
+    generate_statistics: bool = True
+    
+    def __post_init__(self):
+        if self.particle_size_wavelengths is None:
+            self.particle_size_wavelengths = [443, 490, 560, 665, 705]
 
 def create_advanced_processor(config: AdvancedAquaticConfig = None) -> AdvancedAquaticProcessor:
     """
@@ -4568,6 +4580,15 @@ class UnifiedS2TSSGUI:
         self.enable_jiang_var = tk.BooleanVar(value=False)  # Optional by default
         self.jiang_intermediates_var = tk.BooleanVar(value=True)
         self.jiang_comparison_var = tk.BooleanVar(value=True)
+        self.enable_advanced_var = tk.BooleanVar(value=True)
+        self.trophic_state_var = tk.BooleanVar(value=True)
+        self.water_clarity_var = tk.BooleanVar(value=True)
+        self.hab_detection_var = tk.BooleanVar(value=True)
+        self.upwelling_detection_var = tk.BooleanVar(value=True)
+        self.river_plumes_var = tk.BooleanVar(value=True)
+        self.particle_size_var = tk.BooleanVar(value=True)
+        self.primary_productivity_var = tk.BooleanVar(value=True)
+    
         
         # Setup GUI components
         self.setup_gui()
@@ -5604,17 +5625,56 @@ class UnifiedS2TSSGUI:
             self.c2rcc_config.chl_fac = self.chl_fac_var.get()
             self.c2rcc_config.chl_exp = self.chl_exp_var.get()
             
-            # Update Jiang config
+            # Update Jiang config - BASIC SETTINGS
             self.jiang_config.enable_jiang_tss = self.enable_jiang_var.get()
             self.jiang_config.output_intermediates = self.jiang_intermediates_var.get()
             self.jiang_config.output_comparison_stats = self.jiang_comparison_var.get()
+            
+            # ADVANCED ALGORITHMS CONFIGURATION
+            # Check if advanced algorithms should be enabled
+            if hasattr(self, 'enable_advanced_var'):
+                self.jiang_config.enable_advanced_algorithms = self.enable_advanced_var.get()
+            else:
+                # Default to enabled if GUI variable doesn't exist
+                self.jiang_config.enable_advanced_algorithms = True
+            
+            # Configure advanced algorithms
+            if self.jiang_config.enable_advanced_algorithms:
+                # Create advanced config if it doesn't exist
+                if self.jiang_config.advanced_config is None:
+                    self.jiang_config.advanced_config = AdvancedAquaticConfig()
+                
+                # Update individual algorithm settings from GUI
+                if hasattr(self, 'trophic_state_var'):
+                    self.jiang_config.advanced_config.enable_trophic_state = self.trophic_state_var.get()
+                
+                if hasattr(self, 'water_clarity_var'):
+                    self.jiang_config.advanced_config.enable_water_clarity = self.water_clarity_var.get()
+                
+                if hasattr(self, 'hab_detection_var'):
+                    self.jiang_config.advanced_config.enable_hab_detection = self.hab_detection_var.get()
+                
+                if hasattr(self, 'upwelling_detection_var'):
+                    self.jiang_config.advanced_config.enable_upwelling_detection = self.upwelling_detection_var.get()
+                
+                if hasattr(self, 'river_plumes_var'):
+                    self.jiang_config.advanced_config.enable_river_plume_tracking = self.river_plumes_var.get()
+                
+                if hasattr(self, 'particle_size_var'):
+                    self.jiang_config.advanced_config.enable_particle_size = self.particle_size_var.get()
+                
+                if hasattr(self, 'primary_productivity_var'):
+                    self.jiang_config.advanced_config.enable_primary_productivity = self.primary_productivity_var.get()
+            else:
+                # Advanced algorithms disabled - set config to None
+                self.jiang_config.advanced_config = None
             
             return True
             
         except Exception as e:
             messagebox.showerror("Configuration Error", f"Failed to update configurations: {str(e)}", parent=self.root)
             return False
-    
+           
     def save_config(self):
         """Save configuration to file"""
         try:
@@ -6016,7 +6076,9 @@ def create_default_config(input_folder: str, output_folder: str,
     resampling_config = ResamplingConfig()
     subset_config = SubsetConfig()
     c2rcc_config = C2RCCConfig()  # ECMWF enabled by default
-    jiang_config = JiangTSSConfig()  # Jiang disabled by default
+    jiang_config = JiangTSSConfig()
+    jiang_config.enable_advanced_algorithms = True  # Ensure this is set
+    jiang_config.advanced_config = AdvancedAquaticConfig()  # Ensure this is set
     
     return ProcessingConfig(
         processing_mode=mode,
@@ -6025,7 +6087,7 @@ def create_default_config(input_folder: str, output_folder: str,
         resampling_config=resampling_config,
         subset_config=subset_config,
         c2rcc_config=c2rcc_config,
-        jiang_config=jiang_config,
+        jiang_config=jiang_config,  # Use the properly initialized config
         skip_existing=True,
         test_mode=False,
         memory_limit_gb=8,
