@@ -19,7 +19,7 @@
     </sources>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <resolution>10</resolution>
-      <upsampling>Bilinear</upsampling>
+      <upsampling>Bicubic</upsampling>
       <downsampling>Mean</downsampling>
       <flagDownsampling>First</flagDownsampling>
       <resampleOnPyramidLevels>true</resampleOnPyramidLevels>
