@@ -62,6 +62,7 @@ conda create -n snap-c2rcc python=3.9
 # Activate the environment
 conda activate snap-c2rcc
 Step 3: Install Dependencies
+
 Install required packages in the activated environment:
 
 # Install core scientific packages
@@ -95,6 +96,7 @@ set SNAP_HOME=C:\Program Files\esa-snap
 # Make it permanent (optional)
 setx SNAP_HOME "C:\Program Files\esa-snap"
 Linux/macOS (in Terminal):
+
 # Add to your shell profile (.bashrc, .zshrc, etc.)
 export SNAP_HOME=/usr/local/snap
 
