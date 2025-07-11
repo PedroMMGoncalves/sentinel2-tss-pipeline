@@ -370,6 +370,17 @@ class SafeMathNumPy:
             result[valid_mask] = numerator[valid_mask] / denominator[valid_mask]
         
         return result
+    @staticmethod
+    def safe_sqrt(value, min_value=0.0, default_value=0.0):
+        """Safely calculate square root"""
+        if not isinstance(value, np.ndarray):
+            value = np.array(value, dtype=np.float32)
+        
+        result = np.full_like(value, default_value, dtype=np.float32)
+        valid_mask = value >= min_value
+        result[valid_mask] = np.sqrt(value[valid_mask])
+        
+        return result
     
     @staticmethod
     def safe_log(value, base=10, min_value=1e-10, default_value=-999):
@@ -387,6 +398,28 @@ class SafeMathNumPy:
             result[valid_mask] = np.log(value[valid_mask]) / np.log(base)
         
         return result
+
+    @staticmethod
+    def safe_power(base, exponent, min_base=1e-10, max_exponent=100, default_value=0.0):
+        """Safely calculate power operations"""
+        if not isinstance(base, np.ndarray):
+            base = np.array(base, dtype=np.float32)
+        if not isinstance(exponent, np.ndarray):
+            exponent = np.array(exponent, dtype=np.float32)
+            
+        result = np.full_like(base, default_value, dtype=np.float32)
+        
+        # Avoid extreme values that could cause overflow
+        valid_mask = (base >= min_base) & (np.abs(exponent) <= max_exponent)
+        
+        if np.any(valid_mask):
+            try:
+                result[valid_mask] = np.power(base[valid_mask], exponent[valid_mask])
+            except (OverflowError, RuntimeWarning):
+                logger.warning("Power calculation overflow detected, using default values")
+        
+        return result
+
 
 class RasterIO:
     """Utilities for raster input/output operations using GDAL"""
@@ -685,12 +718,12 @@ class JiangTSSConstants:
         865: 166.07382      # Type IV: Extremely turbid
     }
     
-    # Rrs620 estimation coefficients (from R code)
+    # Rrs620 estimation coefficients - EXACT from R code
     RRS620_COEFFICIENTS = {
-        'a': 1.693846e+02,
-        'b': -1.557556e+01,
-        'c': 1.316727e+00,
-        'd': 1.484814e-04
+        'a': 1.693846e+02,  # a <- 1.693846e+02
+        'b': -1.557556e+01, # b <- -1.557556e+01
+        'c': 1.316727e+00,  # c <- 1.316727e+00
+        'd': 1.484814e-04   # d <- 1.484814e-04
     }
 
 class JiangTSSProcessor:
@@ -766,28 +799,30 @@ class JiangTSSProcessor:
         return bands_data, reference_metadata
     
     def process_jiang_tss(self, c2rcc_path: str, output_folder: str, 
-                        product_name: str) -> Dict[str, ProcessingResult]:
+                                product_name: str) -> Dict[str, ProcessingResult]:
         """
-        Complete TSS processing with optional advanced algorithms
+        TSS processing using exact R algorithm translation
+        
+        Replace the existing process_jiang_tss method with this corrected version.
         """
         try:
-            logger.info(f"Starting FULL Jiang TSS processing for {product_name}")
+            logger.info(f"Starting CORRECTED Jiang TSS processing for {product_name}")
             
-            # Step 1: Load spectral bands
+            # Step 1: Load spectral bands (unchanged)
             rhow_bands = self._load_rhow_bands(c2rcc_path)
             if not rhow_bands:
                 return {'error': ProcessingResult(False, "", None, "Failed to load required bands")}
             
-            # Step 2: Load and validate bands data
+            # Step 2: Load and validate bands data (unchanged)
             bands_data, reference_metadata = self._load_bands_data(rhow_bands)
             if bands_data is None:
                 return {'error': ProcessingResult(False, "", None, "Failed to load bands data")}
             
-            # Step 3: Apply complete Jiang methodology
-            jiang_results = self._apply_full_jiang_methodology(bands_data)
+            # Step 3: Apply CORRECTED Jiang methodology
+            jiang_results = self._apply_full_jiang_methodology_corrected(bands_data)
             
-            # Step 4: Advanced algorithms processing (if enabled)
-            all_results = jiang_results.copy()  # Start with Jiang results
+            # Step 4: Advanced algorithms processing (if enabled) - unchanged
+            all_results = jiang_results.copy()
             
             if (hasattr(self.config, 'enable_advanced_algorithms') and 
                 self.config.enable_advanced_algorithms and 
@@ -798,13 +833,10 @@ class JiangTSSProcessor:
                 advanced_results = self._process_advanced_algorithms(
                     c2rcc_path, jiang_results, bands_data, product_name
                 )
-                
-                # Merge advanced results with Jiang results
                 all_results.update(advanced_results)
-                
                 logger.info(f"Advanced algorithms completed: {len(advanced_results)} additional products")
             
-            # Step 5: Save ALL results (Jiang + Advanced) in one operation
+            # Step 5: Save ALL results - unchanged
             output_results = self._save_complete_results(
                 all_results, output_folder, product_name, reference_metadata
             )
@@ -814,7 +846,7 @@ class JiangTSSProcessor:
             jiang_products = len(jiang_results)
             advanced_products = total_products - jiang_products
             
-            logger.info(f"Complete processing finished:")
+            logger.info(f"CORRECTED Jiang processing completed:")
             logger.info(f"  Jiang products: {jiang_products}")
             logger.info(f"  Advanced products: {advanced_products}")
             logger.info(f"  Total products: {total_products}")
@@ -822,7 +854,7 @@ class JiangTSSProcessor:
             return output_results
             
         except Exception as e:
-            error_msg = f"Complete TSS processing failed: {str(e)}"
+            error_msg = f"CORRECTED Jiang TSS processing failed: {str(e)}"
             logger.error(error_msg)
             return {'error': ProcessingResult(False, "", None, error_msg)}
         
@@ -950,9 +982,9 @@ class JiangTSSProcessor:
         
     def _apply_full_jiang_methodology(self, bands_data: Dict[int, np.ndarray]) -> Dict[str, np.ndarray]:
         """
-        Apply complete Jiang methodology with adaptive band selection
+        Complete Jiang methodology implementation
         """
-        logger.info("Applying complete Jiang methodology with adaptive band selection")
+        logger.info("Applying Jiang methodology (exact R translation)")
         
         # Get array shape
         shape = bands_data[443].shape
@@ -969,15 +1001,12 @@ class JiangTSSProcessor:
             # Convert rhow to Rrs (approximation: Rrs ≈ rhow / π)
             rrs_data[wavelength] = rhow / np.pi
         
-        # Process each pixel
-        logger.info("Processing pixels with adaptive band selection...")
-        
-        # Vectorized processing for efficiency
-        valid_mask = self._create_valid_pixel_mask(rrs_data)
+        # Create valid pixel mask using corrected validation
+        valid_mask = self._create_valid_pixel_mask_corrected(rrs_data)
         
         if np.any(valid_mask):
-            # Apply methodology to valid pixels
-            pixel_results = self._process_valid_pixels(rrs_data, valid_mask)
+            # Apply corrected methodology to valid pixels
+            pixel_results = self._process_valid_pixels_corrected(rrs_data, valid_mask)
             
             # Fill output arrays
             absorption[valid_mask] = pixel_results['absorption']
@@ -990,7 +1019,27 @@ class JiangTSSProcessor:
         total_pixels = shape[0] * shape[1]
         coverage_percent = (valid_pixels / total_pixels) * 100
         
-        logger.info(f"Processed {valid_pixels}/{total_pixels} pixels ({coverage_percent:.1f}% coverage)")
+        logger.info(f"CORRECTED Jiang processing completed:")
+        logger.info(f"  Valid pixels: {valid_pixels}/{total_pixels} ({coverage_percent:.1f}%)")
+        
+        # Log water type distribution
+        if valid_pixels > 0:
+            ref_bands_valid = reference_band[valid_mask]
+            ref_bands_valid = ref_bands_valid[~np.isnan(ref_bands_valid)]
+            
+            if len(ref_bands_valid) > 0:
+                logger.info("Water type distribution (corrected algorithm):")
+                for band in [560, 665, 740, 865]:
+                    count = np.sum(ref_bands_valid == band)
+                    if count > 0:
+                        percentage = (count / len(ref_bands_valid)) * 100
+                        water_type = {
+                            560: "Type I (Clear water)",
+                            665: "Type II (Moderately turbid)", 
+                            740: "Type III (Highly turbid)",
+                            865: "Type IV (Extremely turbid)"
+                        }[band]
+                        logger.info(f"  {band}nm ({water_type}): {count} pixels ({percentage:.1f}%)")
         
         return {
             'absorption': absorption,
@@ -1001,9 +1050,10 @@ class JiangTSSProcessor:
         }
     
     def _create_valid_pixel_mask(self, rrs_data: Dict[int, np.ndarray]) -> np.ndarray:
-        """Create mask for valid pixels based on Jiang criteria"""
-        
-        # Required bands for processing
+        """
+        Validation matching R algorithm requirements
+        """
+        # Required bands for processing (from R validation)
         required_bands = [490, 560, 665, 740]
         
         # Initialize valid mask
@@ -1012,27 +1062,28 @@ class JiangTSSProcessor:
         # Check for valid data in required bands
         for band in required_bands:
             if band in rrs_data:
+                # Not zero, not NaN, and positive values
                 band_valid = (~np.isnan(rrs_data[band])) & (rrs_data[band] > 0)
                 valid_mask &= band_valid
-        
-        # Additional quality checks
-        if 865 in rrs_data:
-            # Check for reasonable Rrs values
-            reasonable_mask = (rrs_data[865] >= 0) & (rrs_data[865] <= 0.1)
-            valid_mask &= reasonable_mask
+            else:
+                # If required band is missing, mark all as invalid
+                valid_mask[:] = False
+                break
         
         return valid_mask
     
     def _process_valid_pixels(self, rrs_data: Dict[int, np.ndarray], 
-                             valid_mask: np.ndarray) -> Dict[str, np.ndarray]:
-        """Process valid pixels using complete Jiang methodology"""
-        
+                                      valid_mask: np.ndarray) -> Dict[str, np.ndarray]:
+        """
+        CORRECTED pixel processing using exact R algorithm
+        """
         # Extract valid pixel data
         valid_pixels = {}
         for wavelength, data in rrs_data.items():
             valid_pixels[wavelength] = data[valid_mask]
         
         n_pixels = len(valid_pixels[443])
+        logger.info(f"Processing {n_pixels} valid pixels with corrected Jiang algorithm")
         
         # Initialize output arrays for valid pixels
         absorption_out = np.full(n_pixels, np.nan, dtype=np.float32)
@@ -1040,13 +1091,13 @@ class JiangTSSProcessor:
         reference_band_out = np.full(n_pixels, np.nan, dtype=np.float32)
         tss_out = np.full(n_pixels, np.nan, dtype=np.float32)
         
-        # Process each valid pixel
+        # Process each valid pixel using corrected algorithm
         for i in range(n_pixels):
             # Extract Rrs values for this pixel
             pixel_rrs = {wl: valid_pixels[wl][i] for wl in valid_pixels.keys()}
             
-            # Apply Jiang methodology to this pixel
-            result = self._estimate_tss_single_pixel(pixel_rrs)
+            # Apply corrected Jiang methodology to this pixel
+            result = self._estimate_tss_single_pixel_corrected(pixel_rrs)
             
             if result is not None:
                 absorption_out[i] = result['a']
@@ -1063,73 +1114,108 @@ class JiangTSSProcessor:
     
     def _estimate_tss_single_pixel(self, pixel_rrs: Dict[int, float]) -> Optional[Dict]:
         """
-        Apply complete Jiang methodology to a single pixel - EXACT R CODE TRANSLATION
+        EXACT R implementation: Estimate_TSS_Jiang_MSI <- function(site_Rrs)
+        
+        This is the main function that implements the complete algorithm exactly as in R.
         """
         try:
-            # Check for required bands
+            # R code validation logic - EXACT translation
+            # if (all(site_Rrs == 0) | all(is.na(site_Rrs) == TRUE) | 
+            #     any(is.na(c(site_Rrs["Rrs490"],site_Rrs["Rrs560"],site_Rrs["Rrs665"],site_Rrs["Rrs740"])))){
+            #     tmp_tss <- rep(NA,4)
+            # }
+            
             required_bands = [490, 560, 665, 740]
-            for band in required_bands:
-                if band not in pixel_rrs or np.isnan(pixel_rrs[band]) or pixel_rrs[band] <= 0:
-                    return None
             
-            # Estimate Rrs620 from Rrs665 (from R code)
-            rrs665 = pixel_rrs[665]
-            coeffs = self.constants.RRS620_COEFFICIENTS
-            rrs620 = (coeffs['a'] * rrs665**3 + 
-                     coeffs['b'] * rrs665**2 + 
-                     coeffs['c'] * rrs665 + 
-                     coeffs['d'])
+            # Check if all values are zero
+            if all(v == 0 for v in pixel_rrs.values()):
+                return None
             
-            # Band selection logic (EXACT FROM R CODE)
+            # Check if all values are NaN
+            if all(np.isnan(v) for v in pixel_rrs.values()):
+                return None
+            
+            # Check if any required bands are NaN
+            if any(np.isnan(pixel_rrs.get(band, np.nan)) for band in required_bands):
+                return None
+            
+            # R code: Rrs620 <- estimate_Rrs620(site_Rrs["Rrs665"])
+            rrs620 = self._estimate_rrs620_from_rrs665(pixel_rrs[665])
+            
+            # R code band selection logic - EXACT translation
+            # if (site_Rrs["Rrs490"] > site_Rrs["Rrs560"]){
+            #     tmp_tss <- QAA_560(site_Rrs)
+            # }else if (site_Rrs["Rrs490"] > Rrs620){
+            #     tmp_tss <- QAA_665(site_Rrs)    
+            # }else if (site_Rrs["Rrs740"] > site_Rrs["Rrs490"] & site_Rrs["Rrs740"] > 0.010){
+            #     tmp_tss <- QAA_865(site_Rrs)      
+            # }else{
+            #     tmp_tss <- QAA_740(site_Rrs)     
+            # }
+            
             if pixel_rrs[490] > pixel_rrs[560]:
-                # Type I: Clear water - use 560nm
-                result = self._qaa_560(pixel_rrs)
+                # Type I: Clear water
+                result = self._qaa_560_corrected(pixel_rrs)
             elif pixel_rrs[490] > rrs620:
-                # Type II: Moderately turbid - use 665nm  
-                result = self._qaa_665(pixel_rrs)
-            elif (740 in pixel_rrs and 865 in pixel_rrs and 
-                  pixel_rrs[740] > pixel_rrs[490] and pixel_rrs[740] > 0.010):
-                # Type IV: Extremely turbid - use 865nm
-                result = self._qaa_865(pixel_rrs)
+                # Type II: Moderately turbid
+                result = self._qaa_665_corrected(pixel_rrs)
+            elif pixel_rrs[740] > pixel_rrs[490] and pixel_rrs[740] > 0.010:
+                # Type IV: Extremely turbid (note: uses 865nm algorithm)
+                result = self._qaa_865_corrected(pixel_rrs)
             else:
-                # Type III: Highly turbid - use 740nm
-                result = self._qaa_740(pixel_rrs)
+                # Type III: Highly turbid
+                result = self._qaa_740_corrected(pixel_rrs)
             
             return result
             
         except Exception as e:
-            logger.debug(f"Error processing pixel: {e}")
+            logger.debug(f"Error processing pixel with Jiang algorithm: {e}")
             return None
+        
+    def _estimate_rrs620_from_rrs665(self, rrs665: float) -> float:
+        """
+        EXACT R implementation: estimate_Rrs620 <- function(in665)
+        """
+        coeffs = self.constants.RRS620_COEFFICIENTS
+        a, b, c, d = coeffs['a'], coeffs['b'], coeffs['c'], coeffs['d']
+        
+        # R code: est620 <- a*in665^3+b*in665^2+c*in665+d
+        rrs620 = a * (rrs665**3) + b * (rrs665**2) + c * rrs665 + d
+        
+        return rrs620
     
-    def _qaa_560(self, rrs: Dict[int, float]) -> Dict:
-        """QAA algorithm for 560nm (Type I: Clear water) - FROM R CODE"""
+    def _qaa_560(self, site_rrs: Dict[int, float]) -> Dict:
+        """
+        EXACT R implementation: QAA_560 <- function(site_Rrs)
+        """
         aw = self.constants.PURE_WATER_ABSORPTION
         bbw = self.constants.PURE_WATER_BACKSCATTERING
         
-        # Convert Rrs to rrs
-        rrs_norm = {}
-        for wl in rrs.keys():
-            rrs_norm[wl] = rrs[wl] / (0.52 + 1.7 * rrs[wl])
+        # R code: rrs <- site_Rrs/(0.52+1.7*site_Rrs)
+        rrs = {}
+        for wl, rrs_val in site_rrs.items():
+            rrs[wl] = rrs_val / (0.52 + 1.7 * rrs_val)
         
-        # Calculate u values
+        # R code: u <- (-0.089+sqrt((0.089^2)+4*0.125*rrs))/(2*0.125)
         u = {}
-        for wl in rrs_norm.keys():
-            u[wl] = (-0.089 + np.sqrt(0.089**2 + 4 * 0.125 * rrs_norm[wl])) / (2 * 0.125)
+        for wl, rrs_val in rrs.items():
+            u[wl] = (-0.089 + np.sqrt((0.089**2) + 4 * 0.125 * rrs_val)) / (2 * 0.125)
         
-        # Calculate x parameter
-        numerator = rrs_norm[443] + rrs_norm[490]
-        denominator = rrs_norm[560] + 5 * rrs_norm[665]**2 / rrs_norm[490]
+        # R code: x <- log((rrs["Rrs443"]+rrs["Rrs490"])/(rrs["Rrs560"]+5*rrs["Rrs665"]*rrs["Rrs665"]/rrs["Rrs490"]),10)
+        numerator = rrs[443] + rrs[490]
+        denominator = rrs[560] + 5 * rrs[665] * rrs[665] / rrs[490]
         x = np.log10(numerator / denominator)
         
-        # Calculate absorption at 560nm
-        a560 = aw[560] + 10**(-1.146 - 1.366*x - 0.469*x**2)
+        # R code: a560 <- aw["aw560"]+10^(-1.146-1.366*x-0.469*(x^2))
+        a560 = aw[560] + 10**(-1.146 - 1.366*x - 0.469*(x**2))
         
-        # Calculate backscattering at 560nm
+        # R code: bbp560 <- ((u["Rrs560"]*a560)/(1-u["Rrs560"]))-bbw["bbw560"]
         bbp560 = ((u[560] * a560) / (1 - u[560])) - bbw[560]
         
-        # Calculate TSS
+        # R code: one_tss <- 94.48785*bbp560
         tss = self.constants.TSS_CONVERSION_FACTORS[560] * bbp560
         
+        # R code: return(c(a560,bbp560,bbp_wave,one_tss))
         return {
             'a': a560,
             'bbp': bbp560,
@@ -1137,31 +1223,35 @@ class JiangTSSProcessor:
             'tss': tss
         }
     
-    def _qaa_665(self, rrs: Dict[int, float]) -> Dict:
-        """QAA algorithm for 665nm (Type II: Moderately turbid) - FROM R CODE"""
+    def _qaa_665(self, site_rrs: Dict[int, float]) -> Dict:
+        """
+        EXACT R implementation: QAA_665 <- function(site_Rrs)
+        """
         aw = self.constants.PURE_WATER_ABSORPTION
         bbw = self.constants.PURE_WATER_BACKSCATTERING
         
-        # Convert Rrs to rrs
-        rrs_norm = {}
-        for wl in rrs.keys():
-            rrs_norm[wl] = rrs[wl] / (0.52 + 1.7 * rrs[wl])
+        # R code: rrs <- site_Rrs/(0.52+1.7*site_Rrs)
+        rrs = {}
+        for wl, rrs_val in site_rrs.items():
+            rrs[wl] = rrs_val / (0.52 + 1.7 * rrs_val)
         
-        # Calculate u values
+        # R code: u <- (-0.089+sqrt((0.089^2)+4*0.125*rrs))/(2*0.125)
         u = {}
-        for wl in rrs_norm.keys():
-            u[wl] = (-0.089 + np.sqrt(0.089**2 + 4 * 0.125 * rrs_norm[wl])) / (2 * 0.125)
+        for wl, rrs_val in rrs.items():
+            u[wl] = (-0.089 + np.sqrt((0.089**2) + 4 * 0.125 * rrs_val)) / (2 * 0.125)
         
-        # Calculate absorption at 665nm
-        ratio = rrs[665] / (rrs[443] + rrs[490])
+        # R code: a665 <- aw["aw665"]+0.39*((site_Rrs["Rrs665"]/(site_Rrs["Rrs443"]+site_Rrs["Rrs490"]))^1.14)
+        # CRITICAL: Use original site_Rrs, NOT converted rrs
+        ratio = site_rrs[665] / (site_rrs[443] + site_rrs[490])
         a665 = aw[665] + 0.39 * (ratio**1.14)
         
-        # Calculate backscattering at 665nm
+        # R code: bbp665 <- ((u["Rrs665"]*a665)/(1-u["Rrs665"]))-bbw["bbw665"]
         bbp665 = ((u[665] * a665) / (1 - u[665])) - bbw[665]
         
-        # Calculate TSS
+        # R code: one_tss <- 113.87498*bbp665
         tss = self.constants.TSS_CONVERSION_FACTORS[665] * bbp665
         
+        # R code: return(c(a665,bbp665,bbp_wave,one_tss))
         return {
             'a': a665,
             'bbp': bbp665,
@@ -1169,63 +1259,65 @@ class JiangTSSProcessor:
             'tss': tss
         }
     
-    def _qaa_740(self, rrs: Dict[int, float]) -> Dict:
-        """QAA algorithm for 740nm (Type III: Highly turbid) - FROM R CODE"""
+    def _qaa_740(self, site_rrs: Dict[int, float]) -> Dict:
+        """
+        EXACT R implementation: QAA_740 <- function(site_Rrs)
+        """
         aw = self.constants.PURE_WATER_ABSORPTION
         bbw = self.constants.PURE_WATER_BACKSCATTERING
         
-        # Convert Rrs to rrs
-        rrs_norm = {}
-        for wl in rrs.keys():
-            rrs_norm[wl] = rrs[wl] / (0.52 + 1.7 * rrs[wl])
+        # R code: rrs <- site_Rrs/(0.52+1.7*site_Rrs)
+        rrs = {}
+        for wl, rrs_val in site_rrs.items():
+            rrs[wl] = rrs_val / (0.52 + 1.7 * rrs_val)
         
-        # Calculate u values
+        # R code: u <- (-0.089+sqrt((0.089^2)+4*0.125*rrs))/(2*0.125)
         u = {}
-        for wl in rrs_norm.keys():
-            u[wl] = (-0.089 + np.sqrt(0.089**2 + 4 * 0.125 * rrs_norm[wl])) / (2 * 0.125)
+        for wl, rrs_val in rrs.items():
+            u[wl] = (-0.089 + np.sqrt((0.089**2) + 4 * 0.125 * rrs_val)) / (2 * 0.125)
         
-        # For 740nm, assume pure water absorption dominates
-        a740 = aw[740]
+        # R code: bbp740 <- ((u["Rrs740"]*aw["aw740"])/(1-u["Rrs740"]))-bbw["bbw740"]
+        bbp740 = ((u[740] * aw[740]) / (1 - u[740])) - bbw[740]
         
-        # Calculate backscattering at 740nm
-        bbp740 = ((u[740] * a740) / (1 - u[740])) - bbw[740]
-        
-        # Calculate TSS
+        # R code: one_tss <- 134.91845*bbp740
         tss = self.constants.TSS_CONVERSION_FACTORS[740] * bbp740
         
+        # R code: return(c(aw["aw740"],bbp740,bbp_wave,one_tss))
+        # IMPORTANT: Returns aw[740] as absorption, not calculated value
         return {
-            'a': a740,
+            'a': aw[740],  # Uses pure water absorption directly
             'bbp': bbp740,
             'band': 740,
             'tss': tss
         }
     
-    def _qaa_865(self, rrs: Dict[int, float]) -> Dict:
-        """QAA algorithm for 865nm (Type IV: Extremely turbid) - FROM R CODE"""
+    def _qaa_865(self, site_rrs: Dict[int, float]) -> Dict:
+        """
+        EXACT R implementation: QAA_865 <- function(site_Rrs)
+        """
         aw = self.constants.PURE_WATER_ABSORPTION
         bbw = self.constants.PURE_WATER_BACKSCATTERING
         
-        # Convert Rrs to rrs
-        rrs_norm = {}
-        for wl in rrs.keys():
-            rrs_norm[wl] = rrs[wl] / (0.52 + 1.7 * rrs[wl])
+        # R code: rrs <- site_Rrs/(0.52+1.7*site_Rrs)
+        rrs = {}
+        for wl, rrs_val in site_rrs.items():
+            rrs[wl] = rrs_val / (0.52 + 1.7 * rrs_val)
         
-        # Calculate u values
+        # R code: u <- (-0.089+sqrt((0.089^2)+4*0.125*rrs))/(2*0.125)
         u = {}
-        for wl in rrs_norm.keys():
-            u[wl] = (-0.089 + np.sqrt(0.089**2 + 4 * 0.125 * rrs_norm[wl])) / (2 * 0.125)
+        for wl, rrs_val in rrs.items():
+            u[wl] = (-0.089 + np.sqrt((0.089**2) + 4 * 0.125 * rrs_val)) / (2 * 0.125)
         
-        # For 865nm, assume pure water absorption dominates
-        a865 = aw[865]
+        # R code: bbp865 <- ((u["Rrs865"]*aw["aw865"])/(1-u["Rrs865"]))-bbw["bbw865"]
+        bbp865 = ((u[865] * aw[865]) / (1 - u[865])) - bbw[865]
         
-        # Calculate backscattering at 865nm
-        bbp865 = ((u[865] * a865) / (1 - u[865])) - bbw[865]
-        
-        # Calculate TSS
+        # R code: one_tss <- 166.07382*bbp865
         tss = self.constants.TSS_CONVERSION_FACTORS[865] * bbp865
         
+        # R code: return(c(aw["aw865"],bbp865,bbp_wave,one_tss))
+        # IMPORTANT: Returns aw[865] as absorption, not calculated value
         return {
-            'a': a865,
+            'a': aw[865],  # Uses pure water absorption directly
             'bbp': bbp865,
             'band': 865,
             'tss': tss
@@ -3053,17 +3145,30 @@ class S2Processor:
             return False
     
     def _verify_c2rcc_output(self, c2rcc_path: str) -> Optional[Dict]:
-        """Verify C2RCC output and check for SNAP products"""
+        """Enhanced C2RCC output verification with comprehensive safety checks"""
         try:
-            if not os.path.exists(c2rcc_path):
+            # Safe file existence check
+            if not os.path.exists(c2rcc_path) or not os.path.isfile(c2rcc_path):
+                logger.error(f"C2RCC file does not exist or is not a file: {c2rcc_path}")
+                return None
+
+            # Safe file size check
+            try:
+                file_size = os.path.getsize(c2rcc_path)
+            except (OSError, IOError, PermissionError) as e:
+                logger.error(f"Cannot access C2RCC file {c2rcc_path}: {e}")
                 return None
             
-            file_size = os.path.getsize(c2rcc_path)
+            if file_size < 1024 * 1024:  # Less than 1MB is suspicious
+                logger.warning(f"C2RCC file suspiciously small: {file_size} bytes")
+                return None
+
+            # Safe data folder check
             data_folder = c2rcc_path.replace('.dim', '.data')
-            
-            if not os.path.exists(data_folder):
+            if not os.path.exists(data_folder) or not os.path.isdir(data_folder):
+                logger.error(f"C2RCC data folder missing or invalid: {data_folder}")
                 return None
-            
+
             # Check for SNAP TSM/CHL products (automatically generated)
             snap_products = {
                 'conc_tsm.img': False,
@@ -3072,28 +3177,71 @@ class S2Processor:
                 'unc_chl.img': False
             }
             
+            # Safe product file checking
             for product in snap_products.keys():
                 product_path = os.path.join(data_folder, product)
-                if os.path.exists(product_path):
-                    snap_products[product] = True
-            
+                try:
+                    if os.path.exists(product_path) and os.path.isfile(product_path):
+                        # Also check if file has reasonable size
+                        product_size = os.path.getsize(product_path)
+                        if product_size > 1024:  # At least 1KB
+                            snap_products[product] = True
+                        else:
+                            logger.warning(f"SNAP product {product} exists but is too small ({product_size} bytes)")
+                except (OSError, PermissionError):
+                    logger.warning(f"Cannot access SNAP product file: {product}")
+                    snap_products[product] = False
+
             # Check for rhow bands (needed for Jiang TSS)
             rhow_bands = [f'rhow_B{i}.img' for i in ['1', '2', '3', '4', '5', '6', '7', '8A']]
-            rhow_count = sum(1 for band in rhow_bands if os.path.exists(os.path.join(data_folder, band)))
+            rhow_count = 0
+            missing_bands = []
+            invalid_bands = []
             
+            for band in rhow_bands:
+                band_path = os.path.join(data_folder, band)
+                try:
+                    if os.path.exists(band_path) and os.path.isfile(band_path):
+                        band_size = os.path.getsize(band_path)
+                        if band_size > 1024:  # At least 1KB
+                            rhow_count += 1
+                        else:
+                            invalid_bands.append(f"{band} ({band_size} bytes)")
+                    else:
+                        missing_bands.append(band)
+                except (OSError, PermissionError):
+                    missing_bands.append(f"{band} (access error)")
+
+            # Log any issues found
+            if missing_bands:
+                logger.warning(f"Missing rhow bands: {missing_bands}")
+            if invalid_bands:
+                logger.warning(f"Invalid rhow bands: {invalid_bands}")
+
+            # Comprehensive statistics
             stats = {
                 'file_size_mb': file_size / 1024 / 1024,
                 'has_tsm': snap_products['conc_tsm.img'],
                 'has_chl': snap_products['conc_chl.img'],
                 'has_uncertainties': snap_products['unc_tsm.img'] and snap_products['unc_chl.img'],
                 'rhow_bands_count': rhow_count,
-                'ready_for_jiang_tss': rhow_count == 8
+                'rhow_bands_total': len(rhow_bands),
+                'ready_for_jiang_tss': rhow_count == 8,
+                'missing_bands': missing_bands if missing_bands else None,
+                'invalid_bands': invalid_bands if invalid_bands else None,
+                'data_folder_valid': True
             }
-            
+
+            # Final validation
+            if rhow_count == 8:
+                logger.info(f"✓ C2RCC verification passed: all {rhow_count} rhow bands available")
+            else:
+                logger.warning(f"⚠ C2RCC verification: only {rhow_count}/8 rhow bands available")
+
             return stats
-            
+
         except Exception as e:
-            logger.error(f"Error verifying C2RCC output: {e}")
+            logger.error(f"Unexpected error verifying C2RCC output {c2rcc_path}: {e}")
             return None
     
     def _process_tss_stage(self, c2rcc_path: str, output_folder: str, product_name: str) -> Dict[str, ProcessingResult]:
@@ -3309,11 +3457,34 @@ class UnifiedS2TSSProcessor:
                             logger.info(f"  {result_type}: {stats.get('file_size_mb', 0):.1f}MB, "
                                       f"status={stats.get('status', 'completed')}")
             
-            # Memory cleanup
-            MemoryManager.cleanup_variables(results)
-            if MemoryManager.monitor_memory():
-                logger.info("Running memory cleanup...")
-                MemoryManager.cleanup_variables()
+            # Enhanced Memory cleanup
+            try:
+                # Clean up large variables from this processing cycle
+                MemoryManager.cleanup_variables(results)
+                
+                # Also clean up any other large variables that might exist
+                if 'bands_data' in locals():
+                    del bands_data
+                if 'jiang_results' in locals():
+                    del jiang_results
+                if 'tss_results' in locals():
+                    del tss_results
+                
+                # Force garbage collection
+                gc.collect()
+                
+                # Enhanced memory monitoring
+                if MemoryManager.monitor_memory():
+                    logger.info("Running enhanced memory cleanup...")
+                    MemoryManager.cleanup_variables()
+                    gc.collect()
+                    
+                    # Check memory again after cleanup
+                    current_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+                    logger.info(f"Memory usage after cleanup: {current_memory:.1f}MB")
+                    
+            except Exception as cleanup_error:
+                logger.debug(f"Memory cleanup warning: {cleanup_error}")
             
             # Progress estimation
             if self.processed_count > 0:
