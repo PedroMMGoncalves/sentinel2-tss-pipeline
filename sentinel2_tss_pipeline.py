@@ -992,106 +992,94 @@ class JiangTSSProcessor:
             return {'error': ProcessingResult(False, "", None, error_msg)}
         
     def _process_advanced_algorithms(self, c2rcc_path: str, jiang_results: Dict, 
-                                   bands_data: Dict, product_name: str) -> Dict:
-        """Process advanced aquatic algorithms"""
+                                bands_data: Dict, product_name: str) -> Dict:
+        """Process reliable advanced aquatic algorithms using only Sentinel-2 data"""
         try:
-            logger.info("Processing advanced aquatic algorithms")
+            logger.info("Processing reliable advanced aquatic algorithms")
             
             advanced_results = {}
             config = self.config.advanced_config
             
-            # Extract chlorophyll from SNAP C2RCC
-            snap_chlorophyll = self._extract_snap_chlorophyll(c2rcc_path)
+            if config is None:
+                logger.warning("No advanced config available, using defaults")
+                config = AdvancedAquaticConfig()
             
-            # 1. Trophic State Index
-            if config.enable_trophic_state and snap_chlorophyll is not None:
-                logger.info("Calculating Trophic State Index")
-                tsi_results = self.advanced_processor.calculate_trophic_state(snap_chlorophyll)
-                for key, value in tsi_results.items():
-                    advanced_results[f'tsi_{key}'] = value
-            
-            # 2. Water Clarity
-            if config.enable_water_clarity and 'absorption' in jiang_results:
+            # =======================================================================
+            # 1. WATER CLARITY CALCULATION (Uses Jiang absorption + backscattering)
+            # =======================================================================
+            if config.enable_water_clarity and 'absorption' in jiang_results and 'backscattering' in jiang_results:
                 logger.info("Calculating water clarity indices")
+                
                 absorption = jiang_results['absorption']
                 backscattering = jiang_results['backscattering']
-                clarity_results = self.advanced_processor.calculate_water_clarity(
-                    absorption, backscattering, config.solar_zenith_angle
-                )
-                for key, value in clarity_results.items():
-                    advanced_results[f'clarity_{key}'] = value
-            
-            # 3. HAB Detection
-            if config.enable_hab_detection and snap_chlorophyll is not None:
-                logger.info("Detecting harmful algal blooms")
-                rrs_bands = {wl: bands_data[wl] / np.pi for wl, data in bands_data.items()}
-                hab_results = self.advanced_processor.detect_harmful_algal_blooms(
-                    snap_chlorophyll, None, rrs_bands
-                )
-                for key, value in hab_results.items():
-                    advanced_results[f'hab_{key}'] = value
-            
-            # 4. Upwelling Detection
-            if config.enable_upwelling_detection and snap_chlorophyll is not None:
-                logger.info("Detecting upwelling signatures")
-                upwelling_results = self.advanced_processor.calculate_upwelling_index(
-                    snap_chlorophyll, None, None, None, None
-                )
-                for key, value in upwelling_results.items():
-                    advanced_results[f'upwelling_{key}'] = value
-            
-            # 5. River Plume Tracking
-            if config.enable_river_plume_tracking and 'tss_inorganic' in jiang_results:
-                logger.info("Tracking river plumes")
-                # Calculate distance to shore (simplified)
-                tss_data = jiang_results['tss']
-                lat_indices, lon_indices = np.indices(tss_data.shape)
-                distance_to_shore = self.advanced_processor.calculate_distance_to_shore(
-                    lat_indices, lon_indices, 'approximate'
-                )
                 
-                plume_results = self.advanced_processor.track_river_plumes(
-                    jiang_results.get('tss_inorganic', jiang_results['tss']),
-                    None, distance_to_shore
-                )
-                for key, value in plume_results.items():
-                    advanced_results[f'plume_{key}'] = value
-            
-            # 6. Particle Size Estimation
-            if config.enable_particle_size and 'backscattering' in jiang_results:
-                logger.info("Estimating particle size distribution")
-                # Create backscattering spectrum (simplified - use same backscattering for all bands)
-                backscattering_spectrum = {}
-                for wl in config.particle_size_wavelengths:
-                    if wl in bands_data:
-                        backscattering_spectrum[wl] = jiang_results['backscattering']
-                
-                if len(backscattering_spectrum) >= 3:
-                    particle_results = self.advanced_processor.estimate_particle_size(
-                        backscattering_spectrum, config.particle_size_wavelengths
+                try:
+                    clarity_results = self.advanced_processor.calculate_water_clarity(
+                        absorption, backscattering, config.solar_zenith_angle
                     )
-                    for key, value in particle_results.items():
-                        advanced_results[f'particle_{key}'] = value
+                    
+                    # Add clarity results with prefix
+                    for key, value in clarity_results.items():
+                        advanced_results[f'clarity_{key}'] = value
+                    
+                    logger.info(f"Water clarity calculation completed: {len(clarity_results)} products")
+                    
+                except Exception as e:
+                    logger.error(f"Water clarity calculation failed: {e}")
             
-            # 7. Primary Productivity (requires additional data)
-            if config.enable_primary_productivity and snap_chlorophyll is not None:
-                logger.info("Estimating primary productivity")
-                # Create dummy PAR and SST data (in real implementation, these would come from additional sources)
-                shape = snap_chlorophyll.shape
-                par = np.full(shape, 35.0, dtype=np.float32)  # Typical PAR value
-                sst = np.full(shape, 15.0, dtype=np.float32)  # Typical SST for Portuguese coast
+            # =======================================================================
+            # 2. HAB DETECTION (Uses Sentinel-2 spectral bands only)
+            # =======================================================================
+            if config.enable_hab_detection:
+                logger.info("Detecting harmful algal blooms using Sentinel-2 spectral analysis")
                 
-                pp_results = self.advanced_processor.estimate_primary_productivity(
-                    snap_chlorophyll, par, sst, config.day_length, config.productivity_model
-                )
-                for key, value in pp_results.items():
-                    advanced_results[f'productivity_{key}'] = value
+                try:
+                    # Convert water-leaving reflectance to remote sensing reflectance
+                    rrs_bands = {}
+                    for wl, rhow_data in bands_data.items():
+                        if rhow_data is not None:
+                            rrs_bands[wl] = rhow_data / np.pi  # Convert rhow to Rrs
+                    
+                    if rrs_bands:
+                        # Call HAB detection with Sentinel-2 bands (no external chlorophyll needed)
+                        hab_results = self.advanced_processor.detect_harmful_algal_blooms(
+                            chlorophyll=None,  # Not needed - calculated from spectral data
+                            phycocyanin=None,  # Not available from S2
+                            rrs_bands=rrs_bands
+                        )
+                        
+                        # Add HAB results with prefix
+                        for key, value in hab_results.items():
+                            advanced_results[f'hab_{key}'] = value
+                        
+                        logger.info(f"HAB detection completed: {len(hab_results)} products")
+                    else:
+                        logger.warning("No suitable spectral bands available for HAB detection")
+                        
+                except Exception as e:
+                    logger.error(f"HAB detection failed: {e}")
+                    
+            logger.info(f"Reliable advanced algorithms completed: {len(advanced_results)} products generated")
             
-            logger.info(f"Advanced algorithms completed: {len(advanced_results)} additional products")
+            # Log what was processed
+            if advanced_results:
+                processed_types = set()
+                for key in advanced_results.keys():
+                    if key.startswith('clarity_'):
+                        processed_types.add('Water Clarity')
+                    elif key.startswith('hab_'):
+                        processed_types.add('HAB Detection')
+                
+                logger.info(f"Successfully processed: {', '.join(processed_types)}")
+            else:
+                logger.warning("No advanced algorithm products were generated")
+            
             return advanced_results
             
         except Exception as e:
-            logger.error(f"Error in advanced algorithms: {e}")
+            logger.error(f"Error in advanced algorithms processing: {e}")
+            import traceback
+            traceback.print_exc()
             return {}
     
     # This method enables to extract SNAP chlorophyll
@@ -1457,14 +1445,18 @@ class JiangTSSProcessor:
         }
     
     def _save_complete_results(self, results: Dict[str, np.ndarray], output_folder: str, 
-                            product_name: str, reference_metadata: Dict) -> Dict[str, ProcessingResult]:
-        """Save complete results including Jiang + Advanced algorithms"""
+                          product_name: str, reference_metadata: Dict) -> Dict[str, ProcessingResult]:
+        """Save complete results - Core Jiang + Reliable Advanced algorithms only"""
         try:
             output_results = {}
             
-            # Create output directories
-            tss_folder = os.path.join(output_folder, "TSS_Products")
-            advanced_folder = os.path.join(output_folder, "Advanced_Products")
+            # Clean product name (remove .zip extension)
+            clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
+            
+            # Create main output structure with scene-based folders
+            scene_folder = os.path.join(output_folder, clean_product_name)
+            tss_folder = os.path.join(scene_folder, "TSS_Products") 
+            advanced_folder = os.path.join(scene_folder, "Advanced_Products")
             os.makedirs(tss_folder, exist_ok=True)
             os.makedirs(advanced_folder, exist_ok=True)
             
@@ -1474,59 +1466,42 @@ class JiangTSSProcessor:
             jiang_products = {
                 'absorption': {
                     'data': results.get('absorption'),
-                    'filename': f"{product_name}_Jiang_Absorption.tif",
+                    'filename': f"{clean_product_name}_Jiang_Absorption.tif",
                     'description': "Absorption coefficient (m⁻¹) - Jiang et al. 2023",
                     'folder': tss_folder
                 },
                 'backscattering': {
                     'data': results.get('backscattering'),
-                    'filename': f"{product_name}_Jiang_Backscattering.tif", 
+                    'filename': f"{clean_product_name}_Jiang_Backscattering.tif", 
                     'description': "Particulate backscattering coefficient (m⁻¹) - Jiang et al. 2023",
                     'folder': tss_folder
                 },
                 'reference_band': {
                     'data': results.get('reference_band'),
-                    'filename': f"{product_name}_Jiang_ReferenceBand.tif",
+                    'filename': f"{clean_product_name}_Jiang_ReferenceBand.tif",
                     'description': "Reference wavelength used (nm) - Jiang et al. 2023",
                     'folder': tss_folder
                 },
                 'tss': {
                     'data': results.get('tss'),
-                    'filename': f"{product_name}_Jiang_TSS.tif",
+                    'filename': f"{clean_product_name}_Jiang_TSS.tif",
                     'description': "Total Suspended Solids (g/m³) - Jiang et al. 2023",
                     'folder': tss_folder
                 },
                 'valid_mask': {
                     'data': results.get('valid_mask'),
-                    'filename': f"{product_name}_Jiang_ValidMask.tif",
+                    'filename': f"{clean_product_name}_Jiang_ValidMask.tif",
                     'description': "Valid pixel mask - Jiang processing",
                     'folder': tss_folder
                 }
             }
             
             # ========================================================================
-            # ADVANCED ALGORITHM PRODUCTS (Advanced_Products folder)
+            # RELIABLE ADVANCED ALGORITHM PRODUCTS (Advanced_Products folder)
             # ========================================================================
             advanced_products = {}
             
-            # TROPHIC STATE INDEX products
-            tsi_products = {
-                'tsi_chlorophyll': ('tsi_tsi_chlorophyll', "Trophic State Index from Chlorophyll"),
-                'tsi_classification': ('tsi_trophic_classification', "Trophic State Classification (1=Oligo, 2=Meso, 3=Eu, 4=Hyper)"),
-                'tsi_secchi': ('tsi_tsi_secchi', "Trophic State Index from Secchi Depth"),
-                'tsi_phosphorus': ('tsi_tsi_phosphorus', "Trophic State Index from Total Phosphorus")
-            }
-            
-            for product_key, (result_key, description) in tsi_products.items():
-                if result_key in results:
-                    advanced_products[product_key] = {
-                        'data': results[result_key],
-                        'filename': f"{product_name}_TSI_{product_key.split('_')[1].title()}.tif",
-                        'description': description,
-                        'folder': advanced_folder
-                    }
-            
-            # WATER CLARITY products
+            # WATER CLARITY products - RELIABLE (calculated from absorption/backscattering)
             clarity_products = {
                 'secchi_depth': ('clarity_secchi_depth', "Secchi Depth (m) - Tyler 1968"),
                 'clarity_index': ('clarity_clarity_index', "Water Clarity Index (0-1)"),
@@ -1540,12 +1515,12 @@ class JiangTSSProcessor:
                 if result_key in results:
                     advanced_products[product_key] = {
                         'data': results[result_key],
-                        'filename': f"{product_name}_Clarity_{product_key.replace('_', '').title()}.tif",
+                        'filename': f"{clean_product_name}_Clarity_{product_key.replace('_', '').title()}.tif",
                         'description': description,
                         'folder': advanced_folder
                     }
             
-            # HARMFUL ALGAL BLOOM products
+            # HARMFUL ALGAL BLOOM products - RELIABLE (spectral analysis only)
             hab_products = {
                 'hab_probability': ('hab_hab_probability', "Harmful Algal Bloom Probability (0-1)"),
                 'hab_risk_level': ('hab_hab_risk_level', "HAB Risk Level (0=None, 1=Low, 2=Medium, 3=High)"),
@@ -1564,100 +1539,25 @@ class JiangTSSProcessor:
                 if result_key in results:
                     advanced_products[product_key] = {
                         'data': results[result_key],
-                        'filename': f"{product_name}_HAB_{product_key.replace('hab_', '').title()}.tif",
+                        'filename': f"{clean_product_name}_HAB_{product_key.replace('hab_', '').title()}.tif",
                         'description': description,
                         'folder': advanced_folder
                     }
             
-            # UPWELLING DETECTION products
-            upwelling_products = {
-                'upwelling_signature': ('upwelling_upwelling_signature', "Upwelling Signature Detection (Bio-Physical)"),
-                'upwelling_strength': ('upwelling_upwelling_strength', "Upwelling Strength Index (0-1)"),
-                'physical_upwelling_index': ('upwelling_physical_upwelling_index', "Physical Upwelling Index (Bakun 1973)"),
-                'biological_upwelling_index': ('upwelling_biological_upwelling_index', "Biological Upwelling Index (Thomas et al. 2001)")
-            }
-            
-            for product_key, (result_key, description) in upwelling_products.items():
-                if result_key in results:
-                    advanced_products[product_key] = {
-                        'data': results[result_key],
-                        'filename': f"{product_name}_Upwelling_{product_key.replace('upwelling_', '').title()}.tif",
-                        'description': description,
-                        'folder': advanced_folder
-                    }
-            
-            # RIVER PLUME products
-            plume_products = {
-                'plume_intensity': ('plume_plume_intensity', "River Plume Intensity (0-1)"),
-                'plume_classification': ('plume_plume_classification', "Plume Classification (0=None, 1=Weak, 2=Moderate, 3=Strong)"),
-                'river_influence': ('plume_river_influence', "River Influence Zone (0-1)"),
-                'high_sediment_mask': ('plume_high_sediment_mask', "High Sediment Mask (>15 g/m³)"),
-                'near_shore_mask': ('plume_near_shore_mask', "Near Shore Mask (<10 km from coast)")
-            }
-            
-            for product_key, (result_key, description) in plume_products.items():
-                if result_key in results:
-                    advanced_products[product_key] = {
-                        'data': results[result_key],
-                        'filename': f"{product_name}_Plume_{product_key.replace('plume_', '').title()}.tif",
-                        'description': description,
-                        'folder': advanced_folder
-                    }
-            
-            # PARTICLE SIZE products
-            particle_products = {
-                'spectral_slope': ('particle_spectral_slope', "Backscattering Spectral Slope (η parameter)"),
-                'size_classification': ('particle_size_classification', "Particle Size Class (1=Small <2µm, 2=Medium 2-20µm, 3=Large >20µm)"),
-                'dominant_particle_type': ('particle_dominant_particle_type', "Dominant Particle Type (1=Minerals, 2=Mixed, 3=Phytoplankton)"),
-                'psd_slope': ('particle_psd_slope', "Particle Size Distribution Slope (ξ parameter)")
-            }
-            
-            for product_key, (result_key, description) in particle_products.items():
-                if result_key in results:
-                    advanced_products[product_key] = {
-                        'data': results[result_key],
-                        'filename': f"{product_name}_Particle_{product_key.replace('particle_', '').title()}.tif",
-                        'description': description,
-                        'folder': advanced_folder
-                    }
-            
-            # PRIMARY PRODUCTIVITY products
-            productivity_products = {
-                'primary_productivity': ('productivity_primary_productivity', "Primary Productivity (mg C m⁻² d⁻¹)"),
-                'annual_productivity': ('productivity_annual_productivity', "Annual Primary Productivity (mg C m⁻² yr⁻¹)"),
-                'productivity_classification': ('productivity_productivity_classification', "Productivity Class (1=Oligo, 2=Meso, 3=Eu, 4=Hyper)"),
-                'productivity_efficiency': ('productivity_productivity_efficiency', "Productivity Efficiency (mg C mg Chl⁻¹ d⁻¹)"),
-                'euphotic_depth': ('productivity_euphotic_depth', "Euphotic Depth from Productivity Model (m)"),
-                'pbopt': ('productivity_pbopt', "Optimal Photosynthetic Rate (mg C mg Chl⁻¹ h⁻¹)"),
-                'carbon_biomass': ('productivity_carbon_biomass', "Carbon Biomass (mg C m⁻²)"),
-                'carbon_chl_ratio': ('productivity_carbon_chl_ratio', "Carbon to Chlorophyll Ratio"),
-                'growth_rate': ('productivity_growth_rate', "Phytoplankton Growth Rate (d⁻¹)"),
-                'eppley_temp_factor': ('productivity_eppley_temp_factor', "Eppley Temperature Factor")
-            }
-            
-            for product_key, (result_key, description) in productivity_products.items():
-                if result_key in results:
-                    advanced_products[product_key] = {
-                        'data': results[result_key],
-                        'filename': f"{product_name}_Productivity_{product_key.replace('productivity_', '').title()}.tif",
-                        'description': description,
-                        'folder': advanced_folder
-                    }
             
             # ========================================================================
             # SAVE ALL PRODUCTS WITH PROPER NODATA HANDLING
             # ========================================================================
             all_products = {**jiang_products, **advanced_products}
             
-            logger.info(f"Saving {len(all_products)} products:")
+            logger.info(f"Saving {len(all_products)} reliable products:")
             logger.info(f"  Core Jiang products: {len(jiang_products)}")
-            logger.info(f"  Advanced products: {len(advanced_products)}")
+            logger.info(f"  Reliable advanced products: {len(advanced_products)}")
             
             # Define classification products that need uint8 and nodata=255
             classification_product_keys = [
-                'tsi_classification', 'hab_risk_level', 'plume_classification', 
-                'size_classification', 'dominant_particle_type', 'productivity_classification',
-                'trophic_classification', 'reference_band', 'valid_mask'
+                'hab_risk_level', 'reference_band', 'valid_mask', 'high_biomass_alert', 
+                'extreme_biomass_alert', 'ndci_bloom', 'flh_bloom', 'mci_bloom', 'cyanobacteria_bloom'
             ]
             
             # Save each product with appropriate nodata value
@@ -1707,17 +1607,18 @@ class JiangTSSProcessor:
             # ========================================================================
             # FINAL SUMMARY
             # ========================================================================
-            logger.info(f"Product saving completed:")
+            logger.info(f"Reliable product saving completed:")
             logger.info(f"  Successfully saved: {saved_count} products")
             logger.info(f"  Skipped (no data): {skipped_count} products")
             logger.info(f"  Total attempted: {len(all_products)} products")
+            logger.info(f"  Output folder: {scene_folder}")
             
             # Create processing summary
             if 'tss' in output_results and output_results['tss'].success:
-                self._log_processing_summary(results, product_name)
+                self._log_processing_summary(results, clean_product_name)
             
-            # Create product index file (optional but useful)
-            self._create_product_index(output_results, output_folder, product_name)
+            # Create product index file
+            self._create_product_index(output_results, scene_folder, clean_product_name)
             
             return output_results
             
@@ -1891,14 +1792,7 @@ logger = logging.getLogger(__name__)
 class AdvancedAlgorithmConstants:
     """Constants for advanced aquatic algorithms based on scientific literature"""
     
-    # Carlson TSI coefficients (Carlson, 1977)
-    TSI_CHL_A = 9.81
-    TSI_CHL_B = 30.6
-    TSI_SD_A = 60
-    TSI_SD_B = 14.41
-    TSI_TP_A = 14.42
-    TSI_TP_B = 4.15
-    
+        
     # OC3 algorithm coefficients (O'Reilly et al., 1998)
     OC3_COEFFS = [0.3272, -2.9940, 2.7218, -1.2259, -0.5683]
     
@@ -1922,83 +1816,7 @@ class AdvancedAquaticProcessor:
         self.constants = AdvancedAlgorithmConstants()
         logger.info("Initialized Advanced Aquatic Processor with scientific algorithms")
     
-    def calculate_trophic_state(self, chlorophyll: np.ndarray, 
-                               secchi_depth: Optional[np.ndarray] = None,
-                               total_phosphorus: Optional[np.ndarray] = None) -> Dict[str, np.ndarray]:
-        """
-        Calculate Carlson's Trophic State Index
         
-        References:
-        - Carlson, R.E. (1977). A trophic state index for lakes. Limnology and Oceanography, 22(2), 361-369.
-        - Aizaki, M. et al. (1981). Application of Carlson's trophic state index to Japanese lakes. 
-          Verhandlungen Internationale Vereinigung Limnologie, 21, 675-681.
-        
-        Args:
-            chlorophyll: Chlorophyll-a concentration (mg/m³)
-            secchi_depth: Secchi disk depth (meters) [optional]
-            total_phosphorus: Total phosphorus concentration (µg/L) [optional]
-            
-        Returns:
-            Dictionary with TSI values and trophic classification
-        """
-        try:
-            logger.info("Calculating Carlson Trophic State Index")
-            
-            # TSI from chlorophyll-a (primary indicator)
-            tsi_chl = np.full_like(chlorophyll, np.nan, dtype=np.float32)
-            valid_chl = (chlorophyll > 0) & (~np.isnan(chlorophyll))
-            tsi_chl[valid_chl] = (self.constants.TSI_CHL_A * 
-                                 np.log(chlorophyll[valid_chl]) + 
-                                 self.constants.TSI_CHL_B)
-            
-            results = {'tsi_chlorophyll': tsi_chl}
-            
-            # TSI from Secchi depth (if available)
-            if secchi_depth is not None:
-                tsi_sd = np.full_like(secchi_depth, np.nan, dtype=np.float32)
-                valid_sd = (secchi_depth > 0) & (~np.isnan(secchi_depth))
-                tsi_sd[valid_sd] = (self.constants.TSI_SD_A - 
-                                   self.constants.TSI_SD_B * 
-                                   np.log(secchi_depth[valid_sd]))
-                results['tsi_secchi'] = tsi_sd
-            
-            # TSI from total phosphorus (if available)
-            if total_phosphorus is not None:
-                tsi_tp = np.full_like(total_phosphorus, np.nan, dtype=np.float32)
-                valid_tp = (total_phosphorus > 0) & (~np.isnan(total_phosphorus))
-                tsi_tp[valid_tp] = (self.constants.TSI_TP_A * 
-                                   np.log(total_phosphorus[valid_tp]) + 
-                                   self.constants.TSI_TP_B)
-                results['tsi_phosphorus'] = tsi_tp
-            
-            # Trophic state classification
-            trophic_class = np.full_like(tsi_chl, 0, dtype=np.uint8)
-            trophic_class[tsi_chl < 40] = 1    # Oligotrophic
-            trophic_class[(tsi_chl >= 40) & (tsi_chl < 50)] = 2  # Mesotrophic
-            trophic_class[(tsi_chl >= 50) & (tsi_chl < 70)] = 3  # Eutrophic
-            trophic_class[tsi_chl >= 70] = 4   # Hypereutrophic
-            
-            results['trophic_classification'] = trophic_class
-            
-            # Calculate statistics
-            valid_pixels = np.sum(~np.isnan(tsi_chl))
-            if valid_pixels > 0:
-                logger.info(f"TSI calculated for {valid_pixels} pixels")
-                logger.info(f"Mean TSI: {np.nanmean(tsi_chl):.1f}")
-                
-                # Log trophic distribution
-                for i, state in enumerate(['Invalid', 'Oligotrophic', 'Mesotrophic', 'Eutrophic', 'Hypereutrophic'], 0):
-                    count = np.sum(trophic_class == i)
-                    if count > 0:
-                        percentage = (count / valid_pixels) * 100
-                        logger.info(f"  {state}: {count} pixels ({percentage:.1f}%)")
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error calculating trophic state: {e}")
-            return {}
-    
     def calculate_water_clarity(self, absorption: np.ndarray, 
                                backscattering: np.ndarray,
                                solar_zenith: float = 30.0) -> Dict[str, np.ndarray]:
@@ -2066,92 +1884,192 @@ class AdvancedAquaticProcessor:
             logger.error(f"Error calculating water clarity: {e}")
             return {}
     
-    def detect_harmful_algal_blooms(self, chlorophyll: np.ndarray,
-                                   phycocyanin: Optional[np.ndarray],
-                                   rrs_bands: Dict[int, np.ndarray]) -> Dict[str, np.ndarray]:
+    def detect_harmful_algal_blooms(self, chlorophyll: Optional[np.ndarray],
+                                phycocyanin: Optional[np.ndarray],
+                                rrs_bands: Dict[int, np.ndarray]) -> Dict[str, np.ndarray]:
         """
-        Multi-indicator harmful algal bloom detection
+        Fixed HAB detection using only Sentinel-2 spectral bands
         
         References:
         - Wynne, T.T. et al. (2008). Relating spectral shape to cyanobacterial blooms. 
-          International Journal of Remote Sensing, 29(12), 3665-3672.
+        International Journal of Remote Sensing, 29(12), 3665-3672.
         - Mishra, S. & Mishra, D.R. (2012). Normalized difference chlorophyll index: A novel model 
-          for remote estimation of chlorophyll-a concentration. Remote Sensing of Environment, 117, 394-406.
+        for remote estimation of chlorophyll-a concentration. Remote Sensing of Environment, 117, 394-406.
         - Gower, J. et al. (1999). Detection of intense plankton blooms using the 709 nm band of the 
-          MERIS imaging spectrometer. International Journal of Remote Sensing, 20(9), 1817-1825.
-        - Binding, C.E. et al. (2013). EOLakeWatch: Delivering a comprehensive suite of remote sensing 
-          algal bloom indices. Remote Sensing of Environment, 132, 293-312.
-        
-        Args:
-            chlorophyll: Chlorophyll-a concentration (mg/m³)
-            phycocyanin: Phycocyanin concentration (µg/L) [optional]
-            rrs_bands: Dictionary of remote sensing reflectance by wavelength
-            
-        Returns:
-            Dictionary with HAB detection indicators
+        MERIS imaging spectrometer. International Journal of Remote Sensing, 20(9), 1817-1825.
         """
         try:
-            logger.info("Detecting harmful algal blooms using multi-indicator approach")
+            logger.info("Detecting harmful algal blooms using Sentinel-2 spectral analysis")
             
             results = {}
             
-            # Method 1: Biomass threshold (WHO guidelines)
-            high_biomass = chlorophyll > 20  # mg/m³ (WHO Alert Level 1)
-            results['high_biomass_alert'] = high_biomass.astype(np.float32)
+            # Get image shape from any available band
+            if not rrs_bands:
+                logger.warning("No Rrs bands available for HAB detection")
+                return {}
             
-            extreme_biomass = chlorophyll > 100  # mg/m³ (WHO Alert Level 3)
-            results['extreme_biomass_alert'] = extreme_biomass.astype(np.float32)
+            # Get reference shape
+            ref_band = list(rrs_bands.values())[0]
+            shape = ref_band.shape
             
-            # Method 2: Cyanobacteria index (if phycocyanin available)
-            if phycocyanin is not None:
-                cyano_bloom = phycocyanin > 15  # µg/L threshold
-                results['cyanobacteria_bloom'] = cyano_bloom.astype(np.float32)
+            # Initialize result arrays
+            hab_probability = np.zeros(shape, dtype=np.float32)
+            ndci_values = np.full(shape, np.nan, dtype=np.float32)
+            flh_values = np.full(shape, np.nan, dtype=np.float32)
+            mci_values = np.full(shape, np.nan, dtype=np.float32)
             
-            # Method 3: Spectral shape algorithms
+            # Track which algorithms can be applied
+            algorithms_applied = []
+            
+            # Method 1: Normalized Difference Chlorophyll Index (NDCI)
+            # Uses Sentinel-2 bands: B5 (705nm) and B4 (665nm)
             if 705 in rrs_bands and 665 in rrs_bands:
-                # Normalized Difference Chlorophyll Index (Mishra & Mishra, 2012)
-                ndci = ((rrs_bands[705] - rrs_bands[665]) / 
-                       (rrs_bands[705] + rrs_bands[665]))
-                bloom_ndci = ndci > 0.05
-                results['ndci_bloom'] = bloom_ndci.astype(np.float32)
-                results['ndci_values'] = ndci
+                logger.info("Calculating NDCI (Normalized Difference Chlorophyll Index)")
+                
+                band_705 = rrs_bands[705]
+                band_665 = rrs_bands[665]
+                
+                # Avoid division by zero
+                denominator = band_705 + band_665
+                valid_mask = (denominator > 1e-8) & (~np.isnan(band_705)) & (~np.isnan(band_665))
+                
+                ndci_values[valid_mask] = ((band_705[valid_mask] - band_665[valid_mask]) / 
+                                        denominator[valid_mask])
+                
+                # NDCI bloom threshold (Mishra & Mishra, 2012)
+                ndci_bloom = ndci_values > 0.05
+                results['ndci_bloom'] = ndci_bloom.astype(np.float32)
+                results['ndci_values'] = ndci_values
+                
+                # Add to probability calculation
+                hab_probability += ndci_bloom.astype(np.float32) * 0.3
+                algorithms_applied.append("NDCI")
             
-            # Method 4: Fluorescence Line Height (Gower et al., 1999)
-            if all(band in rrs_bands for band in [665, 681, 709]):
-                flh = (rrs_bands[681] - 
-                      (rrs_bands[665] + (rrs_bands[709] - rrs_bands[665]) * 
-                       (681 - 665) / (709 - 665)))
-                bloom_flh = flh > 0.004  # sr⁻¹
-                results['flh_bloom'] = bloom_flh.astype(np.float32)
-                results['flh_values'] = flh
+            # Method 2: Fluorescence Line Height (FLH) approximation
+            # Uses Sentinel-2 bands: B4 (665nm), B6 (740nm), B5 (705nm)
+            if all(band in rrs_bands for band in [665, 705, 740]):
+                logger.info("Calculating Fluorescence Line Height (FLH)")
+                
+                band_665 = rrs_bands[665]
+                band_705 = rrs_bands[705]  # Center band
+                band_740 = rrs_bands[740]
+                
+                # FLH calculation (baseline correction)
+                # FLH = Band_center - [Band_low + (Band_high - Band_low) * slope_factor]
+                slope_factor = (705 - 665) / (740 - 665)  # 0.533
+                baseline = band_665 + (band_740 - band_665) * slope_factor
+                
+                valid_mask = (~np.isnan(band_665)) & (~np.isnan(band_705)) & (~np.isnan(band_740))
+                flh_values[valid_mask] = band_705[valid_mask] - baseline[valid_mask]
+                
+                # FLH bloom threshold
+                flh_bloom = flh_values > 0.004  # sr⁻¹
+                results['flh_bloom'] = flh_bloom.astype(np.float32)
+                results['flh_values'] = flh_values
+                
+                # Add to probability calculation
+                hab_probability += flh_bloom.astype(np.float32) * 0.3
+                algorithms_applied.append("FLH")
             
-            # Method 5: Maximum Chlorophyll Index (Gitelson et al., 2008)
-            if all(band in rrs_bands for band in [681, 709, 753]):
-                mci = (rrs_bands[709] - rrs_bands[681] - 
-                      0.946 * (rrs_bands[753] - rrs_bands[681]))
-                bloom_mci = mci > 0.004
-                results['mci_bloom'] = bloom_mci.astype(np.float32)
-                results['mci_values'] = mci
+            # Method 3: Maximum Chlorophyll Index (MCI) approximation
+            # Uses Sentinel-2 bands: B4 (665nm), B5 (705nm), B6 (740nm), B8A (865nm)
+            if all(band in rrs_bands for band in [665, 705, 740, 865]):
+                logger.info("Calculating Maximum Chlorophyll Index (MCI)")
+                
+                band_665 = rrs_bands[665]
+                band_705 = rrs_bands[705]
+                band_740 = rrs_bands[740]
+                band_865 = rrs_bands[865]
+                
+                # MCI calculation (simplified for S2 bands)
+                # MCI = Band_705 - Band_665 - slope * (Band_865 - Band_665)
+                slope = (740 - 665) / (865 - 665)  # Approximate slope
+                
+                valid_mask = (all(~np.isnan(rrs_bands[b]) for b in [665, 705, 740, 865]))
+                
+                if np.any(valid_mask):
+                    mci_values[valid_mask] = (band_705[valid_mask] - band_665[valid_mask] - 
+                                            slope * (band_865[valid_mask] - band_665[valid_mask]))
+                    
+                    # MCI bloom threshold
+                    mci_bloom = mci_values > 0.004
+                    results['mci_bloom'] = mci_bloom.astype(np.float32)
+                    results['mci_values'] = mci_values
+                    
+                    # Add to probability calculation
+                    hab_probability += mci_bloom.astype(np.float32) * 0.3
+                    algorithms_applied.append("MCI")
             
-            # Combined HAB probability
-            indicators = []
-            for key in ['high_biomass_alert', 'ndci_bloom', 'flh_bloom', 'mci_bloom']:
-                if key in results:
-                    indicators.append(results[key])
+            # Method 4: Simple spectral shape analysis (red edge detection)
+            if all(band in rrs_bands for band in [665, 705, 740]):
+                logger.info("Calculating red edge bloom detection")
+                
+                band_665 = rrs_bands[665]
+                band_705 = rrs_bands[705]
+                band_740 = rrs_bands[740]
+                
+                # Red edge enhancement (characteristic of chlorophyll)
+                red_edge_ratio = np.full(shape, np.nan, dtype=np.float32)
+                
+                valid_mask = (band_665 > 0) & (band_705 > 0) & (~np.isnan(band_665)) & (~np.isnan(band_705))
+                
+                if np.any(valid_mask):
+                    red_edge_ratio[valid_mask] = band_705[valid_mask] / band_665[valid_mask]
+                    
+                    # High red edge typically indicates vegetation/algae
+                    red_edge_bloom = red_edge_ratio > 1.2
+                    results['red_edge_bloom'] = red_edge_bloom.astype(np.float32)
+                    
+                    # Add to probability calculation
+                    hab_probability += red_edge_bloom.astype(np.float32) * 0.1
+                    algorithms_applied.append("RedEdge")
             
-            if phycocyanin is not None and 'cyanobacteria_bloom' in results:
-                indicators.append(results['cyanobacteria_bloom'])
+            # Method 5: High biomass detection (spectral brightness in NIR)
+            if 865 in rrs_bands:
+                logger.info("Calculating high biomass detection")
+                
+                band_865 = rrs_bands[865]
+                
+                # High NIR reflectance often indicates surface algae/scums
+                high_nir_threshold = np.nanpercentile(band_865, 90)  # Top 10% of values
+                high_biomass = band_865 > high_nir_threshold
+                
+                results['high_biomass_alert'] = high_biomass.astype(np.float32)
+                
+                # Add to probability calculation
+                hab_probability += high_biomass.astype(np.float32) * 0.1
+                algorithms_applied.append("HighBiomass")
             
-            if indicators:
-                hab_probability = np.mean(indicators, axis=0)
+            # Calculate combined HAB probability (normalize by number of algorithms)
+            if algorithms_applied:
+                # Normalize probability to 0-1 range
+                hab_probability = np.clip(hab_probability, 0, 1)
                 results['hab_probability'] = hab_probability
                 
-                # HAB risk classification
-                hab_risk = np.zeros_like(hab_probability, dtype=np.uint8)
+                # Create risk level classification
+                hab_risk = np.zeros(shape, dtype=np.uint8)
                 hab_risk[hab_probability > 0.7] = 3  # High risk
                 hab_risk[(hab_probability > 0.4) & (hab_probability <= 0.7)] = 2  # Medium risk
                 hab_risk[(hab_probability > 0.2) & (hab_probability <= 0.4)] = 1  # Low risk
+                # hab_risk = 0 for probability <= 0.2 (no risk)
+                
                 results['hab_risk_level'] = hab_risk
+                
+                # Additional detection flags
+                if 'ndci_bloom' in results or 'flh_bloom' in results or 'mci_bloom' in results:
+                    # Cyanobacteria-like bloom detection
+                    cyano_bloom = np.zeros(shape, dtype=np.float32)
+                    
+                    if 'ndci_bloom' in results:
+                        cyano_bloom = np.maximum(cyano_bloom, results['ndci_bloom'])
+                    if 'flh_bloom' in results:
+                        cyano_bloom = np.maximum(cyano_bloom, results['flh_bloom'])
+                    
+                    results['cyanobacteria_bloom'] = cyano_bloom
+                
+                # Extreme biomass alert (very high probability)
+                extreme_alert = (hab_probability > 0.8).astype(np.float32)
+                results['extreme_biomass_alert'] = extreme_alert
                 
                 # Calculate statistics
                 total_pixels = np.sum(~np.isnan(hab_probability))
@@ -2160,548 +2078,26 @@ class AdvancedAquaticProcessor:
                     medium_risk_pixels = np.sum(hab_risk == 2)
                     low_risk_pixels = np.sum(hab_risk == 1)
                     
-                    logger.info(f"HAB detection completed for {total_pixels} pixels")
+                    logger.info(f"HAB detection completed using algorithms: {', '.join(algorithms_applied)}")
+                    logger.info(f"Processed {total_pixels} pixels")
                     logger.info(f"High risk: {high_risk_pixels} pixels ({100*high_risk_pixels/total_pixels:.1f}%)")
                     logger.info(f"Medium risk: {medium_risk_pixels} pixels ({100*medium_risk_pixels/total_pixels:.1f}%)")
                     logger.info(f"Low risk: {low_risk_pixels} pixels ({100*low_risk_pixels/total_pixels:.1f}%)")
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error detecting harmful algal blooms: {e}")
-            return {}
-    
-    def calculate_upwelling_index(self, chlorophyll: np.ndarray,
-                                 sst: Optional[np.ndarray] = None,
-                                 wind_stress: Optional[np.ndarray] = None,
-                                 latitude: Optional[np.ndarray] = None,
-                                 chl_climatology: Optional[np.ndarray] = None) -> Dict[str, np.ndarray]:
-        """
-        Calculate upwelling intensity from biological and physical indicators
-        
-        References:
-        - Bakun, A. (1973). Coastal upwelling indices, west coast of North America, 1946–71. 
-          NOAA Technical Report NMFS SSRF-671.
-        - Thomas, A.C. et al. (2001). Seasonal distributions of satellite-measured phytoplankton 
-          pigment concentration along the Chilean coast. Journal of Geophysical Research, 106(C2), 2777-2788.
-        - Mendelssohn, R. & Schwing, F.B. (2002). Common trends in SST and wind stress gradients in the 
-          California and Peru-Chile current systems. ICES Journal of Marine Science, 59(2), 360-369.
-        
-        Args:
-            chlorophyll: Chlorophyll-a concentration (mg/m³)
-            sst: Sea surface temperature (°C) [optional]
-            wind_stress: Wind stress (N/m²) [optional]
-            latitude: Latitude (degrees) [optional]
-            chl_climatology: Climatological chlorophyll (mg/m³) [optional]
-            
-        Returns:
-            Dictionary with upwelling indices
-        """
-        try:
-            logger.info("Calculating upwelling indices")
-            
-            results = {}
-            
-            # Method 1: Traditional upwelling index (Bakun, 1973)
-            if wind_stress is not None and latitude is not None:
-                # Coriolis parameter
-                f_coriolis = 2 * 7.2921e-5 * np.sin(np.radians(latitude))  # s⁻¹
-                rho_water = 1025  # kg/m³
-                
-                # Avoid division by zero near equator
-                valid_coriolis = np.abs(f_coriolis) > 1e-10
-                upwelling_index_physical = np.full_like(wind_stress, np.nan, dtype=np.float32)
-                upwelling_index_physical[valid_coriolis] = (
-                    wind_stress[valid_coriolis] / 
-                    (rho_water * f_coriolis[valid_coriolis])
-                )
-                results['physical_upwelling_index'] = upwelling_index_physical
-            
-            # Method 2: Biological upwelling index (Thomas et al., 2001)
-            if chl_climatology is not None:
-                # Chlorophyll anomaly relative to climatology
-                chl_anomaly = np.full_like(chlorophyll, np.nan, dtype=np.float32)
-                valid_clim = (chl_climatology > 0) & (~np.isnan(chl_climatology))
-                chl_anomaly[valid_clim] = ((chlorophyll[valid_clim] - chl_climatology[valid_clim]) / 
-                                          chl_climatology[valid_clim])
-                
-                # Positive anomalies only (upwelling signal)
-                upwelling_index_biological = np.maximum(chl_anomaly, 0)
-                results['biological_upwelling_index'] = upwelling_index_biological
-            
-            # Method 3: Combined bio-physical index
-            if sst is not None:
-                # High chlorophyll + cold SST = upwelling signature
-                high_productivity = chlorophyll > 10  # mg/m³
-                
-                # Cold water anomaly (bottom quartile)
-                sst_percentile_25 = np.nanpercentile(sst, 25)
-                cold_water_anomaly = sst < sst_percentile_25
-                
-                upwelling_signature = (high_productivity & cold_water_anomaly).astype(np.float32)
-                results['upwelling_signature'] = upwelling_signature
-                
-                # Quantitative upwelling strength
-                # Normalize chlorophyll and inverse SST
-                chl_norm = (chlorophyll - np.nanmin(chlorophyll)) / (np.nanmax(chlorophyll) - np.nanmin(chlorophyll))
-                sst_norm = (np.nanmax(sst) - sst) / (np.nanmax(sst) - np.nanmin(sst))  # Inverse for cold = high
-                
-                upwelling_strength = 0.6 * chl_norm + 0.4 * sst_norm  # Weighted combination
-                results['upwelling_strength'] = upwelling_strength
-            
-            # Calculate statistics
-            if 'upwelling_signature' in results:
-                upwelling_pixels = np.sum(results['upwelling_signature'] > 0)
-                total_pixels = np.sum(~np.isnan(results['upwelling_signature']))
-                if total_pixels > 0:
-                    upwelling_percentage = (upwelling_pixels / total_pixels) * 100
-                    logger.info(f"Upwelling signature detected in {upwelling_pixels} pixels ({upwelling_percentage:.1f}%)")
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error calculating upwelling index: {e}")
-            return {}
-    
-    def calculate_distance_to_shore(self, lat: np.ndarray, lon: np.ndarray,
-                                   coastline_method: str = 'gshhg') -> np.ndarray:
-        """
-        Calculate distance to nearest coastline
-        
-        References:
-        - Wessel, P. & Smith, W.H.F. (1996). A global, self-consistent, hierarchical, high-resolution 
-          shoreline database. Journal of Geophysical Research, 101(B4), 8741-8743.
-        - Pekel, J.F. et al. (2016). High-resolution mapping of global surface water and its long-term changes. 
-          Nature, 540(7633), 418-422.
-        
-        Args:
-            lat: Latitude array (degrees)
-            lon: Longitude array (degrees)
-            coastline_method: Method for coastline data ('gshhg', 'osm', 'approximate')
-            
-        Returns:
-            Distance to shore array (meters)
-        """
-        try:
-            logger.info(f"Calculating distance to shore using {coastline_method} method")
-            
-            if coastline_method == 'approximate':
-                # Simplified land mask approach for demonstration
-                # This is a very rough approximation - replace with actual coastline data
-                
-                # Create approximate land boundaries (very simplified)
-                # For Portuguese coast example
-                land_boundaries = [
-                    {'lat_range': (36.0, 42.5), 'lon_range': (-9.5, -6.0)},  # Approximate Portugal
-                ]
-                
-                distances = np.full_like(lat, np.inf, dtype=np.float32)
-                
-                for boundary in land_boundaries:
-                    # Calculate distance to boundary edges
-                    lat_min, lat_max = boundary['lat_range']
-                    lon_min, lon_max = boundary['lon_range']
-                    
-                    # Distance to each edge
-                    dist_north = np.abs(lat - lat_max) * 111320  # degrees to meters
-                    dist_south = np.abs(lat - lat_min) * 111320
-                    dist_east = np.abs(lon - lon_max) * 111320 * np.cos(np.radians(lat))
-                    dist_west = np.abs(lon - lon_min) * 111320 * np.cos(np.radians(lat))
-                    
-                    # Minimum distance to any edge
-                    min_dist = np.minimum.reduce([dist_north, dist_south, dist_east, dist_west])
-                    distances = np.minimum(distances, min_dist)
-                
-                # Replace infinite values with large distance
-                distances[np.isinf(distances)] = 500000  # 500 km
-                
-            elif coastline_method == 'gshhg':
-                # Placeholder for GSHHG implementation
-                logger.warning("GSHHG method not implemented - using approximate method")
-                return self.calculate_distance_to_shore(lat, lon, 'approximate')
-            
-            elif coastline_method == 'osm':
-                # Placeholder for OpenStreetMap implementation
-                logger.warning("OSM method not implemented - using approximate method")
-                return self.calculate_distance_to_shore(lat, lon, 'approximate')
-            
             else:
-                raise ValueError(f"Unknown coastline method: {coastline_method}")
-            
-            logger.info(f"Distance to shore calculated - mean: {np.nanmean(distances)/1000:.1f} km")
-            return distances
-            
-        except Exception as e:
-            logger.error(f"Error calculating distance to shore: {e}")
-            return np.full_like(lat, np.nan, dtype=np.float32)
-    
-    def track_river_plumes(self, tss_inorganic: np.ndarray,
-                          salinity: Optional[np.ndarray],
-                          distance_to_shore: np.ndarray,
-                          river_locations: List[Tuple[float, float]] = None) -> Dict[str, np.ndarray]:
-        """
-        Track sediment plumes from river discharge
-        
-        References:
-        - Otero, M.P. & Siegel, D.A. (2004). Spatial and temporal characteristics of sediment plumes and 
-          phytoplankton blooms in the Santa Barbara Channel. Deep Sea Research Part II, 51(10-11), 1129-1154.
-        - Warrick, J.A. et al. (2004). Hyperpycnal sediment discharge from semiarid southern California rivers: 
-          Implications for coastal sediment budgets. Geology, 32(7), 581-584.
-        
-        Args:
-            tss_inorganic: Inorganic TSS concentration (g/m³)
-            salinity: Salinity (PSU) [optional]
-            distance_to_shore: Distance to shore (meters)
-            river_locations: List of (lat, lon) tuples for river mouths
-            
-        Returns:
-            Dictionary with plume detection results
-        """
-        try:
-            logger.info("Tracking river sediment plumes")
-            
-            # Default river locations for Portuguese coast if none provided
-            if river_locations is None:
-                river_locations = [
-                    (41.14, -8.68),  # Douro River
-                    (38.71, -9.13),  # Tagus River
-                    (37.02, -7.44),  # Guadiana River
-                ]
-            
-            # Plume detection criteria (Otero & Siegel, 2004)
-            high_sediment = tss_inorganic > 15  # g/m³
-            near_shore = distance_to_shore < 10000  # within 10 km of shore
-            
-            # Low salinity indicator (if available)
-            if salinity is not None:
-                low_salinity = salinity < 34  # PSU
-            else:
-                low_salinity = np.ones_like(tss_inorganic, dtype=bool)
-            
-            # River influence calculation
-            if hasattr(tss_inorganic, 'shape'):
-                lat_indices, lon_indices = np.indices(tss_inorganic.shape)
-                # This is simplified - would need actual lat/lon coordinates
-                river_influence = np.zeros_like(tss_inorganic, dtype=np.float32)
-                
-                # For demonstration, create influence zones around approximate river locations
-                for i, (river_lat, river_lon) in enumerate(river_locations):
-                    # Very simplified distance calculation
-                    # In practice, you'd use actual geographic coordinates
-                    center_lat = lat_indices.shape[0] // 2
-                    center_lon = lat_indices.shape[1] // 2
-                    
-                    distance_to_river = np.sqrt((lat_indices - center_lat)**2 + 
-                                              (lon_indices - center_lon)**2) * 1000  # pixels to meters approximation
-                    
-                    influence = np.exp(-distance_to_river / 20000)  # 20km decay scale
-                    river_influence = np.maximum(river_influence, influence)
-            else:
-                river_influence = np.ones_like(tss_inorganic, dtype=np.float32)
-            
-            # Combined plume intensity
-            plume_intensity = (high_sediment.astype(np.float32) * 
-                             near_shore.astype(np.float32) * 
-                             low_salinity.astype(np.float32) * 
-                             river_influence)
-            
-            # Plume classification
-            plume_classification = np.zeros_like(plume_intensity, dtype=np.uint8)
-            plume_classification[plume_intensity > 0.7] = 3  # Strong plume
-            plume_classification[(plume_intensity > 0.4) & (plume_intensity <= 0.7)] = 2  # Moderate plume
-            plume_classification[(plume_intensity > 0.2) & (plume_intensity <= 0.4)] = 1  # Weak plume
-            
-            results = {
-                'plume_intensity': plume_intensity,
-                'plume_classification': plume_classification,
-                'river_influence': river_influence,
-                'high_sediment_mask': high_sediment.astype(np.float32),
-                'near_shore_mask': near_shore.astype(np.float32)
-            }
-            
-            # Calculate statistics
-            total_pixels = np.sum(~np.isnan(plume_intensity))
-            if total_pixels > 0:
-                strong_plume_pixels = np.sum(plume_classification == 3)
-                moderate_plume_pixels = np.sum(plume_classification == 2)
-                weak_plume_pixels = np.sum(plume_classification == 1)
-                
-                logger.info(f"River plume tracking completed for {total_pixels} pixels")
-                logger.info(f"Strong plumes: {strong_plume_pixels} pixels ({100*strong_plume_pixels/total_pixels:.1f}%)")
-                logger.info(f"Moderate plumes: {moderate_plume_pixels} pixels ({100*moderate_plume_pixels/total_pixels:.1f}%)")
-                logger.info(f"Weak plumes: {weak_plume_pixels} pixels ({100*weak_plume_pixels/total_pixels:.1f}%)")
+                logger.warning("No suitable spectral bands found for HAB detection")
+                # Return empty arrays to avoid missing data issues
+                results['hab_probability'] = np.zeros(shape, dtype=np.float32)
+                results['hab_risk_level'] = np.zeros(shape, dtype=np.uint8)
             
             return results
             
         except Exception as e:
-            logger.error(f"Error tracking river plumes: {e}")
+            logger.error(f"Error in HAB detection: {e}")
+            import traceback
+            traceback.print_exc()
             return {}
+              
     
-    def estimate_particle_size(self, backscattering_spectrum: Dict[int, np.ndarray],
-                              wavelengths: List[int] = None) -> Dict[str, np.ndarray]:
-        """
-        Estimate particle size from spectral slope of backscattering
-        
-        References:
-        - Boss, E. et al. (2001). Spectral particulate attenuation and particle size distribution in the 
-          bottom boundary layer of a continental shelf. Applied Optics, 40(27), 4885-4893.
-        - Kostadinov, T.S. et al. (2009). Retrieval of the particle size distribution from satellite ocean 
-          color observations. Journal of Geophysical Research, 114, C09015.
-        - Loisel, H. et al. (2006). Spectral dependency of optical backscattering by marine particles from 
-          satellite remote sensing of the global ocean. Journal of Geophysical Research, 111, C09024.
-        
-        Args:
-            backscattering_spectrum: Dictionary of backscattering coefficients by wavelength (m⁻¹)
-            wavelengths: List of wavelengths to use for slope calculation
-            
-        Returns:
-            Dictionary with particle size estimates
-        """
-        try:
-            logger.info("Estimating particle size from backscattering spectral slope")
-            
-            if wavelengths is None:
-                wavelengths = sorted(backscattering_spectrum.keys())
-            
-            if len(wavelengths) < 3:
-                logger.warning("Need at least 3 wavelengths for particle size estimation")
-                return {}
-            
-            # Reference wavelength (550nm is standard)
-            lambda_ref = 550
-            if lambda_ref not in wavelengths:
-                lambda_ref = wavelengths[len(wavelengths)//2]  # Use middle wavelength
-            
-            # Get array shape from first wavelength
-            first_key = list(backscattering_spectrum.keys())[0]
-            shape = backscattering_spectrum[first_key].shape
-            
-            # Initialize output arrays
-            spectral_slope = np.full(shape, np.nan, dtype=np.float32)
-            size_classification = np.full(shape, 0, dtype=np.uint8)
-            psd_slope = np.full(shape, np.nan, dtype=np.float32)
-            
-            # Process each pixel
-            for i in range(shape[0]):
-                for j in range(shape[1]):
-                    try:
-                        # Extract backscattering values for this pixel
-                        bbp_values = []
-                        lambda_values = []
-                        
-                        for wl in wavelengths:
-                            if wl in backscattering_spectrum:
-                                bbp_val = backscattering_spectrum[wl][i, j]
-                                if not np.isnan(bbp_val) and bbp_val > 0:
-                                    bbp_values.append(bbp_val)
-                                    lambda_values.append(wl)
-                        
-                        if len(bbp_values) < 3:
-                            continue
-                        
-                        bbp_values = np.array(bbp_values)
-                        lambda_values = np.array(lambda_values)
-                        
-                        # Power law fit: bbp(λ) = bbp(λ0) * (λ/λ0)^(-η)
-                        log_lambda = np.log(lambda_values / lambda_ref)
-                        bbp_ref_idx = np.argmin(np.abs(lambda_values - lambda_ref))
-                        bbp_ref = bbp_values[bbp_ref_idx]
-                        log_bbp = np.log(bbp_values / bbp_ref)
-                        
-                        # Linear regression: log(bbp) = -η * log(λ/λ0)
-                        if len(log_lambda) >= 2:
-                            coeffs = np.polyfit(log_lambda, log_bbp, 1)
-                            eta = -coeffs[0]  # Make positive for interpretation
-                            
-                            spectral_slope[i, j] = eta
-                            
-                            # Particle size interpretation (Boss et al., 2001)
-                            if eta < self.constants.PARTICLE_SIZE_THRESHOLDS['medium']:
-                                size_classification[i, j] = 3  # Large particles (>20 µm)
-                            elif eta < self.constants.PARTICLE_SIZE_THRESHOLDS['small']:
-                                size_classification[i, j] = 2  # Medium particles (2-20 µm)
-                            else:
-                                size_classification[i, j] = 1  # Small particles (<2 µm)
-                            
-                            # Power law particle size distribution slope (Kostadinov et al., 2009)
-                            # Relationship: η ≈ ξ - 3
-                            psd_slope[i, j] = eta + 3
-                        
-                    except Exception as pixel_error:
-                        continue
-            
-            # Create dominant particle type map
-            dominant_type = np.full(shape, 0, dtype=np.uint8)
-            dominant_type[size_classification == 1] = 1  # Minerals/Detritus
-            dominant_type[size_classification == 2] = 2  # Mixed population
-            dominant_type[size_classification == 3] = 3  # Phytoplankton
-            
-            results = {
-                'spectral_slope': spectral_slope,
-                'size_classification': size_classification,
-                'dominant_particle_type': dominant_type,
-                'psd_slope': psd_slope
-            }
-            
-            # Calculate statistics
-            valid_pixels = np.sum(~np.isnan(spectral_slope))
-            if valid_pixels > 0:
-                logger.info(f"Particle size estimated for {valid_pixels} pixels")
-                logger.info(f"Mean spectral slope: {np.nanmean(spectral_slope):.3f}")
-                
-                # Log size distribution
-                size_names = ['Invalid', 'Small (<2µm)', 'Medium (2-20µm)', 'Large (>20µm)']
-                for size_idx, size_name in enumerate(size_names):
-                    count = np.sum(size_classification == size_idx)
-                    if count > 0:
-                        percentage = (count / valid_pixels) * 100
-                        logger.info(f"  {size_name}: {count} pixels ({percentage:.1f}%)")
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error estimating particle size: {e}")
-            return {}
-    
-    def estimate_primary_productivity(self, chlorophyll: np.ndarray,
-                                    par: np.ndarray,
-                                    sst: np.ndarray,
-                                    day_length: float = 12.0,
-                                    model: str = 'vgpm') -> Dict[str, np.ndarray]:
-        """
-        Estimate primary productivity using satellite-based algorithms
-        
-        References:
-        - Behrenfeld, M.J. & Falkowski, P.G. (1997). Photosynthetic rates derived from satellite-based 
-          chlorophyll concentrations. Limnology and Oceanography, 42(1), 1-20.
-        - Westberry, T. et al. (2008). Carbon-based primary productivity modeling with vertically 
-          resolved photoacclimation. Global Biogeochemical Cycles, 22, GB2024.
-        - Carr, M.E. et al. (2006). A comparison of global estimates of marine primary production from 
-          ocean color satellites. Deep Sea Research Part II, 53(5-7), 741-770.
-        - Eppley, R.W. (1972). Temperature and phytoplankton growth in the sea. Fishery Bulletin, 70(4), 1063-1085.
-        
-        Args:
-            chlorophyll: Chlorophyll-a concentration (mg/m³)
-            par: Photosynthetically available radiation (Einstein m⁻² d⁻¹)
-            sst: Sea surface temperature (°C)
-            day_length: Day length (hours)
-            model: Productivity model ('vgpm', 'cbpm', 'eppley')
-            
-        Returns:
-            Dictionary with primary productivity estimates
-        """
-        try:
-            logger.info(f"Estimating primary productivity using {model.upper()} model")
-            
-            results = {}
-            
-            if model.lower() == 'vgpm':
-                # VGPM (Vertically Generalized Production Model) - Behrenfeld & Falkowski (1997)
-                
-                # Optimal temperature function
-                sst_opt = self.constants.VGPM_SST_OPT
-                temp_factor = 1.066 * np.exp(-((sst - sst_opt) / sst_opt)**2)
-                
-                # Maximum photosynthetic rate (Pbopt)
-                pbopt = self.constants.VGPM_PBOPT_MAX * temp_factor
-                
-                # Euphotic depth (Ze) from chlorophyll
-                ze = 200 * chlorophyll**(-0.293)  # meters
-                
-                # Primary productivity
-                pp_vgpm = 0.66125 * pbopt * chlorophyll * day_length * par / 4.6
-                results['primary_productivity'] = pp_vgpm
-                results['euphotic_depth'] = ze
-                results['pbopt'] = pbopt
-                
-            elif model.lower() == 'cbpm':
-                # Carbon-based Production Model (CbPM) - Westberry et al. (2008)
-                
-                # Carbon-to-chlorophyll ratio
-                carbon_chl_ratio = 200 * chlorophyll**(-0.293)  # mg C (mg Chl)⁻¹
-                
-                # Temperature factor
-                temp_factor = 1.066 * np.exp(-((sst - 20) / 20)**2)
-                
-                # Growth rate
-                mu_max = 2.0  # Maximum growth rate (d⁻¹)
-                growth_rate = mu_max * temp_factor * (par / (par + 25))  # Light limitation
-                
-                # Carbon biomass
-                carbon_biomass = chlorophyll * carbon_chl_ratio
-                
-                # Primary productivity
-                pp_cbpm = carbon_biomass * growth_rate
-                results['primary_productivity'] = pp_cbpm
-                results['carbon_biomass'] = carbon_biomass
-                results['carbon_chl_ratio'] = carbon_chl_ratio
-                results['growth_rate'] = growth_rate
-                
-            elif model.lower() == 'eppley':
-                # Eppley-VGPM with temperature-dependent rates
-                
-                # Eppley (1972) temperature function
-                eppley_temp_factor = 0.851 * np.exp(0.0633 * sst)
-                
-                # Base productivity calculation
-                pbopt = self.constants.VGPM_PBOPT_MAX * eppley_temp_factor
-                euphotic_depth = 200 * chlorophyll**(-0.293)
-                
-                pp_eppley = pbopt * chlorophyll * day_length * par * eppley_temp_factor / 4.6
-                results['primary_productivity'] = pp_eppley
-                results['eppley_temp_factor'] = eppley_temp_factor
-                results['euphotic_depth'] = euphotic_depth
-                
-            else:
-                raise ValueError(f"Unknown productivity model: {model}")
-            
-            # Common calculations for all models
-            if 'primary_productivity' in results:
-                pp = results['primary_productivity']
-                
-                # Productivity classification
-                pp_classification = np.zeros_like(pp, dtype=np.uint8)
-                pp_classification[pp < 150] = 1    # Oligotrophic
-                pp_classification[(pp >= 150) & (pp < 300)] = 2  # Mesotrophic
-                pp_classification[(pp >= 300) & (pp < 500)] = 3  # Eutrophic
-                pp_classification[pp >= 500] = 4   # Hypertrophic
-                
-                results['productivity_classification'] = pp_classification
-                
-                # Calculate annual productivity (approximate)
-                annual_productivity = pp * 365  # mg C m⁻² yr⁻¹
-                results['annual_productivity'] = annual_productivity
-                
-                # Productivity efficiency (PP per unit chlorophyll)
-                productivity_efficiency = np.full_like(pp, np.nan, dtype=np.float32)
-                valid_chl = chlorophyll > 0
-                productivity_efficiency[valid_chl] = pp[valid_chl] / chlorophyll[valid_chl]
-                results['productivity_efficiency'] = productivity_efficiency
-            
-            # Calculate statistics
-            if 'primary_productivity' in results:
-                pp = results['primary_productivity']
-                valid_pixels = np.sum(~np.isnan(pp))
-                if valid_pixels > 0:
-                    logger.info(f"Primary productivity estimated for {valid_pixels} pixels")
-                    logger.info(f"Mean productivity: {np.nanmean(pp):.1f} mg C m⁻² d⁻¹")
-                    logger.info(f"Productivity range: {np.nanmin(pp):.1f} - {np.nanmax(pp):.1f} mg C m⁻² d⁻¹")
-                    
-                    # Log productivity classification
-                    classification = results.get('productivity_classification', np.array([]))
-                    class_names = ['Invalid', 'Oligotrophic', 'Mesotrophic', 'Eutrophic', 'Hypertrophic']
-                    for class_idx, class_name in enumerate(class_names):
-                        count = np.sum(classification == class_idx)
-                        if count > 0:
-                            percentage = (count / valid_pixels) * 100
-                            logger.info(f"  {class_name}: {count} pixels ({percentage:.1f}%)")
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error estimating primary productivity: {e}")
-            return {}
-
 @dataclass
 class AdvancedAquaticConfig:
     """Configuration for advanced aquatic algorithms"""
@@ -3060,15 +2456,36 @@ class S2Processor:
         # Escape XML special characters
         valid_pixel_expr = c2rcc.valid_pixel_expression.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         
-        # Build complete parameter set using exact SNAP parameter names
-        params = f'''<salinity>{c2rcc.salinity}</salinity>
+        # Build complete parameter set using exact SNAP parameter names (CORRECT ORDER)
+        params = f'''<validPixelExpression>{valid_pixel_expr}</validPixelExpression>
+        <salinity>{c2rcc.salinity}</salinity>
         <temperature>{c2rcc.temperature}</temperature>
         <ozone>{c2rcc.ozone}</ozone>
         <press>{c2rcc.pressure}</press>
         <elevation>{c2rcc.elevation}</elevation>
+        <TSMfac>{c2rcc.tsm_fac}</TSMfac>
+        <TSMexp>{c2rcc.tsm_exp}</TSMexp>
+        <CHLexp>{c2rcc.chl_exp}</CHLexp>
+        <CHLfac>{c2rcc.chl_fac}</CHLfac>
+        <thresholdRtosaOOS>{c2rcc.threshold_rtosa_oos}</thresholdRtosaOOS>
+        <thresholdAcReflecOos>{c2rcc.threshold_ac_reflec_oos}</thresholdAcReflecOos>
+        <thresholdCloudTDown865>{c2rcc.threshold_cloud_tdown865}</thresholdCloudTDown865>
         <netSet>{c2rcc.net_set}</netSet>
+        <useEcmwfAuxData>{str(c2rcc.use_ecmwf_aux_data).lower()}</useEcmwfAuxData>
         <demName>{c2rcc.dem_name}</demName>
-        <useEcmwfAuxData>{str(c2rcc.use_ecmwf_aux_data).lower()}</useEcmwfAuxData>'''
+        <outputAsRrs>{str(c2rcc.output_as_rrs).lower()}</outputAsRrs>
+        <deriveRwFromPathAndTransmittance>{str(c2rcc.derive_rw_from_path_and_transmittance).lower()}</deriveRwFromPathAndTransmittance>
+        <outputRtoa>{str(c2rcc.output_rtoa).lower()}</outputRtoa>
+        <outputRtosaGc>{str(c2rcc.output_rtosa_gc).lower()}</outputRtosaGc>
+        <outputRtosaGcAann>{str(c2rcc.output_rtosa_gc_aann).lower()}</outputRtosaGcAann>
+        <outputRpath>{str(c2rcc.output_rpath).lower()}</outputRpath>
+        <outputTdown>{str(c2rcc.output_tdown).lower()}</outputTdown>
+        <outputTup>{str(c2rcc.output_tup).lower()}</outputTup>
+        <outputAcReflectance>{str(c2rcc.output_ac_reflectance).lower()}</outputAcReflectance>
+        <outputRhown>{str(c2rcc.output_rhow).lower()}</outputRhown>
+        <outputOos>{str(c2rcc.output_oos).lower()}</outputOos>
+        <outputKd>{str(c2rcc.output_kd).lower()}</outputKd>
+        <outputUncertainties>{str(c2rcc.output_uncertainties).lower()}</outputUncertainties>'''
         
         # Add optional paths if specified
         if c2rcc.atmospheric_aux_data_path:
@@ -3076,30 +2493,6 @@ class S2Processor:
         
         if c2rcc.alternative_nn_path:
             params += f'\n      <alternativeNNPath>{c2rcc.alternative_nn_path}</alternativeNNPath>'
-        
-        # Output products using exact SNAP parameter names from GPT help
-        params += f'''
-        <outputAsRrs>{str(c2rcc.output_as_rrs).lower()}</outputAsRrs>
-        <outputRhown>{str(c2rcc.output_rhow).lower()}</outputRhown>
-        <outputKd>{str(c2rcc.output_kd).lower()}</outputKd>
-        <outputUncertainties>{str(c2rcc.output_uncertainties).lower()}</outputUncertainties>
-        <outputAcReflectance>{str(c2rcc.output_ac_reflectance).lower()}</outputAcReflectance>
-        <outputRtoa>{str(c2rcc.output_rtoa).lower()}</outputRtoa>
-        <outputRtosaGc>{str(c2rcc.output_rtosa_gc).lower()}</outputRtosaGc>
-        <outputRtosaGcAann>{str(c2rcc.output_rtosa_gc_aann).lower()}</outputRtosaGcAann>
-        <outputRpath>{str(c2rcc.output_rpath).lower()}</outputRpath>
-        <outputTdown>{str(c2rcc.output_tdown).lower()}</outputTdown>
-        <outputTup>{str(c2rcc.output_tup).lower()}</outputTup>
-        <outputOos>{str(c2rcc.output_oos).lower()}</outputOos>
-        <deriveRwFromPathAndTransmittance>{str(c2rcc.derive_rw_from_path_and_transmittance).lower()}</deriveRwFromPathAndTransmittance>
-        <validPixelExpression>{valid_pixel_expr}</validPixelExpression>
-        <thresholdRtosaOOS>{c2rcc.threshold_rtosa_oos}</thresholdRtosaOOS>
-        <thresholdAcReflecOos>{c2rcc.threshold_ac_reflec_oos}</thresholdAcReflecOos>
-        <thresholdCloudTDown865>{c2rcc.threshold_cloud_tdown865}</thresholdCloudTDown865>
-        <TSMfac>{c2rcc.tsm_fac}</TSMfac>
-        <TSMexp>{c2rcc.tsm_exp}</TSMexp>
-        <CHLexp>{c2rcc.chl_exp}</CHLexp>
-        <CHLfac>{c2rcc.chl_fac}</CHLfac>'''
         
         return params
     
@@ -3301,7 +2694,7 @@ class S2Processor:
             return False
     
     def _verify_c2rcc_output(self, c2rcc_path: str) -> Optional[Dict]:
-        """Enhanced C2RCC output verification with comprehensive safety checks"""
+        """Enhanced C2RCC output verification with comprehensive SNAP product detection"""
         try:
             # Safe file existence check
             if not os.path.exists(c2rcc_path) or not os.path.isfile(c2rcc_path):
@@ -3325,79 +2718,170 @@ class S2Processor:
                 logger.error(f"C2RCC data folder missing or invalid: {data_folder}")
                 return None
 
-            # Check for SNAP TSM/CHL products (automatically generated)
+            # Check for SNAP TSM/CHL products (the KEY products we need!)
             snap_products = {
-                'conc_tsm.img': False,
-                'conc_chl.img': False,
-                'unc_tsm.img': False,
-                'unc_chl.img': False
+                'conc_tsm.img': False,      # ← TSM concentration (CRITICAL)
+                'conc_chl.img': False,      # ← CHL concentration (CRITICAL)  
+                'unc_tsm.img': False,       # ← TSM uncertainty
+                'unc_chl.img': False,       # ← CHL uncertainty
+                'iop_apig.img': False,      # ← Pigment absorption (for CHL calculation)
+                'iop_adet.img': False,      # ← Detritus absorption
+                'iop_agelb.img': False,     # ← CDOM absorption
+                'iop_bpart.img': False,     # ← Particle backscattering (for TSM)
+                'iop_bwit.img': False,      # ← White particle backscattering
+                'iop_btot.img': False       # ← Total backscattering
             }
             
-            # Safe product file checking
+            # Safe product file checking with detailed logging
+            snap_file_sizes = {}
             for product in snap_products.keys():
                 product_path = os.path.join(data_folder, product)
                 try:
                     if os.path.exists(product_path) and os.path.isfile(product_path):
-                        # Also check if file has reasonable size
                         product_size = os.path.getsize(product_path)
+                        snap_file_sizes[product] = product_size
                         if product_size > 1024:  # At least 1KB
                             snap_products[product] = True
                         else:
                             logger.warning(f"SNAP product {product} exists but is too small ({product_size} bytes)")
-                except (OSError, PermissionError):
-                    logger.warning(f"Cannot access SNAP product file: {product}")
+                    else:
+                        snap_file_sizes[product] = 0
+                except (OSError, PermissionError) as e:
+                    logger.warning(f"Cannot access SNAP product file {product}: {e}")
                     snap_products[product] = False
+                    snap_file_sizes[product] = -1
 
             # Check for rhow bands (needed for Jiang TSS)
             rhow_bands = [f'rhow_B{i}.img' for i in ['1', '2', '3', '4', '5', '6', '7', '8A']]
             rhow_count = 0
             missing_bands = []
             invalid_bands = []
+            rhow_file_sizes = {}
             
             for band in rhow_bands:
                 band_path = os.path.join(data_folder, band)
                 try:
                     if os.path.exists(band_path) and os.path.isfile(band_path):
                         band_size = os.path.getsize(band_path)
+                        rhow_file_sizes[band] = band_size
                         if band_size > 1024:  # At least 1KB
                             rhow_count += 1
                         else:
                             invalid_bands.append(f"{band} ({band_size} bytes)")
                     else:
                         missing_bands.append(band)
+                        rhow_file_sizes[band] = 0
                 except (OSError, PermissionError):
                     missing_bands.append(f"{band} (access error)")
+                    rhow_file_sizes[band] = -1
 
-            # Log any issues found
-            if missing_bands:
-                logger.warning(f"Missing rhow bands: {missing_bands}")
-            if invalid_bands:
-                logger.warning(f"Invalid rhow bands: {invalid_bands}")
-
+            # Count successful SNAP products
+            snap_product_count = sum(snap_products.values())
+            critical_products_count = sum([snap_products['conc_tsm.img'], snap_products['conc_chl.img']])
+            
             # Comprehensive statistics
             stats = {
+                # File information
                 'file_size_mb': file_size / 1024 / 1024,
+                'data_folder_valid': True,
+                
+                # SNAP TSM/CHL products (MAIN FOCUS)
                 'has_tsm': snap_products['conc_tsm.img'],
                 'has_chl': snap_products['conc_chl.img'],
                 'has_uncertainties': snap_products['unc_tsm.img'] and snap_products['unc_chl.img'],
+                'critical_products_available': critical_products_count,
+                
+                # SNAP IOP products (additional info)
+                'has_iop_apig': snap_products['iop_apig.img'],
+                'has_iop_bpart': snap_products['iop_bpart.img'],
+                'has_iop_btot': snap_products['iop_btot.img'],
+                'snap_product_count': snap_product_count,
+                'total_snap_products': len(snap_products),
+                
+                # Jiang TSS readiness
                 'rhow_bands_count': rhow_count,
                 'rhow_bands_total': len(rhow_bands),
                 'ready_for_jiang_tss': rhow_count == 8,
+                
+                # Issue tracking
                 'missing_bands': missing_bands if missing_bands else None,
                 'invalid_bands': invalid_bands if invalid_bands else None,
-                'data_folder_valid': True
+                
+                # File size details (for debugging)
+                'snap_file_sizes': snap_file_sizes,
+                'rhow_file_sizes': rhow_file_sizes
             }
 
-            # Final validation
-            if rhow_count == 8:
-                logger.info(f"✓ C2RCC verification passed: all {rhow_count} rhow bands available")
+            # ENHANCED LOGGING with detailed SNAP product status
+            logger.info("=" * 60)
+            logger.info("C2RCC OUTPUT VERIFICATION REPORT")
+            logger.info("=" * 60)
+            
+            # File info
+            logger.info(f"C2RCC file: {os.path.basename(c2rcc_path)} ({stats['file_size_mb']:.1f} MB)")
+            logger.info(f"Data folder: {os.path.basename(data_folder)}")
+            
+            # SNAP TSM/CHL status (CRITICAL SECTION)
+            logger.info("\n🧪 SNAP TSM/CHL PRODUCTS (Critical for Analysis):")
+            if stats['has_tsm'] and stats['has_chl']:
+                logger.info("✅ SUCCESS: Both TSM and CHL products available!")
+                logger.info(f"   ✓ TSM: conc_tsm.img ({snap_file_sizes.get('conc_tsm.img', 0)/1024:.1f} KB)")
+                logger.info(f"   ✓ CHL: conc_chl.img ({snap_file_sizes.get('conc_chl.img', 0)/1024:.1f} KB)")
+                
+                if stats['has_uncertainties']:
+                    logger.info("   ✓ Uncertainties: Available")
+                    logger.info(f"     - unc_tsm.img ({snap_file_sizes.get('unc_tsm.img', 0)/1024:.1f} KB)")
+                    logger.info(f"     - unc_chl.img ({snap_file_sizes.get('unc_chl.img', 0)/1024:.1f} KB)")
+                else:
+                    logger.warning("   ⚠ Uncertainties: Missing")
             else:
-                logger.warning(f"⚠ C2RCC verification: only {rhow_count}/8 rhow bands available")
+                logger.error("❌ MISSING: Critical TSM/CHL products not found!")
+                logger.error(f"   TSM available: {stats['has_tsm']}")
+                logger.error(f"   CHL available: {stats['has_chl']}")
+                logger.error("   This may indicate C2RCC parameter configuration issues.")
+            
+            # SNAP IOP products status
+            logger.info(f"\n🔬 SNAP IOP PRODUCTS ({snap_product_count}/{len(snap_products)} available):")
+            iop_products = ['iop_apig.img', 'iop_adet.img', 'iop_agelb.img', 'iop_bpart.img', 'iop_bwit.img', 'iop_btot.img']
+            for product in iop_products:
+                if product in snap_products:
+                    status = "✓" if snap_products[product] else "✗"
+                    size_info = f"({snap_file_sizes.get(product, 0)/1024:.1f} KB)" if snap_products[product] else "(missing/empty)"
+                    logger.info(f"   {status} {product} {size_info}")
+            
+            # Jiang TSS readiness
+            logger.info(f"\n🌊 JIANG TSS READINESS ({rhow_count}/{len(rhow_bands)} bands):")
+            if stats['ready_for_jiang_tss']:
+                logger.info("✅ READY: All rhow bands available for Jiang TSS processing")
+            else:
+                logger.warning(f"⚠ PARTIAL: Only {rhow_count}/8 rhow bands available")
+                if missing_bands:
+                    logger.warning(f"   Missing bands: {missing_bands}")
+                if invalid_bands:
+                    logger.warning(f"   Invalid bands: {invalid_bands}")
+            
+            # Overall assessment
+            logger.info(f"\n📊 OVERALL ASSESSMENT:")
+            if stats['has_tsm'] and stats['has_chl'] and stats['ready_for_jiang_tss']:
+                logger.info("🎯 EXCELLENT: Ready for complete TSS analysis pipeline!")
+                logger.info("   - SNAP TSM/CHL: Available")
+                logger.info("   - Jiang TSS: Ready")
+                logger.info("   - Advanced algorithms: Can proceed")
+            elif stats['has_tsm'] and stats['has_chl']:
+                logger.info("👍 GOOD: SNAP products available, partial Jiang readiness")
+            elif stats['ready_for_jiang_tss']:
+                logger.info("⚠ PARTIAL: Jiang ready, but missing SNAP TSM/CHL")
+            else:
+                logger.warning("❌ LIMITED: Missing critical products")
+            
+            logger.info("=" * 60)
 
             return stats
 
         except Exception as e:
             logger.error(f"Unexpected error verifying C2RCC output {c2rcc_path}: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def _process_tss_stage(self, c2rcc_path: str, output_folder: str, product_name: str) -> Dict[str, ProcessingResult]:
