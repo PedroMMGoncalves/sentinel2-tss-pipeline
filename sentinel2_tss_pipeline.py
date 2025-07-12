@@ -1457,7 +1457,7 @@ class JiangTSSProcessor:
         }
     
     def _save_complete_results(self, results: Dict[str, np.ndarray], output_folder: str, 
-                          product_name: str, reference_metadata: Dict) -> Dict[str, ProcessingResult]:
+                            product_name: str, reference_metadata: Dict) -> Dict[str, ProcessingResult]:
         """Save complete results including Jiang + Advanced algorithms"""
         try:
             output_results = {}
@@ -1645,7 +1645,7 @@ class JiangTSSProcessor:
                     }
             
             # ========================================================================
-            # SAVE ALL PRODUCTS
+            # SAVE ALL PRODUCTS WITH PROPER NODATA HANDLING
             # ========================================================================
             all_products = {**jiang_products, **advanced_products}
             
@@ -1653,7 +1653,14 @@ class JiangTSSProcessor:
             logger.info(f"  Core Jiang products: {len(jiang_products)}")
             logger.info(f"  Advanced products: {len(advanced_products)}")
             
-            # Save each product
+            # Define classification products that need uint8 and nodata=255
+            classification_product_keys = [
+                'tsi_classification', 'hab_risk_level', 'plume_classification', 
+                'size_classification', 'dominant_particle_type', 'productivity_classification',
+                'trophic_classification', 'reference_band', 'valid_mask'
+            ]
+            
+            # Save each product with appropriate nodata value
             saved_count = 0
             skipped_count = 0
             
@@ -1661,11 +1668,23 @@ class JiangTSSProcessor:
                 if product_info['data'] is not None:
                     output_path = os.path.join(product_info['folder'], product_info['filename'])
                     
+                    # DETERMINE APPROPRIATE NODATA VALUE
+                    if any(class_key in product_key for class_key in classification_product_keys):
+                        # Classification products: use uint8 and nodata=255
+                        nodata_value = 255
+                        # Ensure data is uint8
+                        data_to_save = product_info['data'].astype(np.uint8)
+                    else:
+                        # Continuous products: use float32 and nodata=-9999
+                        nodata_value = -9999
+                        data_to_save = product_info['data'].astype(np.float32)
+                    
                     success = RasterIO.write_raster(
-                        product_info['data'], 
+                        data_to_save, 
                         output_path, 
                         reference_metadata, 
-                        product_info['description']
+                        product_info['description'],
+                        nodata=nodata_value
                     )
                     
                     if success:
@@ -1707,139 +1726,81 @@ class JiangTSSProcessor:
             logger.error(error_msg)
             return {'error': ProcessingResult(False, "", None, error_msg)}
 
-def _create_product_index(self, output_results: Dict[str, ProcessingResult], 
-                         output_folder: str, product_name: str):
-    """Create an index file listing all generated products"""
-    try:
-        index_file = os.path.join(output_folder, f"{product_name}_ProductIndex.txt")
-        
-        with open(index_file, 'w', encoding='utf-8') as f:
-            f.write(f"SENTINEL-2 TSS PROCESSING RESULTS\n")
-            f.write(f"{'='*50}\n")
-            f.write(f"Product: {product_name}\n")
-            f.write(f"Processing Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Pipeline: Unified S2-TSS Processing v1.0\n\n")
+    def _create_product_index(self, output_results: Dict[str, ProcessingResult], 
+                            output_folder: str, product_name: str):
+        """Create an index file listing all generated products"""
+        try:
+            index_file = os.path.join(output_folder, f"{product_name}_ProductIndex.txt")
             
-            # Core Jiang Products
-            f.write(f"CORE TSS PRODUCTS:\n")
-            f.write(f"{'-'*20}\n")
-            jiang_products = ['absorption', 'backscattering', 'reference_band', 'tss', 'valid_mask']
-            for product in jiang_products:
-                if product in output_results and output_results[product].success:
-                    f.write(f"✓ {os.path.basename(output_results[product].output_path)}\n")
-                else:
-                    f.write(f"✗ {product} (failed or not generated)\n")
-            
-            # Advanced Products
-            f.write(f"\nADVANCED ALGORITHM PRODUCTS:\n")
-            f.write(f"{'-'*30}\n")
-            
-            categories = {
-                'Trophic State': ['tsi_chlorophyll', 'tsi_classification'],
-                'Water Clarity': ['secchi_depth', 'clarity_index', 'euphotic_depth'],
-                'Harmful Algal Blooms': ['hab_probability', 'hab_risk_level'],
-                'Upwelling Detection': ['upwelling_signature', 'upwelling_strength'],
-                'River Plumes': ['plume_intensity', 'plume_classification'],
-                'Particle Size': ['spectral_slope', 'size_classification'],
-                'Primary Productivity': ['primary_productivity', 'productivity_classification']
-            }
-            
-            for category, products in categories.items():
-                f.write(f"\n{category}:\n")
-                for product in products:
+            with open(index_file, 'w', encoding='utf-8') as f:
+                f.write(f"SENTINEL-2 TSS PROCESSING RESULTS\n")
+                f.write(f"{'='*50}\n")
+                f.write(f"Product: {product_name}\n")
+                f.write(f"Processing Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Pipeline: Unified S2-TSS Processing v1.0\n\n")
+                
+                # Core Jiang Products
+                f.write(f"CORE TSS PRODUCTS:\n")
+                f.write(f"{'-'*20}\n")
+                jiang_products = ['absorption', 'backscattering', 'reference_band', 'tss', 'valid_mask']
+                for product in jiang_products:
                     if product in output_results and output_results[product].success:
-                        f.write(f"  ✓ {os.path.basename(output_results[product].output_path)}\n")
+                        f.write(f"✓ {os.path.basename(output_results[product].output_path)}\n")
+                    else:
+                        f.write(f"✗ {product} (failed or not generated)\n")
+                
+                # Advanced Products
+                f.write(f"\nADVANCED ALGORITHM PRODUCTS:\n")
+                f.write(f"{'-'*30}\n")
+                
+                categories = {
+                    'Trophic State': ['tsi_chlorophyll', 'tsi_classification'],
+                    'Water Clarity': ['secchi_depth', 'clarity_index', 'euphotic_depth'],
+                    'Harmful Algal Blooms': ['hab_probability', 'hab_risk_level'],
+                    'Upwelling Detection': ['upwelling_signature', 'upwelling_strength'],
+                    'River Plumes': ['plume_intensity', 'plume_classification'],
+                    'Particle Size': ['spectral_slope', 'size_classification'],
+                    'Primary Productivity': ['primary_productivity', 'productivity_classification']
+                }
+                
+                for category, products in categories.items():
+                    f.write(f"\n{category}:\n")
+                    for product in products:
+                        if product in output_results and output_results[product].success:
+                            f.write(f"  ✓ {os.path.basename(output_results[product].output_path)}\n")
+                
+                f.write(f"\nTotal products generated: {len([r for r in output_results.values() if r.success])}\n")
             
-            f.write(f"\nTotal products generated: {len([r for r in output_results.values() if r.success])}\n")
-        
-        logger.info(f"Product index created: {os.path.basename(index_file)}")
-        
-    except Exception as e:
-        logger.warning(f"Could not create product index: {e}")
+            logger.info(f"Product index created: {os.path.basename(index_file)}")
+            
+        except Exception as e:
+            logger.warning(f"Could not create product index: {e}")
 
-def _log_processing_summary(self, results: Dict[str, np.ndarray], product_name: str):
-    """Enhanced processing summary with advanced algorithm statistics"""
-    
-    tss_data = results.get('tss')
-    if tss_data is None:
-        return
-    
-    reference_bands = results.get('reference_band')
-    valid_mask = results.get('valid_mask')
-    
-    # Overall statistics
-    tss_stats = RasterIO.calculate_statistics(tss_data)
-    
-    logger.info(f"=== COMPLETE PROCESSING SUMMARY: {product_name} ===")
-    logger.info(f"Total coverage: {tss_stats['coverage_percent']:.1f}%")
-    logger.info(f"TSS range: {tss_stats['min']:.2f} - {tss_stats['max']:.2f} g/m³")
-    logger.info(f"TSS mean: {tss_stats['mean']:.2f} g/m³")
-    
-    # Jiang algorithm usage statistics
-    if reference_bands is not None and valid_mask is not None:
-        ref_bands_valid = reference_bands[valid_mask]
-        ref_bands_valid = ref_bands_valid[~np.isnan(ref_bands_valid)]
-        
-        if len(ref_bands_valid) > 0:
-            logger.info("Jiang water type classification results:")
-            for band in [560, 665, 740, 865]:
-                count = np.sum(ref_bands_valid == band)
-                percentage = (count / len(ref_bands_valid)) * 100
-                if count > 0:
-                    water_type = {
-                        560: "Type I (Clear)",
-                        665: "Type II (Moderately turbid)", 
-                        740: "Type III (Highly turbid)",
-                        865: "Type IV (Extremely turbid)"
-                    }[band]
-                    logger.info(f"  {band}nm ({water_type}): {count} pixels ({percentage:.1f}%)")
-    
-    # Advanced algorithm summaries
-    if 'tsi_trophic_classification' in results:
-        tsi_class = results['tsi_trophic_classification']
-        valid_tsi = tsi_class[~np.isnan(tsi_class)]
-        if len(valid_tsi) > 0:
-            logger.info("Trophic state distribution:")
-            tsi_names = ['Invalid', 'Oligotrophic', 'Mesotrophic', 'Eutrophic', 'Hypereutrophic']
-            for i, name in enumerate(tsi_names):
-                count = np.sum(valid_tsi == i)
-                if count > 0:
-                    percentage = (count / len(valid_tsi)) * 100
-                    logger.info(f"  {name}: {count} pixels ({percentage:.1f}%)")
-    
-    if 'hab_hab_risk_level' in results:
-        hab_risk = results['hab_hab_risk_level']
-        valid_hab = hab_risk[~np.isnan(hab_risk)]
-        if len(valid_hab) > 0:
-            high_risk_count = np.sum(valid_hab == 3)
-            total_risk_count = np.sum(valid_hab > 0)
-            if total_risk_count > 0:
-                logger.info(f"HAB detection: {total_risk_count} pixels with bloom risk ({high_risk_count} high risk)")
-    
-    logger.info("=" * 60)
-    
     def _log_processing_summary(self, results: Dict[str, np.ndarray], product_name: str):
-        """Log comprehensive processing summary"""
+        """Enhanced processing summary with advanced algorithm statistics"""
         
-        tss_data = results['tss']
-        reference_bands = results['reference_band']
-        valid_mask = results['valid_mask']
+        tss_data = results.get('tss')
+        if tss_data is None:
+            return
+        
+        reference_bands = results.get('reference_band')
+        valid_mask = results.get('valid_mask')
         
         # Overall statistics
         tss_stats = RasterIO.calculate_statistics(tss_data)
         
-        logger.info(f"=== FULL JIANG TSS PROCESSING SUMMARY: {product_name} ===")
+        logger.info(f"=== COMPLETE PROCESSING SUMMARY: {product_name} ===")
         logger.info(f"Total coverage: {tss_stats['coverage_percent']:.1f}%")
         logger.info(f"TSS range: {tss_stats['min']:.2f} - {tss_stats['max']:.2f} g/m³")
         logger.info(f"TSS mean: {tss_stats['mean']:.2f} g/m³")
         
-        # Band usage statistics
-        if np.any(valid_mask):
+        # Jiang algorithm usage statistics
+        if reference_bands is not None and valid_mask is not None:
             ref_bands_valid = reference_bands[valid_mask]
             ref_bands_valid = ref_bands_valid[~np.isnan(ref_bands_valid)]
             
             if len(ref_bands_valid) > 0:
-                logger.info("Water type classification results:")
+                logger.info("Jiang water type classification results:")
                 for band in [560, 665, 740, 865]:
                     count = np.sum(ref_bands_valid == band)
                     percentage = (count / len(ref_bands_valid)) * 100
@@ -1852,7 +1813,65 @@ def _log_processing_summary(self, results: Dict[str, np.ndarray], product_name: 
                         }[band]
                         logger.info(f"  {band}nm ({water_type}): {count} pixels ({percentage:.1f}%)")
         
+        # Advanced algorithm summaries
+        if 'tsi_trophic_classification' in results:
+            tsi_class = results['tsi_trophic_classification']
+            valid_tsi = tsi_class[~np.isnan(tsi_class)]
+            if len(valid_tsi) > 0:
+                logger.info("Trophic state distribution:")
+                tsi_names = ['Invalid', 'Oligotrophic', 'Mesotrophic', 'Eutrophic', 'Hypereutrophic']
+                for i, name in enumerate(tsi_names):
+                    count = np.sum(valid_tsi == i)
+                    if count > 0:
+                        percentage = (count / len(valid_tsi)) * 100
+                        logger.info(f"  {name}: {count} pixels ({percentage:.1f}%)")
+        
+        if 'hab_hab_risk_level' in results:
+            hab_risk = results['hab_hab_risk_level']
+            valid_hab = hab_risk[~np.isnan(hab_risk)]
+            if len(valid_hab) > 0:
+                high_risk_count = np.sum(valid_hab == 3)
+                total_risk_count = np.sum(valid_hab > 0)
+                if total_risk_count > 0:
+                    logger.info(f"HAB detection: {total_risk_count} pixels with bloom risk ({high_risk_count} high risk)")
+        
         logger.info("=" * 60)
+    
+        def _log_processing_summary(self, results: Dict[str, np.ndarray], product_name: str):
+            """Log comprehensive processing summary"""
+            
+            tss_data = results['tss']
+            reference_bands = results['reference_band']
+            valid_mask = results['valid_mask']
+            
+            # Overall statistics
+            tss_stats = RasterIO.calculate_statistics(tss_data)
+            
+            logger.info(f"=== FULL JIANG TSS PROCESSING SUMMARY: {product_name} ===")
+            logger.info(f"Total coverage: {tss_stats['coverage_percent']:.1f}%")
+            logger.info(f"TSS range: {tss_stats['min']:.2f} - {tss_stats['max']:.2f} g/m³")
+            logger.info(f"TSS mean: {tss_stats['mean']:.2f} g/m³")
+            
+            # Band usage statistics
+            if np.any(valid_mask):
+                ref_bands_valid = reference_bands[valid_mask]
+                ref_bands_valid = ref_bands_valid[~np.isnan(ref_bands_valid)]
+                
+                if len(ref_bands_valid) > 0:
+                    logger.info("Water type classification results:")
+                    for band in [560, 665, 740, 865]:
+                        count = np.sum(ref_bands_valid == band)
+                        percentage = (count / len(ref_bands_valid)) * 100
+                        if count > 0:
+                            water_type = {
+                                560: "Type I (Clear)",
+                                665: "Type II (Moderately turbid)", 
+                                740: "Type III (Highly turbid)",
+                                865: "Type IV (Extremely turbid)"
+                            }[band]
+                            logger.info(f"  {band}nm ({water_type}): {count} pixels ({percentage:.1f}%)")
+            
+            logger.info("=" * 60)
 
 # =============================================================================
 # ADVANCED AQUATIC ALGORITHMS WITH BIBLIOGRAPHIC REFERENCES

@@ -1,0 +1,200 @@
+2025-07-11 23:12:58,722 - INFO - [sentinel2_tss_pipeline.py:6303] - Auto-detected SNAP_HOME: C:\Program Files\esa-snap
+2025-07-11 23:12:58,722 - INFO - [sentinel2_tss_pipeline.py:6344] - ================================================================================
+2025-07-11 23:12:58,722 - INFO - [sentinel2_tss_pipeline.py:6345] - UNIFIED S2 PROCESSING & TSS ESTIMATION PIPELINE v1.0
+2025-07-11 23:12:58,722 - INFO - [sentinel2_tss_pipeline.py:6346] - ================================================================================
+2025-07-11 23:12:58,722 - INFO - [sentinel2_tss_pipeline.py:6347] - SNAP_HOME: C:\Program Files\esa-snap
+2025-07-11 23:12:58,722 - INFO - [sentinel2_tss_pipeline.py:6348] - GPT: C:\Program Files\esa-snap\bin\gpt.exe
+2025-07-11 23:12:58,722 - INFO - [sentinel2_tss_pipeline.py:6349] - Python: 3.9.22 | packaged by conda-forge | (main, Apr 10 2025, 22:07:06) [MSC v.1929 64 bit (AMD64)]
+2025-07-11 23:12:58,722 - INFO - [sentinel2_tss_pipeline.py:6350] - Platform: win32
+2025-07-11 23:12:58,722 - INFO - [sentinel2_tss_pipeline.py:6351] - Working Directory: C:\Users\pedro.goncalves\OneDrive - LNEG - Laboratorio Nacional de Energia e Geologia\GitHub\sentinel2-tss-pipeline
+2025-07-11 23:12:58,734 - INFO - [sentinel2_tss_pipeline.py:6352] - ================================================================================
+2025-07-11 23:12:58,734 - INFO - [sentinel2_tss_pipeline.py:6361] - Starting GUI application...
+2025-07-11 23:13:45,868 - INFO - [sentinel2_tss_pipeline.py:2842] - SNAP_HOME: C:\Program Files\esa-snap
+2025-07-11 23:13:50,159 - INFO - [sentinel2_tss_pipeline.py:2853] - ✓ GPT validated: C:\Program Files\esa-snap\bin\gpt.exe
+2025-07-11 23:13:50,159 - INFO - [sentinel2_tss_pipeline.py:2960] - Complete processing graph saved: s2_complete_processing_with_subset.xml
+2025-07-11 23:13:50,159 - INFO - [sentinel2_tss_pipeline.py:2882] - ✓ Processing graph created for mode: complete_pipeline
+2025-07-11 23:13:50,159 - INFO - [sentinel2_tss_pipeline.py:1904] - Initialized Advanced Aquatic Processor with scientific algorithms
+2025-07-11 23:13:50,159 - INFO - [sentinel2_tss_pipeline.py:863] - Initialized Full Jiang TSS Processor with complete methodology
+2025-07-11 23:13:50,159 - INFO - [sentinel2_tss_pipeline.py:866] - Jiang TSS enabled: True
+2025-07-11 23:13:50,175 - INFO - [sentinel2_tss_pipeline.py:867] - Advanced algorithms enabled: True
+2025-07-11 23:13:50,175 - INFO - [sentinel2_tss_pipeline.py:869] - Advanced algorithms configuration:
+2025-07-11 23:13:50,176 - INFO - [sentinel2_tss_pipeline.py:870] -   - Trophic State Index: True
+2025-07-11 23:13:50,176 - INFO - [sentinel2_tss_pipeline.py:871] -   - Water Clarity: True
+2025-07-11 23:13:50,177 - INFO - [sentinel2_tss_pipeline.py:872] -   - HAB Detection: True
+2025-07-11 23:13:50,177 - INFO - [sentinel2_tss_pipeline.py:873] -   - Upwelling Detection: True
+2025-07-11 23:13:50,178 - INFO - [sentinel2_tss_pipeline.py:874] -   - River Plume Tracking: True
+2025-07-11 23:13:50,178 - INFO - [sentinel2_tss_pipeline.py:875] -   - Particle Size Estimation: True
+2025-07-11 23:13:50,179 - INFO - [sentinel2_tss_pipeline.py:876] -   - Primary Productivity: True
+2025-07-11 23:13:50,179 - INFO - [sentinel2_tss_pipeline.py:3473] - Initialized Unified S2-TSS Processor - Mode: complete_pipeline
+2025-07-11 23:13:50,181 - INFO - [sentinel2_tss_pipeline.py:5865] - TEST MODE: Processing only 2 products
+2025-07-11 23:13:50,181 - INFO - [sentinel2_tss_pipeline.py:3547] - 
+--------------------------------------------------------------------------------
+2025-07-11 23:13:50,182 - INFO - [sentinel2_tss_pipeline.py:3548] - Processing 1/2: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753
+2025-07-11 23:13:50,182 - INFO - [sentinel2_tss_pipeline.py:3549] - Mode: complete_pipeline
+2025-07-11 23:13:50,182 - INFO - [sentinel2_tss_pipeline.py:3550] - --------------------------------------------------------------------------------
+2025-07-11 23:13:50,183 - INFO - [sentinel2_tss_pipeline.py:3132] - Processing: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip
+2025-07-11 23:13:50,183 - INFO - [sentinel2_tss_pipeline.py:3133] -   Mode: complete_pipeline
+2025-07-11 23:13:50,183 - INFO - [sentinel2_tss_pipeline.py:3134] -   Resolution: 10m
+2025-07-11 23:13:50,183 - INFO - [sentinel2_tss_pipeline.py:3135] -   ECMWF: True
+2025-07-11 23:13:50,183 - INFO - [sentinel2_tss_pipeline.py:3250] - Starting S2 processing with C2RCC...
+2025-07-11 23:26:35,785 - INFO - [sentinel2_tss_pipeline.py:3374] - ✓ C2RCC verification passed: all 8 rhow bands available
+2025-07-11 23:26:35,786 - INFO - [sentinel2_tss_pipeline.py:3201] - ✅ S2 processing SUCCESS: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip
+2025-07-11 23:26:35,787 - INFO - [sentinel2_tss_pipeline.py:3202] -    Output: Resampled_S2A_20190105T112441_T29TNF_Subset_C2RCC.dim (20.8MB)
+2025-07-11 23:26:35,787 - INFO - [sentinel2_tss_pipeline.py:3203] -    SNAP Products: TSM=False, CHL=False, Uncertainties=False
+2025-07-11 23:26:35,788 - INFO - [sentinel2_tss_pipeline.py:3204] -    Processing time: 12.8 minutes
+2025-07-11 23:26:35,789 - INFO - [sentinel2_tss_pipeline.py:3388] - Starting TSS processing for S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip
+2025-07-11 23:26:35,790 - INFO - [sentinel2_tss_pipeline.py:1904] - Initialized Advanced Aquatic Processor with scientific algorithms
+2025-07-11 23:26:35,790 - INFO - [sentinel2_tss_pipeline.py:863] - Initialized Full Jiang TSS Processor with complete methodology
+2025-07-11 23:26:35,791 - INFO - [sentinel2_tss_pipeline.py:866] - Jiang TSS enabled: True
+2025-07-11 23:26:35,791 - INFO - [sentinel2_tss_pipeline.py:867] - Advanced algorithms enabled: True
+2025-07-11 23:26:35,792 - INFO - [sentinel2_tss_pipeline.py:869] - Advanced algorithms configuration:
+2025-07-11 23:26:35,792 - INFO - [sentinel2_tss_pipeline.py:870] -   - Trophic State Index: True
+2025-07-11 23:26:35,792 - INFO - [sentinel2_tss_pipeline.py:871] -   - Water Clarity: True
+2025-07-11 23:26:35,793 - INFO - [sentinel2_tss_pipeline.py:872] -   - HAB Detection: True
+2025-07-11 23:26:35,794 - INFO - [sentinel2_tss_pipeline.py:873] -   - Upwelling Detection: True
+2025-07-11 23:26:35,794 - INFO - [sentinel2_tss_pipeline.py:874] -   - River Plume Tracking: True
+2025-07-11 23:26:35,795 - INFO - [sentinel2_tss_pipeline.py:875] -   - Particle Size Estimation: True
+2025-07-11 23:26:35,796 - INFO - [sentinel2_tss_pipeline.py:876] -   - Primary Productivity: True
+2025-07-11 23:26:35,797 - INFO - [sentinel2_tss_pipeline.py:942] - Starting CORRECTED Jiang TSS processing for S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip
+2025-07-11 23:26:35,798 - INFO - [sentinel2_tss_pipeline.py:912] - Successfully found 8 spectral bands
+2025-07-11 23:26:37,910 - INFO - [sentinel2_tss_pipeline.py:1120] - Applying Jiang methodology (exact R translation)
+2025-07-11 23:26:39,383 - INFO - [sentinel2_tss_pipeline.py:1219] - Processing 22718979 valid pixels with corrected Jiang algorithm
+2025-07-11 23:33:57,783 - INFO - [sentinel2_tss_pipeline.py:1155] - CORRECTED Jiang processing completed:
+2025-07-11 23:33:57,784 - INFO - [sentinel2_tss_pipeline.py:1156] -   Valid pixels: 22718979/64134180 (35.4%)
+2025-07-11 23:33:57,869 - INFO - [sentinel2_tss_pipeline.py:1164] - Water type distribution (corrected algorithm):
+2025-07-11 23:33:57,889 - INFO - [sentinel2_tss_pipeline.py:1175] -   560nm (Type I (Clear water)): 16451874 pixels (72.4%)
+2025-07-11 23:33:57,908 - INFO - [sentinel2_tss_pipeline.py:1175] -   665nm (Type II (Moderately turbid)): 5018572 pixels (22.1%)
+2025-07-11 23:33:57,930 - INFO - [sentinel2_tss_pipeline.py:1175] -   740nm (Type III (Highly turbid)): 1248528 pixels (5.5%)
+2025-07-11 23:33:57,951 - INFO - [sentinel2_tss_pipeline.py:1175] -   865nm (Type IV (Extremely turbid)): 5 pixels (0.0%)
+2025-07-11 23:33:57,993 - INFO - [sentinel2_tss_pipeline.py:965] - Processing advanced algorithms
+2025-07-11 23:33:57,994 - INFO - [sentinel2_tss_pipeline.py:998] - Processing advanced aquatic algorithms
+2025-07-11 23:33:57,995 - WARNING - [sentinel2_tss_pipeline.py:1109] - SNAP chlorophyll data not found
+2025-07-11 23:33:57,995 - INFO - [sentinel2_tss_pipeline.py:1015] - Calculating water clarity indices
+2025-07-11 23:33:57,996 - INFO - [sentinel2_tss_pipeline.py:2005] - Calculating water clarity indices
+2025-07-11 23:33:58,648 - INFO - [sentinel2_tss_pipeline.py:2040] - Water clarity calculated for 22718979 pixels
+2025-07-11 23:33:58,943 - INFO - [sentinel2_tss_pipeline.py:2041] - Mean Secchi depth: 17.05 m
+2025-07-11 23:33:59,204 - INFO - [sentinel2_tss_pipeline.py:2042] - Mean clarity index: 0.833
+2025-07-11 23:33:59,205 - INFO - [sentinel2_tss_pipeline.py:1062] - Estimating particle size distribution
+2025-07-11 23:33:59,206 - INFO - [sentinel2_tss_pipeline.py:2442] - Estimating particle size from backscattering spectral slope
+2025-07-11 23:53:46,514 - INFO - [sentinel2_tss_pipeline.py:2530] - Particle size estimated for 17129527 pixels
+2025-07-11 23:53:46,718 - INFO - [sentinel2_tss_pipeline.py:2531] - Mean spectral slope: 0.000
+2025-07-11 23:53:46,768 - INFO - [sentinel2_tss_pipeline.py:2539] -   Invalid: 47004653 pixels (274.4%)
+2025-07-11 23:53:46,921 - INFO - [sentinel2_tss_pipeline.py:2539] -   Large (>20µm): 17129527 pixels (100.0%)
+2025-07-11 23:53:46,922 - INFO - [sentinel2_tss_pipeline.py:1090] - Advanced algorithms completed: 10 additional products
+2025-07-11 23:53:46,922 - INFO - [sentinel2_tss_pipeline.py:970] - Advanced algorithms completed: 10 additional products
+2025-07-11 23:53:46,924 - INFO - [sentinel2_tss_pipeline.py:1652] - Saving 15 products:
+2025-07-11 23:53:46,925 - INFO - [sentinel2_tss_pipeline.py:1653] -   Core Jiang products: 5
+2025-07-11 23:53:46,925 - INFO - [sentinel2_tss_pipeline.py:1654] -   Advanced products: 10
+2025-07-11 23:53:49,025 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip_Jiang_Absorption.tif
+2025-07-11 23:53:51,344 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip_Jiang_Backscattering.tif
+2025-07-11 23:53:52,945 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip_Jiang_ReferenceBand.tif
+2025-07-11 23:53:55,182 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip_Jiang_TSS.tif
+2025-07-11 23:53:56,648 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip_Jiang_ValidMask.tif
+2025-07-11 23:53:59,244 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip_Clarity_Secchidepth.tif
+2025-07-11 23:54:01,630 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip_Clarity_Clarityindex.tif
+2025-07-11 23:54:04,069 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip_Clarity_Euphoticdepth.tif
+2025-07-11 23:54:06,467 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip_Clarity_Diffuseattenuation.tif
+2025-07-11 23:54:08,776 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip_Clarity_Beamattenuation.tif
+2025-07-11 23:54:11,000 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip_Clarity_Turbidityproxy.tif
+2025-07-11 23:54:12,302 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip_Particle_Spectral_Slope.tif
+2025-07-11 23:54:12,487 - ERROR - [sentinel2_tss_pipeline.py:600] - Error writing raster D:/GSEU_WP5/02_TSS_Results\TSS_Products\Advanced_Products\S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip_Particle_Size_Classification.tif: Python integer -9999 out of bounds for uint8
+2025-07-11 23:54:12,489 - ERROR - [sentinel2_tss_pipeline.py:1680] - Failed to save size_classification
+2025-07-11 23:54:12,502 - ERROR - [sentinel2_tss_pipeline.py:600] - Error writing raster D:/GSEU_WP5/02_TSS_Results\TSS_Products\Advanced_Products\S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip_Particle_Dominant_Type.tif: Python integer -9999 out of bounds for uint8
+2025-07-11 23:54:12,504 - ERROR - [sentinel2_tss_pipeline.py:1680] - Failed to save dominant_particle_type
+2025-07-11 23:54:13,599 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip_Particle_Psd_Slope.tif
+2025-07-11 23:54:13,773 - INFO - [sentinel2_tss_pipeline.py:1691] - Product saving completed:
+2025-07-11 23:54:13,774 - INFO - [sentinel2_tss_pipeline.py:1692] -   Successfully saved: 13 products
+2025-07-11 23:54:13,774 - INFO - [sentinel2_tss_pipeline.py:1693] -   Skipped (no data): 0 products
+2025-07-11 23:54:13,775 - INFO - [sentinel2_tss_pipeline.py:1694] -   Total attempted: 15 products
+2025-07-11 23:54:13,775 - ERROR - [sentinel2_tss_pipeline.py:1707] - Error saving complete results: 'JiangTSSProcessor' object has no attribute '_log_processing_summary'
+2025-07-11 23:54:13,776 - INFO - [sentinel2_tss_pipeline.py:982] - CORRECTED Jiang processing completed:
+2025-07-11 23:54:13,776 - INFO - [sentinel2_tss_pipeline.py:983] -   Jiang products: 5
+2025-07-11 23:54:13,777 - INFO - [sentinel2_tss_pipeline.py:984] -   Advanced products: -4
+2025-07-11 23:54:13,777 - INFO - [sentinel2_tss_pipeline.py:985] -   Total products: 1
+2025-07-11 23:54:13,883 - ERROR - [sentinel2_tss_pipeline.py:3579] - Processing failed: Error saving complete results: 'JiangTSSProcessor' object has no attribute '_log_processing_summary'
+2025-07-11 23:54:14,005 - INFO - [sentinel2_tss_pipeline.py:3547] - 
+--------------------------------------------------------------------------------
+2025-07-11 23:54:14,005 - INFO - [sentinel2_tss_pipeline.py:3548] - Processing 2/2: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306
+2025-07-11 23:54:14,006 - INFO - [sentinel2_tss_pipeline.py:3549] - Mode: complete_pipeline
+2025-07-11 23:54:14,006 - INFO - [sentinel2_tss_pipeline.py:3550] - --------------------------------------------------------------------------------
+2025-07-11 23:54:14,007 - INFO - [sentinel2_tss_pipeline.py:3132] - Processing: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
+2025-07-11 23:54:14,008 - INFO - [sentinel2_tss_pipeline.py:3133] -   Mode: complete_pipeline
+2025-07-11 23:54:14,008 - INFO - [sentinel2_tss_pipeline.py:3134] -   Resolution: 10m
+2025-07-11 23:54:14,009 - INFO - [sentinel2_tss_pipeline.py:3135] -   ECMWF: True
+2025-07-11 23:54:14,010 - INFO - [sentinel2_tss_pipeline.py:3250] - Starting S2 processing with C2RCC...
+2025-07-12 00:07:32,383 - INFO - [sentinel2_tss_pipeline.py:3374] - ✓ C2RCC verification passed: all 8 rhow bands available
+2025-07-12 00:07:32,384 - INFO - [sentinel2_tss_pipeline.py:3201] - ✅ S2 processing SUCCESS: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
+2025-07-12 00:07:32,384 - INFO - [sentinel2_tss_pipeline.py:3202] -    Output: Resampled_S2A_20190108T113441_T29TNF_Subset_C2RCC.dim (20.7MB)
+2025-07-12 00:07:32,385 - INFO - [sentinel2_tss_pipeline.py:3203] -    SNAP Products: TSM=False, CHL=False, Uncertainties=False
+2025-07-12 00:07:32,385 - INFO - [sentinel2_tss_pipeline.py:3204] -    Processing time: 13.3 minutes
+2025-07-12 00:07:32,386 - INFO - [sentinel2_tss_pipeline.py:3388] - Starting TSS processing for S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
+2025-07-12 00:07:32,386 - INFO - [sentinel2_tss_pipeline.py:1904] - Initialized Advanced Aquatic Processor with scientific algorithms
+2025-07-12 00:07:32,387 - INFO - [sentinel2_tss_pipeline.py:863] - Initialized Full Jiang TSS Processor with complete methodology
+2025-07-12 00:07:32,387 - INFO - [sentinel2_tss_pipeline.py:866] - Jiang TSS enabled: True
+2025-07-12 00:07:32,388 - INFO - [sentinel2_tss_pipeline.py:867] - Advanced algorithms enabled: True
+2025-07-12 00:07:32,388 - INFO - [sentinel2_tss_pipeline.py:869] - Advanced algorithms configuration:
+2025-07-12 00:07:32,389 - INFO - [sentinel2_tss_pipeline.py:870] -   - Trophic State Index: True
+2025-07-12 00:07:32,389 - INFO - [sentinel2_tss_pipeline.py:871] -   - Water Clarity: True
+2025-07-12 00:07:32,390 - INFO - [sentinel2_tss_pipeline.py:872] -   - HAB Detection: True
+2025-07-12 00:07:32,390 - INFO - [sentinel2_tss_pipeline.py:873] -   - Upwelling Detection: True
+2025-07-12 00:07:32,391 - INFO - [sentinel2_tss_pipeline.py:874] -   - River Plume Tracking: True
+2025-07-12 00:07:32,391 - INFO - [sentinel2_tss_pipeline.py:875] -   - Particle Size Estimation: True
+2025-07-12 00:07:32,392 - INFO - [sentinel2_tss_pipeline.py:876] -   - Primary Productivity: True
+2025-07-12 00:07:32,393 - INFO - [sentinel2_tss_pipeline.py:942] - Starting CORRECTED Jiang TSS processing for S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
+2025-07-12 00:07:32,394 - INFO - [sentinel2_tss_pipeline.py:912] - Successfully found 8 spectral bands
+2025-07-12 00:07:34,462 - INFO - [sentinel2_tss_pipeline.py:1120] - Applying Jiang methodology (exact R translation)
+2025-07-12 00:07:35,782 - INFO - [sentinel2_tss_pipeline.py:1219] - Processing 18614363 valid pixels with corrected Jiang algorithm
+2025-07-12 00:13:12,043 - INFO - [sentinel2_tss_pipeline.py:1155] - CORRECTED Jiang processing completed:
+2025-07-12 00:13:12,044 - INFO - [sentinel2_tss_pipeline.py:1156] -   Valid pixels: 18614363/64134180 (29.0%)
+2025-07-12 00:13:12,111 - INFO - [sentinel2_tss_pipeline.py:1164] - Water type distribution (corrected algorithm):
+2025-07-12 00:13:12,127 - INFO - [sentinel2_tss_pipeline.py:1175] -   560nm (Type I (Clear water)): 1707046 pixels (9.2%)
+2025-07-12 00:13:12,143 - INFO - [sentinel2_tss_pipeline.py:1175] -   665nm (Type II (Moderately turbid)): 1995449 pixels (10.7%)
+2025-07-12 00:13:12,159 - INFO - [sentinel2_tss_pipeline.py:1175] -   740nm (Type III (Highly turbid)): 14911864 pixels (80.1%)
+2025-07-12 00:13:12,175 - INFO - [sentinel2_tss_pipeline.py:1175] -   865nm (Type IV (Extremely turbid)): 4 pixels (0.0%)
+2025-07-12 00:13:12,220 - INFO - [sentinel2_tss_pipeline.py:965] - Processing advanced algorithms
+2025-07-12 00:13:12,221 - INFO - [sentinel2_tss_pipeline.py:998] - Processing advanced aquatic algorithms
+2025-07-12 00:13:12,222 - WARNING - [sentinel2_tss_pipeline.py:1109] - SNAP chlorophyll data not found
+2025-07-12 00:13:12,222 - INFO - [sentinel2_tss_pipeline.py:1015] - Calculating water clarity indices
+2025-07-12 00:13:12,222 - INFO - [sentinel2_tss_pipeline.py:2005] - Calculating water clarity indices
+2025-07-12 00:13:12,920 - INFO - [sentinel2_tss_pipeline.py:2040] - Water clarity calculated for 18614363 pixels
+2025-07-12 00:13:13,168 - INFO - [sentinel2_tss_pipeline.py:2041] - Mean Secchi depth: 3.02 m
+2025-07-12 00:13:13,417 - INFO - [sentinel2_tss_pipeline.py:2042] - Mean clarity index: 0.370
+2025-07-12 00:13:13,418 - INFO - [sentinel2_tss_pipeline.py:1062] - Estimating particle size distribution
+2025-07-12 00:13:13,419 - INFO - [sentinel2_tss_pipeline.py:2442] - Estimating particle size from backscattering spectral slope
+2025-07-12 00:32:51,740 - INFO - [sentinel2_tss_pipeline.py:2530] - Particle size estimated for 17332637 pixels
+2025-07-12 00:32:51,930 - INFO - [sentinel2_tss_pipeline.py:2531] - Mean spectral slope: 0.000
+2025-07-12 00:32:51,977 - INFO - [sentinel2_tss_pipeline.py:2539] -   Invalid: 46801543 pixels (270.0%)
+2025-07-12 00:32:52,119 - INFO - [sentinel2_tss_pipeline.py:2539] -   Large (>20µm): 17332637 pixels (100.0%)
+2025-07-12 00:32:52,119 - INFO - [sentinel2_tss_pipeline.py:1090] - Advanced algorithms completed: 10 additional products
+2025-07-12 00:32:52,120 - INFO - [sentinel2_tss_pipeline.py:970] - Advanced algorithms completed: 10 additional products
+2025-07-12 00:32:52,121 - INFO - [sentinel2_tss_pipeline.py:1652] - Saving 15 products:
+2025-07-12 00:32:52,122 - INFO - [sentinel2_tss_pipeline.py:1653] -   Core Jiang products: 5
+2025-07-12 00:32:52,122 - INFO - [sentinel2_tss_pipeline.py:1654] -   Advanced products: 10
+2025-07-12 00:32:53,473 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip_Jiang_Absorption.tif
+2025-07-12 00:32:55,397 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip_Jiang_Backscattering.tif
+2025-07-12 00:32:56,764 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip_Jiang_ReferenceBand.tif
+2025-07-12 00:32:58,692 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip_Jiang_TSS.tif
+2025-07-12 00:33:00,099 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip_Jiang_ValidMask.tif
+2025-07-12 00:33:02,506 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip_Clarity_Secchidepth.tif
+2025-07-12 00:33:04,580 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip_Clarity_Clarityindex.tif
+2025-07-12 00:33:06,734 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip_Clarity_Euphoticdepth.tif
+2025-07-12 00:33:08,877 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip_Clarity_Diffuseattenuation.tif
+2025-07-12 00:33:10,916 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip_Clarity_Beamattenuation.tif
+2025-07-12 00:33:12,840 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip_Clarity_Turbidityproxy.tif
+2025-07-12 00:33:14,113 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip_Particle_Spectral_Slope.tif
+2025-07-12 00:33:14,288 - ERROR - [sentinel2_tss_pipeline.py:600] - Error writing raster D:/GSEU_WP5/02_TSS_Results\TSS_Products\Advanced_Products\S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip_Particle_Size_Classification.tif: Python integer -9999 out of bounds for uint8
+2025-07-12 00:33:14,289 - ERROR - [sentinel2_tss_pipeline.py:1680] - Failed to save size_classification
+2025-07-12 00:33:14,303 - ERROR - [sentinel2_tss_pipeline.py:600] - Error writing raster D:/GSEU_WP5/02_TSS_Results\TSS_Products\Advanced_Products\S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip_Particle_Dominant_Type.tif: Python integer -9999 out of bounds for uint8
+2025-07-12 00:33:14,305 - ERROR - [sentinel2_tss_pipeline.py:1680] - Failed to save dominant_particle_type
+2025-07-12 00:33:15,362 - INFO - [sentinel2_tss_pipeline.py:596] - Successfully wrote raster: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip_Particle_Psd_Slope.tif
+2025-07-12 00:33:15,524 - INFO - [sentinel2_tss_pipeline.py:1691] - Product saving completed:
+2025-07-12 00:33:15,525 - INFO - [sentinel2_tss_pipeline.py:1692] -   Successfully saved: 13 products
+2025-07-12 00:33:15,525 - INFO - [sentinel2_tss_pipeline.py:1693] -   Skipped (no data): 0 products
+2025-07-12 00:33:15,526 - INFO - [sentinel2_tss_pipeline.py:1694] -   Total attempted: 15 products
+2025-07-12 00:33:15,527 - ERROR - [sentinel2_tss_pipeline.py:1707] - Error saving complete results: 'JiangTSSProcessor' object has no attribute '_log_processing_summary'
+2025-07-12 00:33:15,527 - INFO - [sentinel2_tss_pipeline.py:982] - CORRECTED Jiang processing completed:
+2025-07-12 00:33:15,527 - INFO - [sentinel2_tss_pipeline.py:983] -   Jiang products: 5
+2025-07-12 00:33:15,528 - INFO - [sentinel2_tss_pipeline.py:984] -   Advanced products: -4
+2025-07-12 00:33:15,529 - INFO - [sentinel2_tss_pipeline.py:985] -   Total products: 1
+2025-07-12 00:33:15,644 - ERROR - [sentinel2_tss_pipeline.py:3579] - Processing failed: Error saving complete results: 'JiangTSSProcessor' object has no attribute '_log_processing_summary'
+2025-07-12 09:09:23,235 - INFO - [sentinel2_tss_pipeline.py:6365] - Application finished successfully
