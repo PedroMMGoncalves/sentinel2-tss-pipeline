@@ -974,30 +974,36 @@ class JiangTSSConstants:
 
 @dataclass
 class JiangTSSConfig:
-    """Jiang TSS methodology configuration with advanced algorithms support"""
-    enable_jiang_tss: bool = False  # Optional by default
+    """Jiang TSS methodology configuration - CLEAN VERSION"""
+    enable_jiang_tss: bool = True  # ENABLED BY DEFAULT
     output_intermediates: bool = True
     water_mask_threshold: float = 0.01
     tss_valid_range: tuple = (0.01, 10000)  # g/m³
     output_comparison_stats: bool = True
+    
+    # Advanced algorithms configuration - SIMPLIFIED
     enable_advanced_algorithms: bool = True
     advanced_config: Optional['AdvancedAquaticConfig'] = None
     
     def __post_init__(self):
-        """Initialize advanced config if enabled"""
+        """Initialize advanced config with only working algorithms"""
         if self.enable_advanced_algorithms and self.advanced_config is None:
             self.advanced_config = AdvancedAquaticConfig()
-
+            
 class JiangTSSProcessor:
     """Complete implementation of Jiang et al. 2023 TSS methodology - FULL VERSION"""
     
     def __init__(self, config: JiangTSSConfig):
+        """Initialize Jiang TSS Processor with clean configuration"""
+        # Direct assignment - no patching needed
+        self.config = config
+        self.constants = JiangTSSConstants()
         
         # Initialize advanced processor if enabled
         if self.config.enable_advanced_algorithms:
             self.advanced_processor = AdvancedAquaticProcessor()
             if self.config.advanced_config is None:
-                self.advanced_config = AdvancedAquaticConfig()
+                self.config.advanced_config = AdvancedAquaticConfig()
         else:
             self.advanced_processor = None
             
