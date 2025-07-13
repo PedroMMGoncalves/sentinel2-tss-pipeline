@@ -166,15 +166,6 @@ print("="*60)
 print("Dependency check completed")
 print("="*60)
 
-def patch_jiang_config(jiang_config):
-    """Fix missing attributes in JiangTSSConfig"""
-    if not hasattr(jiang_config, 'enable_advanced_algorithms'):
-        jiang_config.enable_advanced_algorithms = True
-    
-    if not hasattr(jiang_config, 'advanced_config'):
-        jiang_config.advanced_config = AdvancedAquaticConfig() if jiang_config.enable_advanced_algorithms else None
-    
-    return jiang_config
 
 # Configure enhanced logging
 class ColoredFormatter(logging.Formatter):
@@ -327,19 +318,19 @@ class C2RCCConfig:
 
 @dataclass
 class JiangTSSConfig:
-    """Jiang TSS methodology configuration with advanced algorithms support"""
-    enable_jiang_tss: bool = False  # Optional by default
+    """Jiang TSS methodology configuration - CLEAN VERSION"""
+    enable_jiang_tss: bool = True  # Enable by default
     output_intermediates: bool = True
     water_mask_threshold: float = 0.01
     tss_valid_range: tuple = (0.01, 10000)  # g/m³
     output_comparison_stats: bool = True
     
-    # Advanced algorithms configuration - THESE ARE THE MISSING ATTRIBUTES
+    # Advanced algorithms configuration - SIMPLIFIED
     enable_advanced_algorithms: bool = True
     advanced_config: Optional['AdvancedAquaticConfig'] = None
     
     def __post_init__(self):
-        """Initialize advanced config if enabled"""
+        """Initialize advanced config with only working algorithms"""
         if self.enable_advanced_algorithms and self.advanced_config is None:
             self.advanced_config = AdvancedAquaticConfig()
 
@@ -347,46 +338,18 @@ class JiangTSSConfig:
 class AdvancedAquaticConfig:
     """Configuration for advanced aquatic algorithms"""
     
-    # Trophic state calculation
-    enable_trophic_state: bool = True
-    tsi_include_secchi: bool = False
-    tsi_include_phosphorus: bool = False
-    
-    # Water clarity calculation
+    # WORKING ALGORITHMS ONLY
     enable_water_clarity: bool = True
     solar_zenith_angle: float = 30.0
     
-    # HAB detection
     enable_hab_detection: bool = True
     hab_biomass_threshold: float = 20.0
     hab_extreme_threshold: float = 100.0
-    
-    # Upwelling detection
-    enable_upwelling_detection: bool = True
-    upwelling_chl_threshold: float = 10.0
-    
-    # River plume tracking
-    enable_river_plume_tracking: bool = True
-    plume_tss_threshold: float = 15.0
-    plume_distance_threshold: float = 10000
-    
-    # Particle size estimation
-    enable_particle_size: bool = True
-    particle_size_wavelengths: List[int] = None
-    
-    # Primary productivity
-    enable_primary_productivity: bool = True
-    productivity_model: str = 'vgpm'
-    day_length: float = 12.0
     
     # Output options
     save_intermediate_products: bool = True
     create_classification_maps: bool = True
     generate_statistics: bool = True
-    
-    def __post_init__(self):
-        if self.particle_size_wavelengths is None:
-            self.particle_size_wavelengths = [443, 490, 560, 665, 705]
 @dataclass
 class ProcessingConfig:
     """Complete processing configuration"""
@@ -799,7 +762,7 @@ class SNAPTSMCHLCalculator:
         logger.info(f"  CHL formula: CHL = apig^{chl_exp} * {chl_fac}")
     
     def calculate_snap_tsm_chl(self, c2rcc_path: str) -> Dict[str, ProcessingResult]:
-        """Calculate TSM and CHL from SNAP IOPs using official formulas"""
+        """Calculate TSM and CHL from SNAP IOPs using official formulas - FIXED VERSION"""
         try:
             logger.info("Calculating SNAP TSM/CHL from IOP products...")
             
@@ -835,22 +798,45 @@ class SNAPTSMCHLCalculator:
             
             results = {}
             
-            # Calculate CHL from apig using SNAP formula
+            # Calculate CHL from apig using SNAP formula - FIXED
             if 'apig' in available_iops:
                 logger.info("Calculating CHL concentration from iop_apig...")
                 
                 apig_data = available_iops['apig']['data']
                 metadata = available_iops['apig']['metadata']
                 
-                # Apply SNAP CHL formula: CHL = apig^CHLexp * CHLfac
-                chl_concentration = SafeMathNumPy.safe_power(apig_data, self.chl_exp) * self.chl_fac
+                # FIXED: Direct numpy calculation instead of SafeMathNumPy
+                # Handle edge cases properly
+                valid_mask = (apig_data > 0) & (~np.isnan(apig_data)) & (~np.isinf(apig_data))
                 
-                # Handle invalid values (negative, zero, infinite)
-                chl_concentration = np.where(
-                    (apig_data <= 0) | np.isnan(apig_data) | np.isinf(apig_data),
-                    np.nan,
-                    chl_concentration
-                )
+                # Initialize result array
+                chl_concentration = np.full_like(apig_data, np.nan, dtype=np.float32)
+                
+                if np.any(valid_mask):
+                    # Apply SNAP CHL formula: CHL = apig^CHLexp * CHLfac
+                    # Use numpy power function directly with proper handling
+                    try:
+                        valid_apig = apig_data[valid_mask]
+                        chl_values = np.power(valid_apig, self.chl_exp) * self.chl_fac
+                        
+                        # Check for invalid results
+                        valid_chl_mask = (~np.isnan(chl_values)) & (~np.isinf(chl_values)) & (chl_values >= 0)
+                        
+                        # Only assign valid CHL values
+                        if np.any(valid_chl_mask):
+                            # Create a temporary mask for the original array
+                            temp_mask = valid_mask.copy()
+                            temp_mask[valid_mask] = valid_chl_mask
+                            chl_concentration[temp_mask] = chl_values[valid_chl_mask]
+                            
+                            logger.info(f"CHL calculation: {np.sum(temp_mask)} valid pixels out of {np.sum(valid_mask)} processed")
+                        else:
+                            logger.warning("No valid CHL values after calculation")
+                            
+                    except Exception as calc_error:
+                        logger.error(f"Error in CHL calculation: {calc_error}")
+                        # Fill with NaN if calculation fails
+                        chl_concentration = np.full_like(apig_data, np.nan, dtype=np.float32)
                 
                 # Save CHL concentration
                 output_path = os.path.join(data_folder, 'conc_chl.img')
@@ -870,7 +856,7 @@ class SNAPTSMCHLCalculator:
                 logger.error("Cannot calculate CHL: iop_apig.img not available")
                 results['snap_chl'] = ProcessingResult(False, "", None, "Missing iop_apig for CHL calculation")
             
-            # Calculate TSM from bpart + bwit (btot approximation)
+            # Calculate TSM from bpart + bwit (btot approximation) - FIXED
             if 'bpart' in available_iops and 'bwit' in available_iops:
                 logger.info("Calculating TSM concentration from bpart + bwit (btot approximation)...")
                 
@@ -878,18 +864,40 @@ class SNAPTSMCHLCalculator:
                 bwit_data = available_iops['bwit']['data']
                 metadata = available_iops['bpart']['metadata']
                 
+                # FIXED: Direct numpy calculation
                 # Approximate btot as bpart + bwit (since iop_btot.img is missing)
                 btot_approx = bpart_data + bwit_data
                 
-                # Apply SNAP TSM formula: TSM = TSMfac * btot^TSMexp
-                tsm_concentration = self.tsm_fac * SafeMathNumPy.safe_power(btot_approx, self.tsm_exp)
+                # Handle edge cases properly
+                valid_mask = (btot_approx > 0) & (~np.isnan(btot_approx)) & (~np.isinf(btot_approx))
                 
-                # Handle invalid values
-                tsm_concentration = np.where(
-                    (btot_approx <= 0) | np.isnan(btot_approx) | np.isinf(btot_approx),
-                    np.nan,
-                    tsm_concentration
-                )
+                # Initialize result array
+                tsm_concentration = np.full_like(btot_approx, np.nan, dtype=np.float32)
+                
+                if np.any(valid_mask):
+                    # Apply SNAP TSM formula: TSM = TSMfac * btot^TSMexp
+                    try:
+                        valid_btot = btot_approx[valid_mask]
+                        tsm_values = self.tsm_fac * np.power(valid_btot, self.tsm_exp)
+                        
+                        # Check for invalid results
+                        valid_tsm_mask = (~np.isnan(tsm_values)) & (~np.isinf(tsm_values)) & (tsm_values >= 0)
+                        
+                        # Only assign valid TSM values
+                        if np.any(valid_tsm_mask):
+                            # Create a temporary mask for the original array
+                            temp_mask = valid_mask.copy()
+                            temp_mask[valid_mask] = valid_tsm_mask
+                            tsm_concentration[temp_mask] = tsm_values[valid_tsm_mask]
+                            
+                            logger.info(f"TSM calculation: {np.sum(temp_mask)} valid pixels out of {np.sum(valid_mask)} processed")
+                        else:
+                            logger.warning("No valid TSM values after calculation")
+                            
+                    except Exception as calc_error:
+                        logger.error(f"Error in TSM calculation: {calc_error}")
+                        # Fill with NaN if calculation fails
+                        tsm_concentration = np.full_like(btot_approx, np.nan, dtype=np.float32)
                 
                 # Save TSM concentration
                 output_path = os.path.join(data_folder, 'conc_tsm.img')
@@ -914,6 +922,8 @@ class SNAPTSMCHLCalculator:
         except Exception as e:
             error_msg = f"Error calculating SNAP TSM/CHL: {str(e)}"
             logger.error(error_msg)
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return {'error': ProcessingResult(False, "", None, error_msg)}
 
 # ===== JIANG TSS PROCESSOR =====
@@ -982,32 +992,25 @@ class JiangTSSProcessor:
     """Complete implementation of Jiang et al. 2023 TSS methodology - FULL VERSION"""
     
     def __init__(self, config: JiangTSSConfig):
-        # PATCH: Fix missing attributes
-        self.config = patch_jiang_config(config)
-        self.constants = JiangTSSConstants()
         
         # Initialize advanced processor if enabled
         if self.config.enable_advanced_algorithms:
             self.advanced_processor = AdvancedAquaticProcessor()
             if self.config.advanced_config is None:
-                self.config.advanced_config = AdvancedAquaticConfig()
+                self.advanced_config = AdvancedAquaticConfig()
         else:
             self.advanced_processor = None
             
-        logger.info("Initialized Full Jiang TSS Processor with complete methodology")
+        logger.info("Initialized Jiang TSS Processor with clean methodology")
         
-        # Log configuration status
+        # CLEAN: Log only working algorithms
         logger.info(f"Jiang TSS enabled: {self.config.enable_jiang_tss}")
         logger.info(f"Advanced algorithms enabled: {self.config.enable_advanced_algorithms}")
         if self.config.enable_advanced_algorithms and self.config.advanced_config:
-            logger.info("Advanced algorithms configuration:")
-            logger.info(f"  - Trophic State Index: {self.config.advanced_config.enable_trophic_state}")
-            logger.info(f"  - Water Clarity: {self.config.advanced_config.enable_water_clarity}")
-            logger.info(f"  - HAB Detection: {self.config.advanced_config.enable_hab_detection}")
-            logger.info(f"  - Upwelling Detection: {self.config.advanced_config.enable_upwelling_detection}")
-            logger.info(f"  - River Plume Tracking: {self.config.advanced_config.enable_river_plume_tracking}")
-            logger.info(f"  - Particle Size Estimation: {self.config.advanced_config.enable_particle_size}")
-            logger.info(f"  - Primary Productivity: {self.config.advanced_config.enable_primary_productivity}")
+            logger.info("Working algorithms available:")
+            logger.info(f"  ✓ Water Clarity: {self.config.advanced_config.enable_water_clarity}")
+            logger.info(f"  ✓ HAB Detection: {self.config.advanced_config.enable_hab_detection}")
+            logger.info("Note: Only Sentinel-2 compatible algorithms included")
     
     def _load_rhow_bands(self, c2rcc_path: str) -> Dict[int, str]:
         """Load water-leaving reflectance bands"""
@@ -1127,9 +1130,9 @@ class JiangTSSProcessor:
         
     def _process_advanced_algorithms(self, c2rcc_path: str, jiang_results: Dict, 
                                 bands_data: Dict, product_name: str) -> Dict:
-        """Process reliable advanced aquatic algorithms using only Sentinel-2 data"""
+        """Process only working advanced aquatic algorithms"""
         try:
-            logger.info("Processing reliable advanced aquatic algorithms")
+            logger.info("Processing working advanced aquatic algorithms")
             
             advanced_results = {}
             config = self.config.advanced_config
@@ -1139,7 +1142,7 @@ class JiangTSSProcessor:
                 config = AdvancedAquaticConfig()
             
             # =======================================================================
-            # 1. WATER CLARITY CALCULATION (Uses Jiang absorption + backscattering)
+            # 1. WATER CLARITY CALCULATION (Works with Jiang absorption + backscattering)
             # =======================================================================
             if config.enable_water_clarity and 'absorption' in jiang_results and 'backscattering' in jiang_results:
                 logger.info("Calculating water clarity indices")
@@ -1175,7 +1178,7 @@ class JiangTSSProcessor:
                             rrs_bands[wl] = rhow_data / np.pi  # Convert rhow to Rrs
                     
                     if rrs_bands:
-                        # Call HAB detection with Sentinel-2 bands (no external chlorophyll needed)
+                        # Call HAB detection with Sentinel-2 bands
                         hab_results = self.advanced_processor.detect_harmful_algal_blooms(
                             chlorophyll=None,  # Not needed - calculated from spectral data
                             phycocyanin=None,  # Not available from S2
@@ -1193,20 +1196,7 @@ class JiangTSSProcessor:
                 except Exception as e:
                     logger.error(f"HAB detection failed: {e}")
                     
-            logger.info(f"Reliable advanced algorithms completed: {len(advanced_results)} products generated")
-            
-            # Log what was processed
-            if advanced_results:
-                processed_types = set()
-                for key in advanced_results.keys():
-                    if key.startswith('clarity_'):
-                        processed_types.add('Water Clarity')
-                    elif key.startswith('hab_'):
-                        processed_types.add('HAB Detection')
-                
-                logger.info(f"Successfully processed: {', '.join(processed_types)}")
-            else:
-                logger.warning("No advanced algorithm products were generated")
+            logger.info(f"Working advanced algorithms completed: {len(advanced_results)} products generated")
             
             return advanced_results
             
@@ -1215,7 +1205,6 @@ class JiangTSSProcessor:
             import traceback
             traceback.print_exc()
             return {}
-    
     # This method enables to extract SNAP chlorophyll
     def _extract_snap_chlorophyll(self, c2rcc_path: str) -> Optional[np.ndarray]:
         """Extract chlorophyll from SNAP C2RCC output"""
@@ -4886,59 +4875,50 @@ class UnifiedS2TSSGUI:
         
         # Update visibility based on initial state
         self.update_jiang_visibility()
-        # NEW: Advanced Algorithms Section
-        advanced_frame = ttk.LabelFrame(frame, text="Advanced Aquatic Algorithms (Scientific)", padding="10")
-        advanced_frame.pack(fill=tk.X, padx=10, pady=10)
         
+        # NEW: Advanced Algorithms Section
+        advanced_frame = ttk.LabelFrame(frame, text="Advanced Aquatic Algorithms (Working)", padding="10")
+        advanced_frame.pack(fill=tk.X, padx=10, pady=10)
+
         # Enable advanced algorithms
         self.enable_advanced_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(advanced_frame, text="Enable advanced aquatic algorithms (comprehensive analysis)", 
+        ttk.Checkbutton(advanced_frame, text="Enable advanced aquatic algorithms", 
                     variable=self.enable_advanced_var,
                     command=self.update_advanced_visibility).pack(anchor=tk.W, pady=5)
-        
+
         # Advanced options frame
         self.advanced_options_frame = ttk.Frame(advanced_frame)
-        
-        # Algorithm selection
+
+        # WORKING ALGORITHMS ONLY
         algorithms_grid = ttk.Frame(self.advanced_options_frame)
         algorithms_grid.pack(fill=tk.X, pady=5)
-        
-        # Left column
-        left_algorithms = ttk.Frame(algorithms_grid)
-        left_algorithms.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
-        self.trophic_state_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(left_algorithms, text="Trophic State Index (Carlson)", 
-                    variable=self.trophic_state_var).pack(anchor=tk.W, pady=2)
-        
+
+        # Working algorithms
+        working_frame = ttk.LabelFrame(algorithms_grid, text="Available Algorithms", padding="5")
+        working_frame.pack(fill=tk.X, pady=5)
+
         self.water_clarity_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(left_algorithms, text="Water Clarity Indices", 
+        ttk.Checkbutton(working_frame, text="✓ Water Clarity Indices (Secchi depth, euphotic depth, etc.)", 
                     variable=self.water_clarity_var).pack(anchor=tk.W, pady=2)
-        
+
         self.hab_detection_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(left_algorithms, text="Harmful Algal Bloom Detection", 
+        ttk.Checkbutton(working_frame, text="✓ Harmful Algal Bloom Detection (NDCI, FLH, MCI)", 
                     variable=self.hab_detection_var).pack(anchor=tk.W, pady=2)
-        
-        self.upwelling_detection_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(left_algorithms, text="Upwelling Detection", 
-                    variable=self.upwelling_detection_var).pack(anchor=tk.W, pady=2)
-        
-        # Right column
-        right_algorithms = ttk.Frame(algorithms_grid)
-        right_algorithms.pack(side=tk.RIGHT, fill=tk.X, expand=True)
-        
-        self.river_plumes_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(right_algorithms, text="River Plume Tracking", 
-                    variable=self.river_plumes_var).pack(anchor=tk.W, pady=2)
-        
-        self.particle_size_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(right_algorithms, text="Particle Size Estimation", 
-                    variable=self.particle_size_var).pack(anchor=tk.W, pady=2)
-        
-        self.primary_productivity_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(right_algorithms, text="Primary Productivity", 
-                    variable=self.primary_productivity_var).pack(anchor=tk.W, pady=2)
-        
+
+        # Info about removed algorithms
+        info_frame = ttk.LabelFrame(algorithms_grid, text="Algorithm Notes", padding="5")
+        info_frame.pack(fill=tk.X, pady=5)
+
+        info_text = (
+            "This pipeline focuses on algorithms that work directly with Sentinel-2 L1C data.\n"
+            "Complex algorithms requiring external data (SST, discharge, nutrients) have been\n"
+            "removed to maintain reliability and scientific accuracy."
+        )
+
+        info_label = ttk.Label(info_frame, text=info_text, font=("Arial", 8), 
+                            foreground="darkblue", wraplength=600, justify=tk.LEFT)
+        info_label.pack(anchor=tk.W, pady=2)
+
         # Update visibility
         self.update_advanced_visibility()
 
@@ -5406,43 +5386,25 @@ class UnifiedS2TSSGUI:
             self.jiang_config.output_intermediates = self.jiang_intermediates_var.get()
             self.jiang_config.output_comparison_stats = self.jiang_comparison_var.get()
             
-            # ADVANCED ALGORITHMS CONFIGURATION
-            # Check if advanced algorithms should be enabled
+            # CLEAN: Advanced algorithms configuration - ONLY WORKING ONES
             if hasattr(self, 'enable_advanced_var'):
                 self.jiang_config.enable_advanced_algorithms = self.enable_advanced_var.get()
             else:
-                # Default to enabled if GUI variable doesn't exist
                 self.jiang_config.enable_advanced_algorithms = True
-            
-            # Configure advanced algorithms
+
+            # Configure only working algorithms
             if self.jiang_config.enable_advanced_algorithms:
-                # Create advanced config if it doesn't exist
                 if self.jiang_config.advanced_config is None:
                     self.jiang_config.advanced_config = AdvancedAquaticConfig()
                 
-                # Update individual algorithm settings from GUI
-                if hasattr(self, 'trophic_state_var'):
-                    self.jiang_config.advanced_config.enable_trophic_state = self.trophic_state_var.get()
-                
+                # Set working algorithm states
                 if hasattr(self, 'water_clarity_var'):
                     self.jiang_config.advanced_config.enable_water_clarity = self.water_clarity_var.get()
                 
                 if hasattr(self, 'hab_detection_var'):
                     self.jiang_config.advanced_config.enable_hab_detection = self.hab_detection_var.get()
-                
-                if hasattr(self, 'upwelling_detection_var'):
-                    self.jiang_config.advanced_config.enable_upwelling_detection = self.upwelling_detection_var.get()
-                
-                if hasattr(self, 'river_plumes_var'):
-                    self.jiang_config.advanced_config.enable_river_plume_tracking = self.river_plumes_var.get()
-                
-                if hasattr(self, 'particle_size_var'):
-                    self.jiang_config.advanced_config.enable_particle_size = self.particle_size_var.get()
-                
-                if hasattr(self, 'primary_productivity_var'):
-                    self.jiang_config.advanced_config.enable_primary_productivity = self.primary_productivity_var.get()
             else:
-                # Advanced algorithms disabled - set config to None
+                # Advanced algorithms disabled
                 self.jiang_config.advanced_config = None
             
             return True
