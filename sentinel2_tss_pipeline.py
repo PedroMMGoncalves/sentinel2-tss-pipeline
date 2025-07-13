@@ -782,6 +782,140 @@ class SystemMonitor:
         
         return healthy, warnings
 
+# ===== SNAP TSM/CHL CALCULATOR =====
+
+class SNAPTSMCHLCalculator:
+    """Calculate TSM and CHL from SNAP C2RCC IOP outputs using official SNAP formulas"""
+    
+    def __init__(self, tsm_fac: float = 1.06, tsm_exp: float = 0.942, 
+                 chl_fac: float = 21.0, chl_exp: float = 1.04):
+        self.tsm_fac = tsm_fac
+        self.tsm_exp = tsm_exp
+        self.chl_fac = chl_fac
+        self.chl_exp = chl_exp
+        
+        logger.info(f"SNAP TSM/CHL Calculator initialized:")
+        logger.info(f"  TSM formula: TSM = {tsm_fac} * (bpart + bwit)^{tsm_exp}")
+        logger.info(f"  CHL formula: CHL = apig^{chl_exp} * {chl_fac}")
+    
+    def calculate_snap_tsm_chl(self, c2rcc_path: str) -> Dict[str, ProcessingResult]:
+        """Calculate TSM and CHL from SNAP IOPs using official formulas"""
+        try:
+            logger.info("Calculating SNAP TSM/CHL from IOP products...")
+            
+            # Determine data folder
+            if c2rcc_path.endswith('.dim'):
+                data_folder = c2rcc_path.replace('.dim', '.data')
+            else:
+                data_folder = f"{c2rcc_path}.data"
+            
+            if not os.path.exists(data_folder):
+                return {'error': ProcessingResult(False, "", None, f"Data folder not found: {data_folder}")}
+            
+            # Load required IOPs with robust error handling
+            iop_files = {
+                'apig': os.path.join(data_folder, 'iop_apig.img'),     # For CHL
+                'bpart': os.path.join(data_folder, 'iop_bpart.img'),   # For TSM
+                'bwit': os.path.join(data_folder, 'iop_bwit.img')      # For TSM
+            }
+            
+            # Check and load available IOPs
+            available_iops = {}
+            
+            for iop_name, iop_path in iop_files.items():
+                if os.path.exists(iop_path) and os.path.getsize(iop_path) > 1024:
+                    try:
+                        data, metadata = RasterIO.read_raster(iop_path)
+                        available_iops[iop_name] = {'data': data, 'metadata': metadata}
+                        logger.info(f"✓ Loaded {iop_name}: {data.shape}, mean={np.nanmean(data):.4f}")
+                    except Exception as e:
+                        logger.error(f"Error loading {iop_name}: {e}")
+                else:
+                    logger.warning(f"Missing or empty: {iop_name}")
+            
+            results = {}
+            
+            # Calculate CHL from apig using SNAP formula
+            if 'apig' in available_iops:
+                logger.info("Calculating CHL concentration from iop_apig...")
+                
+                apig_data = available_iops['apig']['data']
+                metadata = available_iops['apig']['metadata']
+                
+                # Apply SNAP CHL formula: CHL = apig^CHLexp * CHLfac
+                chl_concentration = SafeMathNumPy.safe_power(apig_data, self.chl_exp) * self.chl_fac
+                
+                # Handle invalid values (negative, zero, infinite)
+                chl_concentration = np.where(
+                    (apig_data <= 0) | np.isnan(apig_data) | np.isinf(apig_data),
+                    np.nan,
+                    chl_concentration
+                )
+                
+                # Save CHL concentration
+                output_path = os.path.join(data_folder, 'conc_chl.img')
+                success = RasterIO.write_raster(
+                    chl_concentration, output_path, metadata,
+                    f"SNAP Chlorophyll concentration (mg/m³) - CHL = apig^{self.chl_exp} * {self.chl_fac}",
+                    nodata=-9999
+                )
+                
+                if success:
+                    stats = RasterIO.calculate_statistics(chl_concentration)
+                    logger.info(f"✓ CHL concentration saved: {stats['coverage_percent']:.1f}% coverage, mean={stats['mean']:.3f} mg/m³")
+                    results['snap_chl'] = ProcessingResult(True, output_path, stats, None)
+                else:
+                    results['snap_chl'] = ProcessingResult(False, output_path, None, "Failed to save CHL")
+            else:
+                logger.error("Cannot calculate CHL: iop_apig.img not available")
+                results['snap_chl'] = ProcessingResult(False, "", None, "Missing iop_apig for CHL calculation")
+            
+            # Calculate TSM from bpart + bwit (btot approximation)
+            if 'bpart' in available_iops and 'bwit' in available_iops:
+                logger.info("Calculating TSM concentration from bpart + bwit (btot approximation)...")
+                
+                bpart_data = available_iops['bpart']['data']
+                bwit_data = available_iops['bwit']['data']
+                metadata = available_iops['bpart']['metadata']
+                
+                # Approximate btot as bpart + bwit (since iop_btot.img is missing)
+                btot_approx = bpart_data + bwit_data
+                
+                # Apply SNAP TSM formula: TSM = TSMfac * btot^TSMexp
+                tsm_concentration = self.tsm_fac * SafeMathNumPy.safe_power(btot_approx, self.tsm_exp)
+                
+                # Handle invalid values
+                tsm_concentration = np.where(
+                    (btot_approx <= 0) | np.isnan(btot_approx) | np.isinf(btot_approx),
+                    np.nan,
+                    tsm_concentration
+                )
+                
+                # Save TSM concentration
+                output_path = os.path.join(data_folder, 'conc_tsm.img')
+                success = RasterIO.write_raster(
+                    tsm_concentration, output_path, metadata,
+                    f"SNAP TSM concentration (g/m³) - TSM = {self.tsm_fac} * (bpart + bwit)^{self.tsm_exp}",
+                    nodata=-9999
+                )
+                
+                if success:
+                    stats = RasterIO.calculate_statistics(tsm_concentration)
+                    logger.info(f"✓ TSM concentration saved: {stats['coverage_percent']:.1f}% coverage, mean={stats['mean']:.3f} g/m³")
+                    results['snap_tsm'] = ProcessingResult(True, output_path, stats, None)
+                else:
+                    results['snap_tsm'] = ProcessingResult(False, output_path, None, "Failed to save TSM")
+            else:
+                logger.error("Cannot calculate TSM: missing bpart or bwit")
+                results['snap_tsm'] = ProcessingResult(False, "", None, "Missing bpart/bwit for TSM calculation")
+            
+            return results
+            
+        except Exception as e:
+            error_msg = f"Error calculating SNAP TSM/CHL: {str(e)}"
+            logger.error(error_msg)
+            return {'error': ProcessingResult(False, "", None, error_msg)}
+
 # ===== JIANG TSS PROCESSOR =====
 
 @dataclass  
@@ -1103,7 +1237,7 @@ class JiangTSSProcessor:
         
     def _apply_full_jiang_methodology(self, bands_data: Dict[int, np.ndarray]) -> Dict[str, np.ndarray]:
         """
-        Complete Jiang methodology implementation
+        Complete Jiang methodology implementation with water type classification output
         """
         logger.info("Applying Jiang methodology (exact R translation)")
         
@@ -1115,6 +1249,9 @@ class JiangTSSProcessor:
         backscattering = np.full(shape, np.nan, dtype=np.float32)
         reference_band = np.full(shape, np.nan, dtype=np.float32)
         tss_concentration = np.full(shape, np.nan, dtype=np.float32)
+        
+        # NEW: Add water type classification array
+        water_type_classification = np.full(shape, 0, dtype=np.uint8)  # 0 = Invalid/Land
         
         # Convert to Rrs (sr^-1) - water-leaving reflectance to remote sensing reflectance
         rrs_data = {}
@@ -1134,6 +1271,21 @@ class JiangTSSProcessor:
             backscattering[valid_mask] = pixel_results['backscattering']
             reference_band[valid_mask] = pixel_results['reference_band']
             tss_concentration[valid_mask] = pixel_results['tss']
+            
+            # NEW: Create water type classification map from reference bands
+            ref_bands = pixel_results['reference_band']
+            
+            # Map wavelengths to water type codes
+            water_type_classification[valid_mask] = np.select(
+                [
+                    ref_bands == 560,  # Clear water (Type I)
+                    ref_bands == 665,  # Moderately turbid (Type II)
+                    ref_bands == 740,  # Highly turbid (Type III)
+                    ref_bands == 865   # Extremely turbid (Type IV)
+                ],
+                [1, 2, 3, 4],  # Water type codes
+                default=0  # Invalid/Land
+            )
         
         # Calculate statistics
         valid_pixels = np.sum(valid_mask)
@@ -1167,7 +1319,8 @@ class JiangTSSProcessor:
             'backscattering': backscattering, 
             'reference_band': reference_band,
             'tss': tss_concentration,
-            'valid_mask': valid_mask
+            'valid_mask': valid_mask,
+            'water_type_classification': water_type_classification  # NEW OUTPUT
         }
     
     def _create_valid_pixel_mask(self, rrs_data: Dict[int, np.ndarray]) -> np.ndarray:
@@ -1445,8 +1598,8 @@ class JiangTSSProcessor:
         }
     
     def _save_complete_results(self, results: Dict[str, np.ndarray], output_folder: str, 
-                          product_name: str, reference_metadata: Dict) -> Dict[str, ProcessingResult]:
-        """Save complete results - Core Jiang + Reliable Advanced algorithms only"""
+                        product_name: str, reference_metadata: Dict) -> Dict[str, ProcessingResult]:
+        """Save complete results - Core Jiang + Water Types + Advanced algorithms"""
         try:
             output_results = {}
             
@@ -1461,7 +1614,7 @@ class JiangTSSProcessor:
             os.makedirs(advanced_folder, exist_ok=True)
             
             # ========================================================================
-            # CORE JIANG PRODUCTS (TSS_Products folder)
+            # CORE JIANG PRODUCTS (TSS_Products folder) - INCLUDING WATER TYPES
             # ========================================================================
             jiang_products = {
                 'absorption': {
@@ -1488,6 +1641,13 @@ class JiangTSSProcessor:
                     'description': "Total Suspended Solids (g/m³) - Jiang et al. 2023",
                     'folder': tss_folder
                 },
+                # NEW: Water Type Classification
+                'water_type_classification': {
+                    'data': results.get('water_type_classification'),
+                    'filename': f"{clean_product_name}_Jiang_WaterTypes.tif",
+                    'description': "Water Type Classification (0=Invalid, 1=Clear, 2=Moderate, 3=Highly turbid, 4=Extremely turbid) - Jiang et al. 2023",
+                    'folder': tss_folder
+                },
                 'valid_mask': {
                     'data': results.get('valid_mask'),
                     'filename': f"{clean_product_name}_Jiang_ValidMask.tif",
@@ -1501,7 +1661,7 @@ class JiangTSSProcessor:
             # ========================================================================
             advanced_products = {}
             
-            # WATER CLARITY products - RELIABLE (calculated from absorption/backscattering)
+            # WATER CLARITY products
             clarity_products = {
                 'secchi_depth': ('clarity_secchi_depth', "Secchi Depth (m) - Tyler 1968"),
                 'clarity_index': ('clarity_clarity_index', "Water Clarity Index (0-1)"),
@@ -1520,12 +1680,12 @@ class JiangTSSProcessor:
                         'folder': advanced_folder
                     }
             
-            # HARMFUL ALGAL BLOOM products - RELIABLE (spectral analysis only)
+            # HARMFUL ALGAL BLOOM products
             hab_products = {
                 'hab_probability': ('hab_hab_probability', "Harmful Algal Bloom Probability (0-1)"),
                 'hab_risk_level': ('hab_hab_risk_level', "HAB Risk Level (0=None, 1=Low, 2=Medium, 3=High)"),
-                'high_biomass_alert': ('hab_high_biomass_alert', "High Biomass Alert (WHO Level 1: >20 mg/m³)"),
-                'extreme_biomass_alert': ('hab_extreme_biomass_alert', "Extreme Biomass Alert (WHO Level 3: >100 mg/m³)"),
+                'high_biomass_alert': ('hab_high_biomass_alert', "High Biomass Alert (threshold > 0.6)"),
+                'extreme_biomass_alert': ('hab_extreme_biomass_alert', "Extreme Biomass Alert (threshold > 0.8)"),
                 'ndci_bloom': ('hab_ndci_bloom', "NDCI Bloom Detection (Mishra & Mishra 2012)"),
                 'flh_bloom': ('hab_flh_bloom', "Fluorescence Line Height Bloom (Gower et al. 1999)"),
                 'mci_bloom': ('hab_mci_bloom', "Maximum Chlorophyll Index Bloom (Gitelson et al. 2008)"),
@@ -1544,23 +1704,23 @@ class JiangTSSProcessor:
                         'folder': advanced_folder
                     }
             
-            
             # ========================================================================
-            # SAVE ALL PRODUCTS WITH PROPER NODATA HANDLING
+            # SAVE ALL PRODUCTS WITH FIXED DATA TYPE HANDLING
             # ========================================================================
             all_products = {**jiang_products, **advanced_products}
             
-            logger.info(f"Saving {len(all_products)} reliable products:")
+            logger.info(f"Saving {len(all_products)} products:")
             logger.info(f"  Core Jiang products: {len(jiang_products)}")
-            logger.info(f"  Reliable advanced products: {len(advanced_products)}")
+            logger.info(f"  Advanced products: {len(advanced_products)}")
             
             # Define classification products that need uint8 and nodata=255
             classification_product_keys = [
                 'hab_risk_level', 'reference_band', 'valid_mask', 'high_biomass_alert', 
-                'extreme_biomass_alert', 'ndci_bloom', 'flh_bloom', 'mci_bloom', 'cyanobacteria_bloom'
+                'extreme_biomass_alert', 'ndci_bloom', 'flh_bloom', 'mci_bloom', 
+                'cyanobacteria_bloom', 'water_type_classification'  # NEW
             ]
             
-            # Save each product with appropriate nodata value
+            # Save each product with FIXED data type handling
             saved_count = 0
             skipped_count = 0
             
@@ -1568,12 +1728,26 @@ class JiangTSSProcessor:
                 if product_info['data'] is not None:
                     output_path = os.path.join(product_info['folder'], product_info['filename'])
                     
-                    # DETERMINE APPROPRIATE NODATA VALUE
+                    # FIXED: Determine appropriate nodata value and handle data types properly
                     if any(class_key in product_key for class_key in classification_product_keys):
                         # Classification products: use uint8 and nodata=255
                         nodata_value = 255
-                        # Ensure data is uint8
-                        data_to_save = product_info['data'].astype(np.uint8)
+                        
+                        # FIXED: Handle NaN values before casting to uint8
+                        data_to_save = product_info['data'].copy().astype(np.float64)
+                        
+                        # Replace NaN with nodata value
+                        data_to_save[np.isnan(data_to_save)] = nodata_value
+                        
+                        # Ensure values are in valid uint8 range (0-254, reserve 255 for nodata)
+                        data_to_save = np.clip(data_to_save, 0, 254)
+                        
+                        # Set nodata pixels back to 255
+                        original_data = product_info['data']
+                        data_to_save[np.isnan(original_data)] = 255
+                        
+                        # Now safe to cast to uint8
+                        data_to_save = data_to_save.astype(np.uint8)
                     else:
                         # Continuous products: use float32 and nodata=-9999
                         nodata_value = -9999
@@ -1605,9 +1779,15 @@ class JiangTSSProcessor:
                     skipped_count += 1
             
             # ========================================================================
+            # CREATE WATER TYPE LEGEND FILE
+            # ========================================================================
+            if 'water_type_classification' in results and results['water_type_classification'] is not None:
+                self._create_water_type_legend(scene_folder, clean_product_name)
+            
+            # ========================================================================
             # FINAL SUMMARY
             # ========================================================================
-            logger.info(f"Reliable product saving completed:")
+            logger.info(f"Product saving completed:")
             logger.info(f"  Successfully saved: {saved_count} products")
             logger.info(f"  Skipped (no data): {skipped_count} products")
             logger.info(f"  Total attempted: {len(all_products)} products")
@@ -1626,6 +1806,65 @@ class JiangTSSProcessor:
             error_msg = f"Error saving complete results: {str(e)}"
             logger.error(error_msg)
             return {'error': ProcessingResult(False, "", None, error_msg)}
+        
+    def _create_water_type_legend(self, output_folder: str, product_name: str):
+        """Create a legend file for water type classification"""
+        
+        legend_file = os.path.join(output_folder, f"{product_name}_WaterTypes_Legend.txt")
+        
+        legend_content = """JIANG WATER TYPE CLASSIFICATION LEGEND
+    ======================================
+
+    Value | Water Type          | Algorithm Used | Characteristics
+    ------|--------------------|--------------  |----------------
+    0   | Invalid/Land       | N/A            | No valid data or land pixels
+    1   | Clear Water        | QAA-560        | Low turbidity, high transparency
+    2   | Moderately Turbid  | QAA-665        | Moderate suspended matter
+    3   | Highly Turbid      | QAA-740        | High suspended matter concentration
+    4   | Extremely Turbid   | QAA-865        | Very high turbidity, possible algal blooms
+
+    ALGORITHM SELECTION CRITERIA (Jiang et al. 2023):
+    ================================================
+
+    Type I (Clear Water - 560nm):
+    - Condition: Rrs(490) > Rrs(560)
+    - Typical TSS: < 2 g/m³
+    - Water clarity: High (Secchi depth > 10m)
+
+    Type II (Moderately Turbid - 665nm):
+    - Condition: Rrs(490) > Rrs(620) AND Rrs(490) ≤ Rrs(560)  
+    - Typical TSS: 2-10 g/m³
+    - Water clarity: Moderate (Secchi depth 3-10m)
+
+    Type III (Highly Turbid - 740nm):
+    - Condition: Rrs(740) ≤ Rrs(490) OR Rrs(740) ≤ 0.010
+    - Typical TSS: 10-50 g/m³
+    - Water clarity: Low (Secchi depth 1-3m)
+
+    Type IV (Extremely Turbid - 865nm):
+    - Condition: Rrs(740) > Rrs(490) AND Rrs(740) > 0.010
+    - Typical TSS: > 50 g/m³
+    - Water clarity: Very low (Secchi depth < 1m)
+
+    COLOR SCHEME SUGGESTION:
+    ========================
+    Value 0 (Invalid): Transparent or Black
+    Value 1 (Clear): Deep Blue (#0066CC)
+    Value 2 (Moderate): Light Blue (#66B2FF) 
+    Value 3 (Highly Turbid): Yellow (#FFFF00)
+    Value 4 (Extremely Turbid): Red (#FF0000)
+
+    Reference: Jiang, D., et al. (2023). A practical atmospheric correction algorithm 
+    for Sentinel-2 images and extension to total suspended matter.
+    """
+        
+        try:
+            with open(legend_file, 'w', encoding='utf-8') as f:
+                f.write(legend_content)
+            
+            logger.info(f"Water type legend created: {os.path.basename(legend_file)}")
+        except Exception as e:
+            logger.warning(f"Could not create water type legend: {e}")
 
     def _create_product_index(self, output_results: Dict[str, ProcessingResult], 
                             output_folder: str, product_name: str):
@@ -1888,27 +2127,23 @@ class AdvancedAquaticProcessor:
                                 phycocyanin: Optional[np.ndarray],
                                 rrs_bands: Dict[int, np.ndarray]) -> Dict[str, np.ndarray]:
         """
-        Fixed HAB detection using only Sentinel-2 spectral bands
+        FIXED HAB detection using only Sentinel-2 spectral bands
         
         References:
         - Wynne, T.T. et al. (2008). Relating spectral shape to cyanobacterial blooms. 
-        International Journal of Remote Sensing, 29(12), 3665-3672.
-        - Mishra, S. & Mishra, D.R. (2012). Normalized difference chlorophyll index: A novel model 
-        for remote estimation of chlorophyll-a concentration. Remote Sensing of Environment, 117, 394-406.
-        - Gower, J. et al. (1999). Detection of intense plankton blooms using the 709 nm band of the 
-        MERIS imaging spectrometer. International Journal of Remote Sensing, 20(9), 1817-1825.
+        - Mishra, S. & Mishra, D.R. (2012). Normalized difference chlorophyll index.
+        - Gower, J. et al. (1999). Detection of intense plankton blooms using 709 nm band.
         """
         try:
             logger.info("Detecting harmful algal blooms using Sentinel-2 spectral analysis")
             
             results = {}
             
-            # Get image shape from any available band
             if not rrs_bands:
                 logger.warning("No Rrs bands available for HAB detection")
                 return {}
             
-            # Get reference shape
+            # Get reference shape from any available band
             ref_band = list(rrs_bands.values())[0]
             shape = ref_band.shape
             
@@ -1918,61 +2153,76 @@ class AdvancedAquaticProcessor:
             flh_values = np.full(shape, np.nan, dtype=np.float32)
             mci_values = np.full(shape, np.nan, dtype=np.float32)
             
-            # Track which algorithms can be applied
             algorithms_applied = []
             
-            # Method 1: Normalized Difference Chlorophyll Index (NDCI)
-            # Uses Sentinel-2 bands: B5 (705nm) and B4 (665nm)
+            # Method 1: Normalized Difference Chlorophyll Index (NDCI) - FIXED
             if 705 in rrs_bands and 665 in rrs_bands:
                 logger.info("Calculating NDCI (Normalized Difference Chlorophyll Index)")
                 
                 band_705 = rrs_bands[705]
                 band_665 = rrs_bands[665]
                 
-                # Avoid division by zero
+                # FIXED: Proper array validation using numpy operations
+                valid_mask = (
+                    (~np.isnan(band_705)) & 
+                    (~np.isnan(band_665)) & 
+                    (band_705 > 0) & 
+                    (band_665 > 0)
+                )
+                
                 denominator = band_705 + band_665
-                valid_mask = (denominator > 1e-8) & (~np.isnan(band_705)) & (~np.isnan(band_665))
+                valid_mask = valid_mask & (denominator > 1e-8)
                 
-                ndci_values[valid_mask] = ((band_705[valid_mask] - band_665[valid_mask]) / 
-                                        denominator[valid_mask])
-                
-                # NDCI bloom threshold (Mishra & Mishra, 2012)
-                ndci_bloom = ndci_values > 0.05
-                results['ndci_bloom'] = ndci_bloom.astype(np.float32)
-                results['ndci_values'] = ndci_values
-                
-                # Add to probability calculation
-                hab_probability += ndci_bloom.astype(np.float32) * 0.3
-                algorithms_applied.append("NDCI")
+                if np.any(valid_mask):
+                    ndci_values[valid_mask] = ((band_705[valid_mask] - band_665[valid_mask]) / 
+                                            denominator[valid_mask])
+                    
+                    # NDCI bloom threshold (Mishra & Mishra, 2012)
+                    ndci_bloom = (ndci_values > 0.05).astype(np.float32)
+                    results['ndci_bloom'] = ndci_bloom
+                    results['ndci_values'] = ndci_values
+                    
+                    # Add to probability calculation
+                    hab_probability += ndci_bloom * 0.3
+                    algorithms_applied.append("NDCI")
+                    
+                    valid_count = np.sum(valid_mask)
+                    logger.info(f"NDCI calculated for {valid_count} pixels")
             
-            # Method 2: Fluorescence Line Height (FLH) approximation
-            # Uses Sentinel-2 bands: B4 (665nm), B6 (740nm), B5 (705nm)
+            # Method 2: Fluorescence Line Height (FLH) approximation - FIXED
             if all(band in rrs_bands for band in [665, 705, 740]):
                 logger.info("Calculating Fluorescence Line Height (FLH)")
                 
                 band_665 = rrs_bands[665]
-                band_705 = rrs_bands[705]  # Center band
+                band_705 = rrs_bands[705]
                 band_740 = rrs_bands[740]
                 
-                # FLH calculation (baseline correction)
-                # FLH = Band_center - [Band_low + (Band_high - Band_low) * slope_factor]
-                slope_factor = (705 - 665) / (740 - 665)  # 0.533
-                baseline = band_665 + (band_740 - band_665) * slope_factor
+                # FIXED: Proper array validation
+                valid_mask = (
+                    (~np.isnan(band_665)) & 
+                    (~np.isnan(band_705)) & 
+                    (~np.isnan(band_740))
+                )
                 
-                valid_mask = (~np.isnan(band_665)) & (~np.isnan(band_705)) & (~np.isnan(band_740))
-                flh_values[valid_mask] = band_705[valid_mask] - baseline[valid_mask]
-                
-                # FLH bloom threshold
-                flh_bloom = flh_values > 0.004  # sr⁻¹
-                results['flh_bloom'] = flh_bloom.astype(np.float32)
-                results['flh_values'] = flh_values
-                
-                # Add to probability calculation
-                hab_probability += flh_bloom.astype(np.float32) * 0.3
-                algorithms_applied.append("FLH")
+                if np.any(valid_mask):
+                    # FLH calculation (baseline correction)
+                    slope_factor = (705 - 665) / (740 - 665)  # 0.533
+                    baseline = band_665 + (band_740 - band_665) * slope_factor
+                    flh_values[valid_mask] = band_705[valid_mask] - baseline[valid_mask]
+                    
+                    # FLH bloom threshold
+                    flh_bloom = (flh_values > 0.004).astype(np.float32)
+                    results['flh_bloom'] = flh_bloom
+                    results['flh_values'] = flh_values
+                    
+                    # Add to probability calculation
+                    hab_probability += flh_bloom * 0.3
+                    algorithms_applied.append("FLH")
+                    
+                    valid_count = np.sum(valid_mask)
+                    logger.info(f"FLH calculated for {valid_count} pixels")
             
-            # Method 3: Maximum Chlorophyll Index (MCI) approximation
-            # Uses Sentinel-2 bands: B4 (665nm), B5 (705nm), B6 (740nm), B8A (865nm)
+            # Method 3: Maximum Chlorophyll Index (MCI) approximation - FIXED
             if all(band in rrs_bands for band in [665, 705, 740, 865]):
                 logger.info("Calculating Maximum Chlorophyll Index (MCI)")
                 
@@ -1981,66 +2231,35 @@ class AdvancedAquaticProcessor:
                 band_740 = rrs_bands[740]
                 band_865 = rrs_bands[865]
                 
-                # MCI calculation (simplified for S2 bands)
-                # MCI = Band_705 - Band_665 - slope * (Band_865 - Band_665)
-                slope = (740 - 665) / (865 - 665)  # Approximate slope
-                
-                valid_mask = (all(~np.isnan(rrs_bands[b]) for b in [665, 705, 740, 865]))
+                # FIXED: Proper validation for all bands using numpy operations
+                valid_mask = (
+                    (~np.isnan(band_665)) & 
+                    (~np.isnan(band_705)) & 
+                    (~np.isnan(band_740)) & 
+                    (~np.isnan(band_865))
+                )
                 
                 if np.any(valid_mask):
-                    mci_values[valid_mask] = (band_705[valid_mask] - band_665[valid_mask] - 
-                                            slope * (band_865[valid_mask] - band_665[valid_mask]))
+                    # MCI calculation (simplified for S2 bands)
+                    slope = (740 - 665) / (865 - 665)
+                    mci_values[valid_mask] = (
+                        band_705[valid_mask] - band_665[valid_mask] - 
+                        slope * (band_865[valid_mask] - band_665[valid_mask])
+                    )
                     
                     # MCI bloom threshold
-                    mci_bloom = mci_values > 0.004
-                    results['mci_bloom'] = mci_bloom.astype(np.float32)
+                    mci_bloom = (mci_values > 0.004).astype(np.float32)
+                    results['mci_bloom'] = mci_bloom
                     results['mci_values'] = mci_values
                     
                     # Add to probability calculation
-                    hab_probability += mci_bloom.astype(np.float32) * 0.3
+                    hab_probability += mci_bloom * 0.3
                     algorithms_applied.append("MCI")
-            
-            # Method 4: Simple spectral shape analysis (red edge detection)
-            if all(band in rrs_bands for band in [665, 705, 740]):
-                logger.info("Calculating red edge bloom detection")
-                
-                band_665 = rrs_bands[665]
-                band_705 = rrs_bands[705]
-                band_740 = rrs_bands[740]
-                
-                # Red edge enhancement (characteristic of chlorophyll)
-                red_edge_ratio = np.full(shape, np.nan, dtype=np.float32)
-                
-                valid_mask = (band_665 > 0) & (band_705 > 0) & (~np.isnan(band_665)) & (~np.isnan(band_705))
-                
-                if np.any(valid_mask):
-                    red_edge_ratio[valid_mask] = band_705[valid_mask] / band_665[valid_mask]
                     
-                    # High red edge typically indicates vegetation/algae
-                    red_edge_bloom = red_edge_ratio > 1.2
-                    results['red_edge_bloom'] = red_edge_bloom.astype(np.float32)
-                    
-                    # Add to probability calculation
-                    hab_probability += red_edge_bloom.astype(np.float32) * 0.1
-                    algorithms_applied.append("RedEdge")
+                    valid_count = np.sum(valid_mask)
+                    logger.info(f"MCI calculated for {valid_count} pixels")
             
-            # Method 5: High biomass detection (spectral brightness in NIR)
-            if 865 in rrs_bands:
-                logger.info("Calculating high biomass detection")
-                
-                band_865 = rrs_bands[865]
-                
-                # High NIR reflectance often indicates surface algae/scums
-                high_nir_threshold = np.nanpercentile(band_865, 90)  # Top 10% of values
-                high_biomass = band_865 > high_nir_threshold
-                
-                results['high_biomass_alert'] = high_biomass.astype(np.float32)
-                
-                # Add to probability calculation
-                hab_probability += high_biomass.astype(np.float32) * 0.1
-                algorithms_applied.append("HighBiomass")
-            
-            # Calculate combined HAB probability (normalize by number of algorithms)
+            # Calculate combined HAB probability and risk levels
             if algorithms_applied:
                 # Normalize probability to 0-1 range
                 hab_probability = np.clip(hab_probability, 0, 1)
@@ -2056,7 +2275,7 @@ class AdvancedAquaticProcessor:
                 results['hab_risk_level'] = hab_risk
                 
                 # Additional detection flags
-                if 'ndci_bloom' in results or 'flh_bloom' in results or 'mci_bloom' in results:
+                if 'ndci_bloom' in results or 'flh_bloom' in results:
                     # Cyanobacteria-like bloom detection
                     cyano_bloom = np.zeros(shape, dtype=np.float32)
                     
@@ -2067,9 +2286,12 @@ class AdvancedAquaticProcessor:
                     
                     results['cyanobacteria_bloom'] = cyano_bloom
                 
-                # Extreme biomass alert (very high probability)
-                extreme_alert = (hab_probability > 0.8).astype(np.float32)
-                results['extreme_biomass_alert'] = extreme_alert
+                # Biomass alert levels
+                high_biomass = (hab_probability > 0.6).astype(np.float32)
+                extreme_biomass = (hab_probability > 0.8).astype(np.float32)
+                
+                results['high_biomass_alert'] = high_biomass
+                results['extreme_biomass_alert'] = extreme_biomass
                 
                 # Calculate statistics
                 total_pixels = np.sum(~np.isnan(hab_probability))
@@ -2617,6 +2839,28 @@ class S2Processor:
                     
                     self.processed_count += 1
                     results['s2_processing'] = ProcessingResult(True, c2rcc_output_path, c2rcc_stats, None)
+                    
+                    # NEW: Calculate SNAP TSM/CHL from IOPs if missing
+                    if not c2rcc_stats['has_tsm'] or not c2rcc_stats['has_chl']:
+                        logger.info("Calculating missing SNAP TSM/CHL concentrations from IOP products...")
+                        snap_calculator = SNAPTSMCHLCalculator(
+                            tsm_fac=self.config.c2rcc_config.tsm_fac,
+                            tsm_exp=self.config.c2rcc_config.tsm_exp,
+                            chl_fac=self.config.c2rcc_config.chl_fac,
+                            chl_exp=self.config.c2rcc_config.chl_exp
+                        )
+                        
+                        snap_tsm_chl_results = snap_calculator.calculate_snap_tsm_chl(c2rcc_output_path)
+                        results.update(snap_tsm_chl_results)
+                        
+                        # Log SNAP TSM/CHL results
+                        if 'snap_tsm' in snap_tsm_chl_results and snap_tsm_chl_results['snap_tsm'].success:
+                            logger.info("✅ SNAP TSM calculation successful!")
+                        
+                        if 'snap_chl' in snap_tsm_chl_results and snap_tsm_chl_results['snap_chl'].success:
+                            logger.info("✅ SNAP CHL calculation successful!")
+                    else:
+                        logger.info("✅ SNAP TSM/CHL products already available")
                     
                     # Step 2: TSS Processing (if enabled and complete pipeline)
                     if self.config.processing_mode == ProcessingMode.COMPLETE_PIPELINE and self.config.jiang_config.enable_jiang_tss:
