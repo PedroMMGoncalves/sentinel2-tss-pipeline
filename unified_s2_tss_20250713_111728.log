@@ -14,3 +14,4 @@
 2025-07-13 11:20:09,276 - INFO - [sentinel2_tss_pipeline.py:2586] - Complete processing graph saved: s2_complete_processing_with_subset.xml
 2025-07-13 11:20:09,276 - INFO - [sentinel2_tss_pipeline.py:2508] - ✓ Processing graph created for mode: complete_pipeline
 2025-07-13 11:20:09,276 - ERROR - [sentinel2_tss_pipeline.py:5609] - Processing thread error: 'JiangTSSProcessor' object has no attribute 'config'
+2025-07-13 11:22:12,282 - INFO - [sentinel2_tss_pipeline.py:6075] - Application finished successfully
