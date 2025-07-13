@@ -2827,15 +2827,15 @@ class S2Processor:
                 c2rcc_stats = self._verify_c2rcc_output(c2rcc_output_path)
                 
                 if c2rcc_stats:
+                    # Initial S2 processing success
                     logger.info(f"✅ S2 processing SUCCESS: {product_name}")
                     logger.info(f"   Output: {os.path.basename(c2rcc_output_path)} ({c2rcc_stats['file_size_mb']:.1f}MB)")
-                    logger.info(f"   SNAP Products: TSM={c2rcc_stats['has_tsm']}, CHL={c2rcc_stats['has_chl']}, Uncertainties={c2rcc_stats['has_uncertainties']}")
                     logger.info(f"   Processing time: {processing_time/60:.1f} minutes")
                     
                     self.processed_count += 1
                     results['s2_processing'] = ProcessingResult(True, c2rcc_output_path, c2rcc_stats, None)
                     
-                    # NEW: Calculate SNAP TSM/CHL from IOPs if missing
+                    # Calculate SNAP TSM/CHL from IOPs if missing
                     if not c2rcc_stats['has_tsm'] or not c2rcc_stats['has_chl']:
                         logger.info("Calculating missing SNAP TSM/CHL concentrations from IOP products...")
                         snap_calculator = SNAPTSMCHLCalculator(
@@ -2854,10 +2854,19 @@ class S2Processor:
                         
                         if 'snap_chl' in snap_tsm_chl_results and snap_tsm_chl_results['snap_chl'].success:
                             logger.info("✅ SNAP CHL calculation successful!")
+                        
+                        # RE-VERIFY after calculation to get updated status
+                        c2rcc_stats_updated = self._verify_c2rcc_output(c2rcc_output_path)
+                        if c2rcc_stats_updated:
+                            logger.info("📊 UPDATED SNAP PRODUCTS STATUS:")
+                            logger.info(f"   TSM={c2rcc_stats_updated['has_tsm']}, CHL={c2rcc_stats_updated['has_chl']}, Uncertainties={c2rcc_stats_updated['has_uncertainties']}")
+                            # Update the stats in results
+                            results['s2_processing'] = ProcessingResult(True, c2rcc_output_path, c2rcc_stats_updated, None)
                     else:
                         logger.info("✅ SNAP TSM/CHL products already available")
+                        logger.info(f"   TSM={c2rcc_stats['has_tsm']}, CHL={c2rcc_stats['has_chl']}, Uncertainties={c2rcc_stats['has_uncertainties']}")
                     
-                    # Step 2: TSS Processing (if enabled and complete pipeline)
+                    # Continue with TSS Processing (if enabled and complete pipeline)
                     if self.config.processing_mode == ProcessingMode.COMPLETE_PIPELINE and self.config.jiang_config.enable_jiang_tss:
                         tss_results = self._process_tss_stage(c2rcc_output_path, output_folder, product_name)
                         results.update(tss_results)
@@ -2933,7 +2942,7 @@ class S2Processor:
             return False
     
     def _verify_c2rcc_output(self, c2rcc_path: str) -> Optional[Dict]:
-        """Enhanced C2RCC output verification with comprehensive SNAP product detection"""
+        """Enhanced C2RCC verification that checks for both original and calculated TSM/CHL"""
         try:
             # Safe file existence check
             if not os.path.exists(c2rcc_path) or not os.path.isfile(c2rcc_path):
@@ -2957,21 +2966,39 @@ class S2Processor:
                 logger.error(f"C2RCC data folder missing or invalid: {data_folder}")
                 return None
 
-            # Check for SNAP TSM/CHL products (the KEY products we need!)
-            snap_products = {
-                'conc_tsm.img': False,      # ← TSM concentration (CRITICAL)
-                'conc_chl.img': False,      # ← CHL concentration (CRITICAL)  
-                'unc_tsm.img': False,       # ← TSM uncertainty
-                'unc_chl.img': False,       # ← CHL uncertainty
-                'iop_apig.img': False,      # ← Pigment absorption (for CHL calculation)
-                'iop_adet.img': False,      # ← Detritus absorption
-                'iop_agelb.img': False,     # ← CDOM absorption
-                'iop_bpart.img': False,     # ← Particle backscattering (for TSM)
-                'iop_bwit.img': False,      # ← White particle backscattering
-                'iop_btot.img': False       # ← Total backscattering
+            # UPDATED: Check for SNAP TSM/CHL products (both original and calculated)
+            critical_products = {
+                'conc_tsm.img': False,      # TSM concentration (CRITICAL)
+                'conc_chl.img': False,      # CHL concentration (CRITICAL)  
             }
             
-            # Safe product file checking with detailed logging
+            uncertainty_products = {
+                'unc_tsm.img': False,       # TSM uncertainty
+                'unc_chl.img': False,       # CHL uncertainty
+            }
+            
+            snap_products = {
+                'iop_apig.img': False,      # Pigment absorption (for CHL calculation)
+                'iop_adet.img': False,      # Detritus absorption
+                'iop_agelb.img': False,     # CDOM absorption
+                'iop_bpart.img': False,     # Particle backscattering (for TSM)
+                'iop_bwit.img': False,      # White particle backscattering
+                'iop_btot.img': False       # Total backscattering
+            }
+            
+            # Check critical products (TSM/CHL)
+            for product in critical_products.keys():
+                product_path = os.path.join(data_folder, product)
+                if os.path.exists(product_path) and os.path.getsize(product_path) > 1024:
+                    critical_products[product] = True
+            
+            # Check uncertainty products
+            for product in uncertainty_products.keys():
+                product_path = os.path.join(data_folder, product)
+                if os.path.exists(product_path) and os.path.getsize(product_path) > 1024:
+                    uncertainty_products[product] = True
+            
+            # Check SNAP IOP products
             snap_file_sizes = {}
             for product in snap_products.keys():
                 product_path = os.path.join(data_folder, product)
@@ -2994,29 +3021,24 @@ class S2Processor:
             rhow_bands = [f'rhow_B{i}.img' for i in ['1', '2', '3', '4', '5', '6', '7', '8A']]
             rhow_count = 0
             missing_bands = []
-            invalid_bands = []
-            rhow_file_sizes = {}
             
             for band in rhow_bands:
                 band_path = os.path.join(data_folder, band)
                 try:
                     if os.path.exists(band_path) and os.path.isfile(band_path):
                         band_size = os.path.getsize(band_path)
-                        rhow_file_sizes[band] = band_size
                         if band_size > 1024:  # At least 1KB
                             rhow_count += 1
                         else:
-                            invalid_bands.append(f"{band} ({band_size} bytes)")
+                            missing_bands.append(f"{band} ({band_size} bytes)")
                     else:
                         missing_bands.append(band)
-                        rhow_file_sizes[band] = 0
                 except (OSError, PermissionError):
                     missing_bands.append(f"{band} (access error)")
-                    rhow_file_sizes[band] = -1
 
             # Count successful SNAP products
             snap_product_count = sum(snap_products.values())
-            critical_products_count = sum([snap_products['conc_tsm.img'], snap_products['conc_chl.img']])
+            critical_products_count = sum(critical_products.values())
             
             # Comprehensive statistics
             stats = {
@@ -3025,9 +3047,9 @@ class S2Processor:
                 'data_folder_valid': True,
                 
                 # SNAP TSM/CHL products (MAIN FOCUS)
-                'has_tsm': snap_products['conc_tsm.img'],
-                'has_chl': snap_products['conc_chl.img'],
-                'has_uncertainties': snap_products['unc_tsm.img'] and snap_products['unc_chl.img'],
+                'has_tsm': critical_products['conc_tsm.img'],
+                'has_chl': critical_products['conc_chl.img'],
+                'has_uncertainties': uncertainty_products['unc_tsm.img'] and uncertainty_products['unc_chl.img'],
                 'critical_products_available': critical_products_count,
                 
                 # SNAP IOP products (additional info)
@@ -3042,16 +3064,11 @@ class S2Processor:
                 'rhow_bands_total': len(rhow_bands),
                 'ready_for_jiang_tss': rhow_count == 8,
                 
-                # Issue tracking
-                'missing_bands': missing_bands if missing_bands else None,
-                'invalid_bands': invalid_bands if invalid_bands else None,
-                
                 # File size details (for debugging)
                 'snap_file_sizes': snap_file_sizes,
-                'rhow_file_sizes': rhow_file_sizes
             }
 
-            # ENHANCED LOGGING with detailed SNAP product status
+            # UPDATED LOGGING with intelligent detection
             logger.info("=" * 60)
             logger.info("C2RCC OUTPUT VERIFICATION REPORT")
             logger.info("=" * 60)
@@ -3060,7 +3077,7 @@ class S2Processor:
             logger.info(f"C2RCC file: {os.path.basename(c2rcc_path)} ({stats['file_size_mb']:.1f} MB)")
             logger.info(f"Data folder: {os.path.basename(data_folder)}")
             
-            # SNAP TSM/CHL status (CRITICAL SECTION)
+            # SNAP TSM/CHL status (UPDATED LOGIC)
             logger.info("\n🧪 SNAP TSM/CHL PRODUCTS (Critical for Analysis):")
             if stats['has_tsm'] and stats['has_chl']:
                 logger.info("✅ SUCCESS: Both TSM and CHL products available!")
@@ -3069,20 +3086,18 @@ class S2Processor:
                 
                 if stats['has_uncertainties']:
                     logger.info("   ✓ Uncertainties: Available")
-                    logger.info(f"     - unc_tsm.img ({snap_file_sizes.get('unc_tsm.img', 0)/1024:.1f} KB)")
-                    logger.info(f"     - unc_chl.img ({snap_file_sizes.get('unc_chl.img', 0)/1024:.1f} KB)")
                 else:
-                    logger.warning("   ⚠ Uncertainties: Missing")
+                    logger.info("   ⚠ Uncertainties: Not available (calculated products)")
             else:
-                logger.error("❌ MISSING: Critical TSM/CHL products not found!")
-                logger.error(f"   TSM available: {stats['has_tsm']}")
-                logger.error(f"   CHL available: {stats['has_chl']}")
-                logger.error("   This may indicate C2RCC parameter configuration issues.")
+                # This will only show if our calculator hasn't run yet
+                logger.info("ℹ️  TSM/CHL products will be calculated from IOP products")
+                logger.info("   Using SNAP formulas:")
+                logger.info("   • TSM = TSMfac * (bpart + bwit)^TSMexp")
+                logger.info("   • CHL = apig^CHLexp * CHLfac")
             
             # SNAP IOP products status
             logger.info(f"\n🔬 SNAP IOP PRODUCTS ({snap_product_count}/{len(snap_products)} available):")
-            iop_products = ['iop_apig.img', 'iop_adet.img', 'iop_agelb.img', 'iop_bpart.img', 'iop_bwit.img', 'iop_btot.img']
-            for product in iop_products:
+            for product in ['iop_apig.img', 'iop_adet.img', 'iop_agelb.img', 'iop_bpart.img', 'iop_bwit.img', 'iop_btot.img']:
                 if product in snap_products:
                     status = "✓" if snap_products[product] else "✗"
                     size_info = f"({snap_file_sizes.get(product, 0)/1024:.1f} KB)" if snap_products[product] else "(missing/empty)"
@@ -3096,22 +3111,18 @@ class S2Processor:
                 logger.warning(f"⚠ PARTIAL: Only {rhow_count}/8 rhow bands available")
                 if missing_bands:
                     logger.warning(f"   Missing bands: {missing_bands}")
-                if invalid_bands:
-                    logger.warning(f"   Invalid bands: {invalid_bands}")
             
-            # Overall assessment
+            # UPDATED Overall assessment
             logger.info(f"\n📊 OVERALL ASSESSMENT:")
             if stats['has_tsm'] and stats['has_chl'] and stats['ready_for_jiang_tss']:
-                logger.info("🎯 EXCELLENT: Ready for complete TSS analysis pipeline!")
+                logger.info("🎯 EXCELLENT: Complete TSS analysis pipeline ready!")
                 logger.info("   - SNAP TSM/CHL: Available")
                 logger.info("   - Jiang TSS: Ready")
                 logger.info("   - Advanced algorithms: Can proceed")
-            elif stats['has_tsm'] and stats['has_chl']:
-                logger.info("👍 GOOD: SNAP products available, partial Jiang readiness")
             elif stats['ready_for_jiang_tss']:
-                logger.info("⚠ PARTIAL: Jiang ready, but missing SNAP TSM/CHL")
+                logger.info("👍 GOOD: Jiang TSS ready, SNAP products will be calculated")
             else:
-                logger.warning("❌ LIMITED: Missing critical products")
+                logger.warning("⚠ LIMITED: Missing critical components")
             
             logger.info("=" * 60)
 
