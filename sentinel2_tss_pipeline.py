@@ -4342,7 +4342,7 @@ class UnifiedS2TSSGUI:
         self.chl_exp_var = tk.DoubleVar(value=1.04)
         
         # ===== JIANG TSS CONFIGURATION =====
-        self.enable_jiang_var = tk.BooleanVar(value=False)  # Optional by default
+        self.enable_jiang_var = tk.BooleanVar(value=True)  # Optional by default
         self.jiang_intermediates_var = tk.BooleanVar(value=True)
         self.jiang_comparison_var = tk.BooleanVar(value=True)
         self.enable_advanced_var = tk.BooleanVar(value=True)
@@ -4847,17 +4847,18 @@ class UnifiedS2TSSGUI:
         jiang_frame.pack(fill=tk.X, padx=10, pady=10)
         
         # Enable Jiang TSS
-        ttk.Checkbutton(jiang_frame, text="Enable Jiang TSS processing (advanced methodology)", 
-                       variable=self.enable_jiang_var,
-                       command=self.update_jiang_visibility).pack(anchor=tk.W, pady=5)
+        ttk.Checkbutton(jiang_frame, text="✓ Enable Jiang TSS processing (enabled by default)", 
+                    variable=self.enable_jiang_var,
+                    command=self.update_jiang_visibility).pack(anchor=tk.W, pady=5)
         
         # Jiang description
         desc_text = (
-            "The Jiang et al. 2023 methodology provides:\n"
+            "The Jiang et al. 2023 methodology (ENABLED BY DEFAULT) provides:\n"
             "• Water type classification (Clear, Moderately turbid, Highly turbid, Extremely turbid)\n"
             "• Semi-analytical TSS estimation using water-leaving reflectance\n"
             "• Intermediate optical properties (absorption, backscattering)\n"
-            "• Comparison with SNAP TSM results when both are enabled"
+            "• Comparison with SNAP TSM results when both are enabled\n"
+            "• More accurate TSS estimation than SNAP C2RCC alone"
         )
         
         desc_label = ttk.Label(jiang_frame, text=desc_text, font=("Arial", 9),
