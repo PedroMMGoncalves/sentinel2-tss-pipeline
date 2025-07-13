@@ -4245,8 +4245,25 @@ class UnifiedS2TSSGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Unified S2 Processing & TSS Estimation Pipeline v1.0")
-        self.root.geometry("1000x800")
+        
+        # Get screen dimensions
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        # Calculate window size (80% of screen height, min 900px)
+        window_width = 1000
+        window_height = max(900, int(screen_height * 0.8))
+        
+        # Center window on screen
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
         self.root.configure(bg='#f0f0f0')
+        
+        # Make resizable with minimum size
+        self.root.minsize(1000, 900)
+        self.root.resizable(True, True)
         
         # Bring window to front
         bring_window_to_front(self.root)

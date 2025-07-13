@@ -9,3 +9,4 @@
 2025-07-13 11:12:38,922 - INFO - [sentinel2_tss_pipeline.py:6060] - Working Directory: C:\Users\pedro.goncalves\OneDrive - LNEG - Laboratorio Nacional de Energia e Geologia\GitHub\sentinel2-tss-pipeline
 2025-07-13 11:12:38,922 - INFO - [sentinel2_tss_pipeline.py:6061] - ================================================================================
 2025-07-13 11:12:38,922 - INFO - [sentinel2_tss_pipeline.py:6070] - Starting GUI application...
+2025-07-13 11:17:11,405 - INFO - [sentinel2_tss_pipeline.py:6074] - Application finished successfully
