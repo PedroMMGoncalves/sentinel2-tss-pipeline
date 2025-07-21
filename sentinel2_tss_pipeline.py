@@ -1236,8 +1236,6 @@ class JiangTSSProcessor:
         """
         logger.info("Applying Jiang methodology (exact R translation)")
         
-        # Debug RHOW
-        self._debug_data_scale_issue(bands_data)
         
         # Get array shape
         shape = bands_data[443].shape
@@ -1455,88 +1453,8 @@ class JiangTSSProcessor:
         rrs620 = a * (rrs665**3) + b * (rrs665**2) + c * rrs665 + d
         
         return rrs620
-    def _debug_data_scale_issue(self, bands_data: Dict[int, np.ndarray]) -> None:
-        """Debug the data scale issue"""
-        logger.info("=== DEBUGGING DATA SCALE ===")
-        
-        # Sample some pixels
-        valid_indices = []
-        for i in range(min(1000, bands_data[443].size)):
-            row = i // bands_data[443].shape[1]
-            col = i % bands_data[443].shape[1]
-            
-            # Check if pixel has valid data
-            pixel_rhow = {wl: data[row, col] for wl, data in bands_data.items()}
-            if all(v > 0 and not np.isnan(v) for v in pixel_rhow.values()):
-                valid_indices.append((row, col))
-                if len(valid_indices) >= 10:
-                    break
-        
-        logger.info(f"Analyzing {len(valid_indices)} valid pixels:")
-        
-        for i, (row, col) in enumerate(valid_indices[:5]):
-            logger.info(f"\nPixel {i+1} (row={row}, col={col}):")
-            
-            # Raw rhow values from C2RCC
-            rhow_490 = bands_data[490][row, col]
-            rhow_560 = bands_data[560][row, col]
-            rhow_665 = bands_data[665][row, col]
-            rhow_740 = bands_data[740][row, col]
-            
-            logger.info(f"  Raw rhow values:")
-            logger.info(f"    rhow(490) = {rhow_490:.6f}")
-            logger.info(f"    rhow(560) = {rhow_560:.6f}")
-            logger.info(f"    rhow(665) = {rhow_665:.6f}")
-            logger.info(f"    rhow(740) = {rhow_740:.6f}")
-            
-            # After division by π
-            rrs_490 = rhow_490 / np.pi
-            rrs_560 = rhow_560 / np.pi
-            rrs_665 = rhow_665 / np.pi
-            rrs_740 = rhow_740 / np.pi
-            
-            logger.info(f"  After dividing by π:")
-            logger.info(f"    Rrs(490) = {rrs_490:.6f}")
-            logger.info(f"    Rrs(560) = {rrs_560:.6f}")
-            logger.info(f"    Rrs(665) = {rrs_665:.6f}")
-            logger.info(f"    Rrs(740) = {rrs_740:.6f}")
-            
-            # Check if these are reasonable Rrs values
-            reasonable_490 = 0.001 <= rrs_490 <= 0.03
-            reasonable_560 = 0.0005 <= rrs_560 <= 0.02
-            reasonable_665 = 0.0002 <= rrs_665 <= 0.01
-            reasonable_740 = 0.0001 <= rrs_740 <= 0.005
-            
-            logger.info(f"  Reasonable ranges check:")
-            logger.info(f"    Rrs(490) reasonable: {reasonable_490}")
-            logger.info(f"    Rrs(560) reasonable: {reasonable_560}")
-            logger.info(f"    Rrs(665) reasonable: {reasonable_665}")
-            logger.info(f"    Rrs(740) reasonable: {reasonable_740}")
-            
-            # Estimate Rrs620
-            rrs620 = self._estimate_rrs620_from_rrs665(rrs_665)
-            logger.info(f"    Estimated Rrs(620) = {rrs620:.6f}")
-            
-            # Check band selection conditions
-            cond1 = rrs_490 > rrs_560
-            cond2 = rrs_490 > rrs620
-            cond3 = rrs_740 > rrs_490 and rrs_740 > 0.010
-            
-            logger.info(f"  Band selection:")
-            logger.info(f"    Condition 1 (490>560): {cond1}")
-            logger.info(f"    Condition 2 (490>620): {cond2}")
-            logger.info(f"    Condition 3 (740>490 & 740>0.01): {cond3}")
-            
-            if cond1:
-                selected = "560nm (Clear)"
-            elif cond2:
-                selected = "665nm (Moderate)"
-            elif cond3:
-                selected = "865nm (Extremely turbid)"
-            else:
-                selected = "740nm (Highly turbid)"
-            
-            logger.info(f"    → Selected: {selected}")
+    
+    
         
     def _qaa_560(self, site_rrs: Dict[int, float]) -> Dict:
         """
