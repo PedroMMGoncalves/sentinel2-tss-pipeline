@@ -2543,14 +2543,13 @@ class S2Processor:
     <graph id="S2_Complete_Water_Processing_Fixed">
     <version>1.0</version>
     
-    <!-- Step 1: Read Input Product - ONLY ESSENTIAL BANDS + TIE-POINTS -->
+    <!-- Step 1: Read Input Product - ONLY SPECTRAL BANDS (tie-points come automatically) -->
     <node id="Read">
         <operator>Read</operator>
         <sources/>
         <parameters class="com.bc.ceres.binding.dom.XppDomElement">
         <file>${{sourceProduct}}</file>
         <bandNames>{essential_bands}</bandNames>
-        <tiePointGridNames>{essential_tie_points}</tiePointGridNames>
         </parameters>
     </node>
     
@@ -2630,14 +2629,13 @@ class S2Processor:
     <graph id="S2_Complete_Water_Processing_NoSubset_Fixed">
     <version>1.0</version>
     
-    <!-- Step 1: Read Input Product - ONLY ESSENTIAL BANDS + TIE-POINTS -->
+    <!-- Step 1: Read Input Product - ONLY SPECTRAL BANDS (tie-points come automatically) -->
     <node id="Read">
         <operator>Read</operator>
         <sources/>
         <parameters class="com.bc.ceres.binding.dom.XppDomElement">
         <file>${{sourceProduct}}</file>
         <bandNames>{essential_bands}</bandNames>
-        <tiePointGridNames>{essential_tie_points}</tiePointGridNames>
         </parameters>
     </node>
     
