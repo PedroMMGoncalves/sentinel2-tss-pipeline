@@ -1019,7 +1019,7 @@ class JiangTSSProcessor:
             logger.info("Note: Only Sentinel-2 compatible algorithms included")
     
     def _load_rhow_bands(self, c2rcc_path: str) -> Dict[int, str]:
-        """Load water-leaving reflectance bands"""
+        """Load water-leaving reflectance bands - FIXED to use correct SNAP naming"""
         # Determine data folder
         if c2rcc_path.endswith('.dim'):
             data_folder = c2rcc_path.replace('.dim', '.data')
@@ -1032,27 +1032,41 @@ class JiangTSSProcessor:
             logger.error(f"Data folder not found: {data_folder}")
             return {}
         
-        # Map wavelengths to band files
+        # FIXED: Map wavelengths to CORRECT SNAP band files (rhown_B*.img)
         band_mapping = {
-            443: 'rhow_B1.img', 490: 'rhow_B2.img', 560: 'rhow_B3.img', 665: 'rhow_B4.img',
-            705: 'rhow_B5.img', 740: 'rhow_B6.img', 783: 'rhow_B7.img', 865: 'rhow_B8A.img'
+            443: 'rhown_B1.img',    # FIXED: was rhow_B1.img
+            490: 'rhown_B2.img',    # FIXED: was rhow_B2.img  
+            560: 'rhown_B3.img',    # FIXED: was rhow_B3.img
+            665: 'rhown_B4.img',    # FIXED: was rhow_B4.img
+            705: 'rhown_B5.img',    # FIXED: was rhow_B5.img
+            740: 'rhown_B6.img',    # FIXED: was rhow_B6.img
+            783: 'rhown_B7.img',    # FIXED: was rhow_B7.img
+            865: 'rhown_B8A.img'    # FIXED: was rhow_B8A.img
         }
         
         rhow_bands = {}
         missing_bands = []
         
+        logger.info(f"🔍 DEBUG: Checking for rhown bands (FIXED) in: {data_folder}")
+        
         for wavelength, filename in band_mapping.items():
             band_path = os.path.join(data_folder, filename)
-            if os.path.exists(band_path):
+            if os.path.exists(band_path) and os.path.getsize(band_path) > 1024:  # At least 1KB
                 rhow_bands[wavelength] = band_path
+                logger.info(f"✓ Found {filename} for {wavelength}nm")
             else:
                 missing_bands.append(f"{wavelength}nm ({filename})")
+                if os.path.exists(band_path):
+                    file_size = os.path.getsize(band_path)
+                    logger.warning(f"⚠ {filename} exists but too small ({file_size} bytes)")
+                else:
+                    logger.warning(f"❌ {filename} not found")
         
         if missing_bands:
             logger.error(f"Missing required bands: {missing_bands}")
             return {}
         
-        logger.info(f"Successfully found {len(rhow_bands)} spectral bands")
+        logger.info(f"✅ Successfully found {len(rhow_bands)} spectral bands using correct SNAP naming")
         return rhow_bands
     
     def _load_bands_data(self, rhow_bands: Dict[int, str]) -> Tuple[Optional[Dict], Optional[Dict]]:
@@ -3020,13 +3034,13 @@ class S2Processor:
                     snap_products[product] = False
                     snap_file_sizes[product] = -1
 
-            # Check for rhow bands (needed for Jiang TSS)
-            rhow_bands = [f'rhow_B{i}.img' for i in ['1', '2', '3', '4', '5', '6', '7', '8A']]
+            # Check for rhow bands (needed for Jiang TSS) - FIXED
+            rhow_bands = [f'rhown_B{i}.img' for i in ['1', '2', '3', '4', '5', '6', '7', '8A']]  # FIXED: rhown instead of rhow
             rhow_count = 0
             missing_bands = []
             
-            # DEBUG LINE:
-            logger.info(f"🔍 DEBUG: Checking for rhow bands in: {data_folder}")
+            # DEBUG LOGGER:
+            logger.info(f"🔍 DEBUG: Checking for rhown bands (FIXED) in: {data_folder}")
             
             for band in rhow_bands:
                 band_path = os.path.join(data_folder, band)
@@ -3035,19 +3049,15 @@ class S2Processor:
                         band_size = os.path.getsize(band_path)
                         if band_size > 1024:  # At least 1KB
                             rhow_count += 1
-                            # ADD THIS DEBUG LINE:
                             logger.info(f"🔍 DEBUG: Found {band} ({band_size} bytes)")
                         else:
                             missing_bands.append(f"{band} ({band_size} bytes)")
-                            # ADD THIS DEBUG LINE:
                             logger.info(f"🔍 DEBUG: {band} exists but too small ({band_size} bytes)")
                     else:
                         missing_bands.append(band)
-                        # ADD THIS DEBUG LINE:
                         logger.info(f"🔍 DEBUG: {band} does not exist")
                 except (OSError, PermissionError):
                     missing_bands.append(f"{band} (access error)")
-                    # ADD THIS DEBUG LINE:
                     logger.info(f"🔍 DEBUG: {band} access error")
 
             # Count successful SNAP products

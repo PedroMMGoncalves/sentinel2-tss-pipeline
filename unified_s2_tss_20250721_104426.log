@@ -221,3 +221,4 @@
 2025-07-21 10:57:07,889 - INFO - [sentinel2_tss_pipeline.py:1085] - Starting CORRECTED Jiang TSS processing for S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
 2025-07-21 10:57:07,889 - ERROR - [sentinel2_tss_pipeline.py:1052] - Missing required bands: ['443nm (rhow_B1.img)', '490nm (rhow_B2.img)', '560nm (rhow_B3.img)', '665nm (rhow_B4.img)', '705nm (rhow_B5.img)', '740nm (rhow_B6.img)', '783nm (rhow_B7.img)', '865nm (rhow_B8A.img)']
 2025-07-21 10:57:07,889 - ERROR - [sentinel2_tss_pipeline.py:3417] - Processing failed: Failed to load required bands
+2025-07-21 12:48:53,077 - INFO - [sentinel2_tss_pipeline.py:6194] - Application finished successfully
