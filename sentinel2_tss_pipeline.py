@@ -3025,6 +3025,9 @@ class S2Processor:
             rhow_count = 0
             missing_bands = []
             
+            # DEBUG LINE:
+            logger.info(f"🔍 DEBUG: Checking for rhow bands in: {data_folder}")
+            
             for band in rhow_bands:
                 band_path = os.path.join(data_folder, band)
                 try:
@@ -3032,12 +3035,20 @@ class S2Processor:
                         band_size = os.path.getsize(band_path)
                         if band_size > 1024:  # At least 1KB
                             rhow_count += 1
+                            # ADD THIS DEBUG LINE:
+                            logger.info(f"🔍 DEBUG: Found {band} ({band_size} bytes)")
                         else:
                             missing_bands.append(f"{band} ({band_size} bytes)")
+                            # ADD THIS DEBUG LINE:
+                            logger.info(f"🔍 DEBUG: {band} exists but too small ({band_size} bytes)")
                     else:
                         missing_bands.append(band)
+                        # ADD THIS DEBUG LINE:
+                        logger.info(f"🔍 DEBUG: {band} does not exist")
                 except (OSError, PermissionError):
                     missing_bands.append(f"{band} (access error)")
+                    # ADD THIS DEBUG LINE:
+                    logger.info(f"🔍 DEBUG: {band} access error")
 
             # Count successful SNAP products
             snap_product_count = sum(snap_products.values())
