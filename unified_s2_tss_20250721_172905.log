@@ -1,0 +1,64 @@
+2025-07-21 17:29:05,369 - INFO - [sentinel2_tss_pipeline.py:6294] - Auto-detected SNAP_HOME: C:\Program Files\esa-snap
+2025-07-21 17:29:05,370 - INFO - [sentinel2_tss_pipeline.py:6335] - ================================================================================
+2025-07-21 17:29:05,371 - INFO - [sentinel2_tss_pipeline.py:6336] - UNIFIED S2 PROCESSING & TSS ESTIMATION PIPELINE v1.0
+2025-07-21 17:29:05,372 - INFO - [sentinel2_tss_pipeline.py:6337] - ================================================================================
+2025-07-21 17:29:05,372 - INFO - [sentinel2_tss_pipeline.py:6338] - SNAP_HOME: C:\Program Files\esa-snap
+2025-07-21 17:29:05,373 - INFO - [sentinel2_tss_pipeline.py:6339] - GPT: C:\Program Files\esa-snap\bin\gpt.exe
+2025-07-21 17:29:05,374 - INFO - [sentinel2_tss_pipeline.py:6340] - Python: 3.9.22 | packaged by conda-forge | (main, Apr 10 2025, 22:07:06) [MSC v.1929 64 bit (AMD64)]
+2025-07-21 17:29:05,374 - INFO - [sentinel2_tss_pipeline.py:6341] - Platform: win32
+2025-07-21 17:29:05,375 - INFO - [sentinel2_tss_pipeline.py:6342] - Working Directory: C:\Users\pedro.goncalves\OneDrive - LNEG - Laboratorio Nacional de Energia e Geologia\GitHub\sentinel2-tss-pipeline
+2025-07-21 17:29:05,375 - INFO - [sentinel2_tss_pipeline.py:6343] - ================================================================================
+2025-07-21 17:29:05,376 - INFO - [sentinel2_tss_pipeline.py:6352] - Starting GUI application...
+2025-07-21 17:30:29,800 - INFO - [sentinel2_tss_pipeline.py:2491] - SNAP_HOME: C:\Program Files\esa-snap
+2025-07-21 17:30:35,488 - INFO - [sentinel2_tss_pipeline.py:2502] - ✓ GPT validated: C:\Program Files\esa-snap\bin\gpt.exe
+2025-07-21 17:30:35,491 - INFO - [sentinel2_tss_pipeline.py:2623] - REALISTIC DEBUG processing graph saved: s2_complete_processing_with_subset.xml
+2025-07-21 17:30:35,492 - INFO - [sentinel2_tss_pipeline.py:2531] - ✓ Processing graph created for mode: complete_pipeline
+2025-07-21 17:30:35,493 - INFO - [sentinel2_tss_pipeline.py:2068] - Initialized Advanced Aquatic Processor with scientific algorithms
+2025-07-21 17:30:35,493 - INFO - [sentinel2_tss_pipeline.py:1010] - Initialized Jiang TSS Processor with clean methodology
+2025-07-21 17:30:35,494 - INFO - [sentinel2_tss_pipeline.py:1013] - Jiang TSS enabled: True
+2025-07-21 17:30:35,495 - INFO - [sentinel2_tss_pipeline.py:1014] - Advanced algorithms enabled: True
+2025-07-21 17:30:35,496 - INFO - [sentinel2_tss_pipeline.py:1016] - Working algorithms available:
+2025-07-21 17:30:35,497 - INFO - [sentinel2_tss_pipeline.py:1017] -   ✓ Water Clarity: True
+2025-07-21 17:30:35,497 - INFO - [sentinel2_tss_pipeline.py:1018] -   ✓ HAB Detection: True
+2025-07-21 17:30:35,498 - INFO - [sentinel2_tss_pipeline.py:1019] - Note: Only Sentinel-2 compatible algorithms included
+2025-07-21 17:30:35,499 - INFO - [sentinel2_tss_pipeline.py:3473] - Initialized Unified S2-TSS Processor - Mode: complete_pipeline
+2025-07-21 17:30:35,499 - INFO - [sentinel2_tss_pipeline.py:5856] - TEST MODE: Processing only 2 products
+2025-07-21 17:30:35,500 - INFO - [sentinel2_tss_pipeline.py:3547] - 
+--------------------------------------------------------------------------------
+2025-07-21 17:30:35,501 - INFO - [sentinel2_tss_pipeline.py:3548] - Processing 1/2: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753
+2025-07-21 17:30:35,501 - INFO - [sentinel2_tss_pipeline.py:3549] - Mode: complete_pipeline
+2025-07-21 17:30:35,502 - INFO - [sentinel2_tss_pipeline.py:3550] - --------------------------------------------------------------------------------
+2025-07-21 17:30:35,503 - INFO - [sentinel2_tss_pipeline.py:2804] - Processing: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip
+2025-07-21 17:30:35,504 - INFO - [sentinel2_tss_pipeline.py:2805] -   Mode: complete_pipeline
+2025-07-21 17:30:35,504 - INFO - [sentinel2_tss_pipeline.py:2806] -   Resolution: 10m
+2025-07-21 17:30:35,505 - INFO - [sentinel2_tss_pipeline.py:2807] -   ECMWF: True
+2025-07-21 17:30:35,507 - INFO - [sentinel2_tss_pipeline.py:2955] - DEBUG: Geometric output will be saved to: D:/GSEU_WP5/02_TSS_Results\C2RCC_Products\Resampled_S2A_20190105T112441_T29TNF_Subset_Geometric_DEBUG.dim
+2025-07-21 17:30:35,507 - INFO - [sentinel2_tss_pipeline.py:2958] - Starting S2 processing with C2RCC and geometric debug output...
+2025-07-21 17:48:44,556 - ERROR - [sentinel2_tss_pipeline.py:2991] - ❌ GPT processing failed
+2025-07-21 17:48:44,557 - ERROR - [sentinel2_tss_pipeline.py:2992] - Return code: 1
+2025-07-21 17:48:44,557 - ERROR - [sentinel2_tss_pipeline.py:2994] - GPT stderr: INFO: org.esa.snap.core.gpf.operators.tooladapter.ToolAdapterIO: Initializing external tool adapters
+INFO: org.esa.snap.core.util.EngineVersionCheckActivator: Please check regularly for new updates for the best SNAP experience.
+1812 [main] INFO hdf.hdflib.HDFLibrary - HDF4 library: 
+1812 [main] INFO hdf.hdflib.HDFLibrary -  successfully loaded.
+1836 [main] INFO hdf.hdf5lib.H5 - HDF5 library: 
+1836 [main] INFO hdf.hdf5lib.H5 -  successfully loaded.
+INFO: eu.esa.opt.dataio.s2.ortho.S2OrthoProductReaderPlugIn: Building product reader - EPSG:32629
+WARNING: org.esa.snap.core.metadata.GenericXmlMetadata: Metadata: the path to element [metadata_level] does not exist
+WARNING: org.esa.snap.core.metadata.GenericXmlMetadata: Metadata: the path to element [granuleidentifier] does not exist
+WARNING: org.esa.snap.core.metadata.GenericXmlMetadata: Metadata: the path to element [bandid] does not exist
+ERROR 4: C:\Users\PEDRO~1.GON\AppData\Local\Temp\snap-pedro.goncalves\1753115444846-0\S2A_MSIL1C_2019...
+2025-07-21 17:48:44,558 - ERROR - [sentinel2_tss_pipeline.py:2922] - ❌ S2 processing FAILED: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip
+2025-07-21 17:48:44,559 - INFO - [sentinel2_tss_pipeline.py:3583] - ✓ Processing completed: 0 products generated
+2025-07-21 17:48:44,755 - INFO - [sentinel2_tss_pipeline.py:3632] - → Progress: 1/2 (50.0%), ETA: 18.2 minutes
+2025-07-21 17:48:44,758 - INFO - [sentinel2_tss_pipeline.py:3547] - 
+--------------------------------------------------------------------------------
+2025-07-21 17:48:44,758 - INFO - [sentinel2_tss_pipeline.py:3548] - Processing 2/2: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306
+2025-07-21 17:48:44,759 - INFO - [sentinel2_tss_pipeline.py:3549] - Mode: complete_pipeline
+2025-07-21 17:48:44,760 - INFO - [sentinel2_tss_pipeline.py:3550] - --------------------------------------------------------------------------------
+2025-07-21 17:48:44,761 - INFO - [sentinel2_tss_pipeline.py:2804] - Processing: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
+2025-07-21 17:48:44,761 - INFO - [sentinel2_tss_pipeline.py:2805] -   Mode: complete_pipeline
+2025-07-21 17:48:44,762 - INFO - [sentinel2_tss_pipeline.py:2806] -   Resolution: 10m
+2025-07-21 17:48:44,763 - INFO - [sentinel2_tss_pipeline.py:2807] -   ECMWF: True
+2025-07-21 17:48:44,765 - INFO - [sentinel2_tss_pipeline.py:2955] - DEBUG: Geometric output will be saved to: D:/GSEU_WP5/02_TSS_Results\C2RCC_Products\Resampled_S2A_20190108T113441_T29TNF_Subset_Geometric_DEBUG.dim
+2025-07-21 17:48:44,766 - INFO - [sentinel2_tss_pipeline.py:2958] - Starting S2 processing with C2RCC and geometric debug output...
+2025-07-21 17:55:56,542 - INFO - [sentinel2_tss_pipeline.py:6356] - Application finished successfully

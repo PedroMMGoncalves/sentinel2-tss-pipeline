@@ -2532,24 +2532,28 @@ class S2Processor:
     
 
     def create_s2_graph_with_subset(self) -> str:
-        """Create S2 processing graph with spatial subset - REALISTIC DEBUG"""
+        """Create OPTIMIZED S2 processing graph - only essential bands for water processing"""
         subset_params = self._get_subset_parameters()
         
-        # IMPORTANT: Don't force all bands - let S2Resampling decide what's appropriate
+        # COMPLETE: All S2 bands for current TSS + future modules
+        essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"  # All S2 bands for future modules
+        essential_angles = "sun_zenith,sun_azimuth,view_zenith_mean,view_azimuth_mean"  # Only critical angles
+        
         graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-    <graph id="S2_Complete_Processing_WithSubset_Debug">
+    <graph id="S2_Optimized_Water_Processing">
     <version>1.0</version>
     
-    <!-- Step 1: Read Input Product -->
+    <!-- Step 1: Read Input Product - ONLY ESSENTIAL BANDS -->
     <node id="Read">
         <operator>Read</operator>
         <sources/>
         <parameters class="com.bc.ceres.binding.dom.XppDomElement">
         <file>${{sourceProduct}}</file>
+        <bandNames>{essential_bands},{essential_angles}</bandNames>
         </parameters>
     </node>
     
-    <!-- Step 2: S2 Resampling - DEFAULT BEHAVIOR (let SNAP decide which bands) -->
+    <!-- Step 2: S2 Resampling - OPTIMIZED FOR WATER PROCESSING -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
         <sources>
@@ -2561,22 +2565,11 @@ class S2Processor:
         <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
         <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
         <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
+        <bandNames>{essential_bands}</bandNames>
         </parameters>
     </node>
     
-    <!-- DEBUG: Write Resampled Product to see what bands SNAP actually processes -->
-    <node id="WriteResampled">
-        <operator>Write</operator>
-        <sources>
-        <sourceProduct refid="S2Resampling"/>
-        </sources>
-        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-        <file>${{geometricProduct}}</file>
-        <formatName>BEAM-DIMAP</formatName>
-        </parameters>
-    </node>
-    
-    <!-- Step 3: Spatial Subset - DEFAULT BEHAVIOR -->
+    <!-- Step 3: Spatial Subset - ONLY ESSENTIAL BANDS -->
     <node id="Subset">
         <operator>Subset</operator>
         <sources>
@@ -2588,6 +2581,7 @@ class S2Processor:
         <subSamplingY>{self.config.subset_config.sub_sampling_y}</subSamplingY>
         <fullSwath>{str(self.config.subset_config.full_swath).lower()}</fullSwath>
         <copyMetadata>{str(self.config.subset_config.copy_metadata).lower()}</copyMetadata>
+        <bandNames>{essential_bands},{essential_angles}</bandNames>
         </parameters>
     </node>
     
@@ -2616,29 +2610,35 @@ class S2Processor:
     
     </graph>'''
         
-        graph_file = 's2_complete_processing_with_subset.xml'
+        graph_file = 's2_optimized_water_processing.xml'
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
         
-        logger.info(f"REALISTIC DEBUG processing graph saved: {graph_file}")
+        logger.info(f"COMPLETE processing graph saved: {graph_file}")
         return graph_file
 
     def create_s2_graph_no_subset(self) -> str:
-        """Create S2 processing graph without spatial subset - REALISTIC DEBUG"""
+        """Create COMPLETE S2 processing graph without subset - all bands for future modules"""
+        
+        # COMPLETE: All S2 bands for current TSS + future modules
+        essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"  # All S2 bands for future modules
+        essential_angles = "sun_zenith,sun_azimuth,view_zenith_mean,view_azimuth_mean"  # Only critical angles
+        
         graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-    <graph id="S2_Complete_Processing_NoSubset_Debug">
+    <graph id="S2_Optimized_Water_Processing_NoSubset">
     <version>1.0</version>
     
-    <!-- Step 1: Read Input Product -->
+    <!-- Step 1: Read Input Product - ONLY ESSENTIAL BANDS -->
     <node id="Read">
         <operator>Read</operator>
         <sources/>
         <parameters class="com.bc.ceres.binding.dom.XppDomElement">
         <file>${{sourceProduct}}</file>
+        <bandNames>{essential_bands},{essential_angles}</bandNames>
         </parameters>
     </node>
     
-    <!-- Step 2: S2 Resampling - DEFAULT BEHAVIOR (let SNAP decide which bands) -->
+    <!-- Step 2: S2 Resampling - OPTIMIZED FOR WATER PROCESSING -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
         <sources>
@@ -2650,18 +2650,7 @@ class S2Processor:
         <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
         <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
         <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
-        </parameters>
-    </node>
-    
-    <!-- DEBUG: Write Resampled Product to see what bands SNAP actually processes -->
-    <node id="WriteResampled">
-        <operator>Write</operator>
-        <sources>
-        <sourceProduct refid="S2Resampling"/>
-        </sources>
-        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-        <file>${{geometricProduct}}</file>
-        <formatName>BEAM-DIMAP</formatName>
+        <bandNames>{essential_bands}</bandNames>
         </parameters>
     </node>
     
@@ -2690,11 +2679,11 @@ class S2Processor:
     
     </graph>'''
         
-        graph_file = 's2_complete_processing_no_subset.xml'
+        graph_file = 's2_optimized_water_processing_no_subset.xml'
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
         
-        logger.info(f"REALISTIC DEBUG processing graph saved: {graph_file}")
+        logger.info(f"COMPLETE processing graph saved: {graph_file}")
         return graph_file
     
     def _get_subset_parameters(self) -> str:
@@ -2933,12 +2922,9 @@ class S2Processor:
             return {'error': ProcessingResult(False, "", None, error_msg)}
     
     def _run_s2_processing(self, input_path: str, output_path: str) -> bool:
-        """Run S2 processing using GPT - DEBUG VERSION with geometric output"""
+        """Run OPTIMIZED S2 processing - no debug output, minimal file sizes"""
         try:
-            # Prepare geometric output path for debugging
-            geometric_output_path = output_path.replace('_C2RCC.dim', '_Geometric_DEBUG.dim')
-            
-            # Prepare GPT command
+            # Prepare GPT command - REMOVE debug geometric output
             gpt_cmd = self.get_gpt_command()
             
             cmd = [
@@ -2946,16 +2932,14 @@ class S2Processor:
                 self.main_graph_file,
                 f'-PsourceProduct={input_path}',
                 f'-PtargetProduct={output_path}',
-                f'-PgeometricProduct={geometric_output_path}',  # DEBUG: Add geometric output
                 f'-c', f'{self.config.memory_limit_gb}G',
                 f'-q', str(self.config.thread_count)
             ]
             
             logger.debug(f"GPT command: {' '.join(cmd)}")
-            logger.info(f"DEBUG: Geometric output will be saved to: {geometric_output_path}")
             
             # Run GPT processing with timeout
-            logger.info(f"Starting S2 processing with C2RCC and geometric debug output...")
+            logger.info(f"Starting COMPLETE S2 processing (all bands for current + future modules)...")
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -2968,18 +2952,7 @@ class S2Processor:
                 if os.path.exists(output_path):
                     file_size = os.path.getsize(output_path)
                     if file_size > 1024 * 1024:  # > 1MB
-                        logger.info(f"✅ C2RCC output created: {os.path.basename(output_path)} ({file_size/1024/1024:.1f}MB)")
-                        
-                        # Check geometric output
-                        if os.path.exists(geometric_output_path):
-                            geom_size = os.path.getsize(geometric_output_path)
-                            logger.info(f"✅ Geometric output created: {os.path.basename(geometric_output_path)} ({geom_size/1024/1024:.1f}MB)")
-                            
-                            # DEBUG: Check geometric bands
-                            self._debug_geometric_bands(geometric_output_path)
-                        else:
-                            logger.warning(f"⚠ Geometric output not created: {geometric_output_path}")
-                        
+                        logger.info(f"✅ COMPLETE C2RCC output created: {os.path.basename(output_path)} ({file_size/1024/1024:.1f}MB)")
                         return True
                     else:
                         logger.error(f"❌ Output file too small ({file_size} bytes)")
