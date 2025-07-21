@@ -1,0 +1,12 @@
+2025-07-21 18:13:24,638 - INFO - [sentinel2_tss_pipeline.py:6267] - Auto-detected SNAP_HOME: C:\Program Files\esa-snap
+2025-07-21 18:13:24,639 - INFO - [sentinel2_tss_pipeline.py:6308] - ================================================================================
+2025-07-21 18:13:24,640 - INFO - [sentinel2_tss_pipeline.py:6309] - UNIFIED S2 PROCESSING & TSS ESTIMATION PIPELINE v1.0
+2025-07-21 18:13:24,641 - INFO - [sentinel2_tss_pipeline.py:6310] - ================================================================================
+2025-07-21 18:13:24,642 - INFO - [sentinel2_tss_pipeline.py:6311] - SNAP_HOME: C:\Program Files\esa-snap
+2025-07-21 18:13:24,642 - INFO - [sentinel2_tss_pipeline.py:6312] - GPT: C:\Program Files\esa-snap\bin\gpt.exe
+2025-07-21 18:13:24,643 - INFO - [sentinel2_tss_pipeline.py:6313] - Python: 3.9.22 | packaged by conda-forge | (main, Apr 10 2025, 22:07:06) [MSC v.1929 64 bit (AMD64)]
+2025-07-21 18:13:24,643 - INFO - [sentinel2_tss_pipeline.py:6314] - Platform: win32
+2025-07-21 18:13:24,644 - INFO - [sentinel2_tss_pipeline.py:6315] - Working Directory: C:\Users\pedro.goncalves\OneDrive - LNEG - Laboratorio Nacional de Energia e Geologia\GitHub\sentinel2-tss-pipeline
+2025-07-21 18:13:24,645 - INFO - [sentinel2_tss_pipeline.py:6316] - ================================================================================
+2025-07-21 18:13:24,646 - INFO - [sentinel2_tss_pipeline.py:6325] - Starting GUI application...
+2025-07-21 18:40:23,533 - INFO - [sentinel2_tss_pipeline.py:6332] - Application interrupted by user

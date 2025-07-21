@@ -2532,7 +2532,7 @@ class S2Processor:
     
 
     def create_s2_graph_with_subset(self) -> str:
-        """Create OPTIMIZED S2 processing graph - only essential bands for water processing"""
+        """Create FIXED S2 processing graph - removed bandNames from S2Resampling"""
         subset_params = self._get_subset_parameters()
         
         # COMPLETE: All S2 bands for current TSS + future modules
@@ -2540,7 +2540,7 @@ class S2Processor:
         essential_angles = "sun_zenith,sun_azimuth,view_zenith_mean,view_azimuth_mean"  # Only critical angles
         
         graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-    <graph id="S2_Optimized_Water_Processing">
+    <graph id="S2_Complete_Water_Processing_Fixed">
     <version>1.0</version>
     
     <!-- Step 1: Read Input Product - ONLY ESSENTIAL BANDS -->
@@ -2553,7 +2553,7 @@ class S2Processor:
         </parameters>
     </node>
     
-    <!-- Step 2: S2 Resampling - OPTIMIZED FOR WATER PROCESSING -->
+    <!-- Step 2: S2 Resampling - CORRECT: Uses 'bands' parameter -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
         <sources>
@@ -2565,11 +2565,11 @@ class S2Processor:
         <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
         <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
         <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
-        <bandNames>{essential_bands}</bandNames>
+        <bands>{essential_bands}</bands>
         </parameters>
     </node>
     
-    <!-- Step 3: Spatial Subset - ONLY ESSENTIAL BANDS -->
+    <!-- Step 3: Spatial Subset - CORRECT: Uses 'sourceBands' parameter -->
     <node id="Subset">
         <operator>Subset</operator>
         <sources>
@@ -2581,7 +2581,7 @@ class S2Processor:
         <subSamplingY>{self.config.subset_config.sub_sampling_y}</subSamplingY>
         <fullSwath>{str(self.config.subset_config.full_swath).lower()}</fullSwath>
         <copyMetadata>{str(self.config.subset_config.copy_metadata).lower()}</copyMetadata>
-        <bandNames>{essential_bands},{essential_angles}</bandNames>
+        <sourceBands>{essential_bands},{essential_angles}</sourceBands>
         </parameters>
     </node>
     
@@ -2610,22 +2610,22 @@ class S2Processor:
     
     </graph>'''
         
-        graph_file = 's2_optimized_water_processing.xml'
+        graph_file = 's2_complete_processing_with_subset.xml'
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
         
-        logger.info(f"COMPLETE processing graph saved: {graph_file}")
+        logger.info(f"FIXED processing graph saved: {graph_file}")
         return graph_file
 
     def create_s2_graph_no_subset(self) -> str:
-        """Create COMPLETE S2 processing graph without subset - all bands for future modules"""
+        """Create FIXED S2 processing graph without subset - removed bandNames from S2Resampling"""
         
         # COMPLETE: All S2 bands for current TSS + future modules
         essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"  # All S2 bands for future modules
         essential_angles = "sun_zenith,sun_azimuth,view_zenith_mean,view_azimuth_mean"  # Only critical angles
         
         graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-    <graph id="S2_Optimized_Water_Processing_NoSubset">
+    <graph id="S2_Complete_Water_Processing_NoSubset_Fixed">
     <version>1.0</version>
     
     <!-- Step 1: Read Input Product - ONLY ESSENTIAL BANDS -->
@@ -2638,7 +2638,7 @@ class S2Processor:
         </parameters>
     </node>
     
-    <!-- Step 2: S2 Resampling - OPTIMIZED FOR WATER PROCESSING -->
+    <!-- Step 2: S2 Resampling - CORRECT: Uses 'bands' parameter -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
         <sources>
@@ -2650,7 +2650,7 @@ class S2Processor:
         <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
         <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
         <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
-        <bandNames>{essential_bands}</bandNames>
+        <bands>{essential_bands}</bands>
         </parameters>
     </node>
     
@@ -2679,11 +2679,11 @@ class S2Processor:
     
     </graph>'''
         
-        graph_file = 's2_optimized_water_processing_no_subset.xml'
+        graph_file = 's2_complete_processing_no_subset.xml'
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
         
-        logger.info(f"COMPLETE processing graph saved: {graph_file}")
+        logger.info(f"FIXED processing graph saved: {graph_file}")
         return graph_file
     
     def _get_subset_parameters(self) -> str:
