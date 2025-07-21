@@ -1,0 +1,223 @@
+2025-07-21 16:46:31,623 - INFO - [untitled0.py:6088] - ================================================================================
+2025-07-21 16:46:31,623 - INFO - [untitled0.py:6089] - UNIFIED S2 PROCESSING & TSS ESTIMATION PIPELINE v1.0
+2025-07-21 16:46:31,624 - INFO - [untitled0.py:6090] - ================================================================================
+2025-07-21 16:46:31,625 - INFO - [untitled0.py:6091] - SNAP_HOME: C:\Program Files\esa-snap
+2025-07-21 16:46:31,626 - INFO - [untitled0.py:6092] - GPT: C:\Program Files\esa-snap\bin\gpt.exe
+2025-07-21 16:46:31,626 - INFO - [untitled0.py:6093] - Python: 3.9.22 | packaged by conda-forge | (main, Apr 10 2025, 22:07:06) [MSC v.1929 64 bit (AMD64)]
+2025-07-21 16:46:31,627 - INFO - [untitled0.py:6094] - Platform: win32
+2025-07-21 16:46:31,627 - INFO - [untitled0.py:6095] - Working Directory: C:\Users\pedro.goncalves\OneDrive - LNEG - Laboratorio Nacional de Energia e Geologia\GitHub\sentinel2-tss-pipeline
+2025-07-21 16:46:31,628 - INFO - [untitled0.py:6096] - ================================================================================
+2025-07-21 16:46:31,629 - INFO - [untitled0.py:6105] - Starting GUI application...
+2025-07-21 16:54:46,916 - INFO - [untitled0.py:2474] - SNAP_HOME: C:\Program Files\esa-snap
+2025-07-21 16:54:51,661 - INFO - [untitled0.py:2485] - ✓ GPT validated: C:\Program Files\esa-snap\bin\gpt.exe
+2025-07-21 16:54:51,664 - INFO - [untitled0.py:2592] - Complete processing graph saved: s2_complete_processing_with_subset.xml
+2025-07-21 16:54:51,665 - INFO - [untitled0.py:2514] - ✓ Processing graph created for mode: complete_pipeline
+2025-07-21 16:54:51,665 - INFO - [untitled0.py:2051] - Initialized Advanced Aquatic Processor with scientific algorithms
+2025-07-21 16:54:51,666 - INFO - [untitled0.py:1010] - Initialized Jiang TSS Processor with clean methodology
+2025-07-21 16:54:51,666 - INFO - [untitled0.py:1013] - Jiang TSS enabled: True
+2025-07-21 16:54:51,667 - INFO - [untitled0.py:1014] - Advanced algorithms enabled: True
+2025-07-21 16:54:51,667 - INFO - [untitled0.py:1016] - Working algorithms available:
+2025-07-21 16:54:51,668 - INFO - [untitled0.py:1017] -   ✓ Water Clarity: True
+2025-07-21 16:54:51,668 - INFO - [untitled0.py:1018] -   ✓ HAB Detection: True
+2025-07-21 16:54:51,669 - INFO - [untitled0.py:1019] - Note: Only Sentinel-2 compatible algorithms included
+2025-07-21 16:54:51,670 - INFO - [untitled0.py:3226] - Initialized Unified S2-TSS Processor - Mode: complete_pipeline
+2025-07-21 16:54:51,670 - INFO - [untitled0.py:5609] - TEST MODE: Processing only 2 products
+2025-07-21 16:54:51,671 - INFO - [untitled0.py:3300] - 
+--------------------------------------------------------------------------------
+2025-07-21 16:54:51,672 - INFO - [untitled0.py:3301] - Processing 1/2: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753
+2025-07-21 16:54:51,672 - INFO - [untitled0.py:3302] - Mode: complete_pipeline
+2025-07-21 16:54:51,673 - INFO - [untitled0.py:3303] - --------------------------------------------------------------------------------
+2025-07-21 16:54:51,674 - INFO - [untitled0.py:2761] - Processing: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip
+2025-07-21 16:54:51,674 - INFO - [untitled0.py:2762] -   Mode: complete_pipeline
+2025-07-21 16:54:51,675 - INFO - [untitled0.py:2763] -   Resolution: 10m
+2025-07-21 16:54:51,675 - INFO - [untitled0.py:2764] -   ECMWF: True
+2025-07-21 16:54:51,677 - INFO - [untitled0.py:2910] - Starting S2 processing with C2RCC...
+2025-07-21 17:01:01,616 - INFO - [untitled0.py:3072] - ============================================================
+2025-07-21 17:01:01,617 - INFO - [untitled0.py:3073] - C2RCC OUTPUT VERIFICATION REPORT
+2025-07-21 17:01:01,618 - INFO - [untitled0.py:3074] - ============================================================
+2025-07-21 17:01:01,618 - INFO - [untitled0.py:3077] - C2RCC file: Resampled_S2A_20190105T112441_T29TNF_Subset_C2RCC.dim (20.8 MB)
+2025-07-21 17:01:01,619 - INFO - [untitled0.py:3078] - Data folder: Resampled_S2A_20190105T112441_T29TNF_Subset_C2RCC.data
+2025-07-21 17:01:01,619 - INFO - [untitled0.py:3081] - 
+🧪 SNAP TSM/CHL PRODUCTS (Critical for Analysis):
+2025-07-21 17:01:01,620 - INFO - [untitled0.py:3093] - ℹ️  TSM/CHL products will be calculated from IOP products
+2025-07-21 17:01:01,620 - INFO - [untitled0.py:3094] -    Using SNAP formulas:
+2025-07-21 17:01:01,621 - INFO - [untitled0.py:3095] -    • TSM = TSMfac * (bpart + bwit)^TSMexp
+2025-07-21 17:01:01,622 - INFO - [untitled0.py:3096] -    • CHL = apig^CHLexp * CHLfac
+2025-07-21 17:01:01,622 - INFO - [untitled0.py:3099] - 
+🔬 SNAP IOP PRODUCTS (5/6 available):
+2025-07-21 17:01:01,623 - INFO - [untitled0.py:3104] -    ✓ iop_apig.img (128414.5 KB)
+2025-07-21 17:01:01,623 - INFO - [untitled0.py:3104] -    ✓ iop_adet.img (128414.5 KB)
+2025-07-21 17:01:01,624 - INFO - [untitled0.py:3104] -    ✓ iop_agelb.img (128414.5 KB)
+2025-07-21 17:01:01,625 - INFO - [untitled0.py:3104] -    ✓ iop_bpart.img (128414.5 KB)
+2025-07-21 17:01:01,625 - INFO - [untitled0.py:3104] -    ✓ iop_bwit.img (128414.5 KB)
+2025-07-21 17:01:01,626 - INFO - [untitled0.py:3104] -    ✗ iop_btot.img (missing/empty)
+2025-07-21 17:01:01,626 - INFO - [untitled0.py:3107] - 
+🌊 JIANG TSS READINESS (0/8 bands):
+2025-07-21 17:01:01,627 - WARNING - [untitled0.py:3111] - ⚠ PARTIAL: Only 0/8 rhow bands available
+2025-07-21 17:01:01,627 - WARNING - [untitled0.py:3113] -    Missing bands: ['rhow_B1.img', 'rhow_B2.img', 'rhow_B3.img', 'rhow_B4.img', 'rhow_B5.img', 'rhow_B6.img', 'rhow_B7.img', 'rhow_B8A.img']
+2025-07-21 17:01:01,628 - INFO - [untitled0.py:3116] - 
+📊 OVERALL ASSESSMENT:
+2025-07-21 17:01:01,628 - WARNING - [untitled0.py:3125] - ⚠ LIMITED: Missing critical components
+2025-07-21 17:01:01,629 - INFO - [untitled0.py:3127] - ============================================================
+2025-07-21 17:01:01,630 - INFO - [untitled0.py:2831] - ✅ S2 processing SUCCESS: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip
+2025-07-21 17:01:01,630 - INFO - [untitled0.py:2832] -    Output: Resampled_S2A_20190105T112441_T29TNF_Subset_C2RCC.dim (20.8MB)
+2025-07-21 17:01:01,631 - INFO - [untitled0.py:2833] -    Processing time: 6.2 minutes
+2025-07-21 17:01:01,632 - INFO - [untitled0.py:2840] - Calculating missing SNAP TSM/CHL concentrations from IOP products...
+2025-07-21 17:01:01,632 - INFO - [untitled0.py:760] - SNAP TSM/CHL Calculator initialized:
+2025-07-21 17:01:01,633 - INFO - [untitled0.py:761] -   TSM formula: TSM = 1.06 * (bpart + bwit)^0.942
+2025-07-21 17:01:01,634 - INFO - [untitled0.py:762] -   CHL formula: CHL = apig^1.04 * 21.0
+2025-07-21 17:01:01,634 - INFO - [untitled0.py:767] - Calculating SNAP TSM/CHL from IOP products...
+2025-07-21 17:01:01,907 - INFO - [untitled0.py:793] - ✓ Loaded apig: (10980, 2994), mean=0.0340
+2025-07-21 17:01:02,167 - INFO - [untitled0.py:793] - ✓ Loaded bpart: (10980, 2994), mean=0.5250
+2025-07-21 17:01:02,426 - INFO - [untitled0.py:793] - ✓ Loaded bwit: (10980, 2994), mean=0.1841
+2025-07-21 17:01:02,427 - INFO - [untitled0.py:803] - Calculating CHL concentration from iop_apig...
+2025-07-21 17:01:02,914 - INFO - [untitled0.py:832] - CHL calculation: 27075849 valid pixels out of 27075849 processed
+2025-07-21 17:01:04,967 - INFO - [untitled0.py:559] - Successfully wrote raster: conc_chl.img
+2025-07-21 17:01:05,182 - INFO - [untitled0.py:851] - ✓ CHL concentration saved: 82.4% coverage, mean=0.797 mg/m³
+2025-07-21 17:01:05,183 - INFO - [untitled0.py:861] - Calculating TSM concentration from bpart + bwit (btot approximation)...
+2025-07-21 17:01:05,744 - INFO - [untitled0.py:893] - TSM calculation: 27075849 valid pixels out of 27075849 processed
+2025-07-21 17:01:07,649 - INFO - [untitled0.py:559] - Successfully wrote raster: conc_tsm.img
+2025-07-21 17:01:07,824 - INFO - [untitled0.py:912] - ✓ TSM concentration saved: 82.4% coverage, mean=0.882 g/m³
+2025-07-21 17:01:07,856 - INFO - [untitled0.py:2853] - ✅ SNAP TSM calculation successful!
+2025-07-21 17:01:07,856 - INFO - [untitled0.py:2856] - ✅ SNAP CHL calculation successful!
+2025-07-21 17:01:07,860 - INFO - [untitled0.py:3072] - ============================================================
+2025-07-21 17:01:07,860 - INFO - [untitled0.py:3073] - C2RCC OUTPUT VERIFICATION REPORT
+2025-07-21 17:01:07,861 - INFO - [untitled0.py:3074] - ============================================================
+2025-07-21 17:01:07,861 - INFO - [untitled0.py:3077] - C2RCC file: Resampled_S2A_20190105T112441_T29TNF_Subset_C2RCC.dim (20.8 MB)
+2025-07-21 17:01:07,862 - INFO - [untitled0.py:3078] - Data folder: Resampled_S2A_20190105T112441_T29TNF_Subset_C2RCC.data
+2025-07-21 17:01:07,863 - INFO - [untitled0.py:3081] - 
+🧪 SNAP TSM/CHL PRODUCTS (Critical for Analysis):
+2025-07-21 17:01:07,863 - INFO - [untitled0.py:3083] - ✅ SUCCESS: Both TSM and CHL products available!
+2025-07-21 17:01:07,864 - INFO - [untitled0.py:3084] -    ✓ TSM: conc_tsm.img (0.0 KB)
+2025-07-21 17:01:07,864 - INFO - [untitled0.py:3085] -    ✓ CHL: conc_chl.img (0.0 KB)
+2025-07-21 17:01:07,865 - INFO - [untitled0.py:3090] -    ⚠ Uncertainties: Not available (calculated products)
+2025-07-21 17:01:07,866 - INFO - [untitled0.py:3099] - 
+🔬 SNAP IOP PRODUCTS (5/6 available):
+2025-07-21 17:01:07,866 - INFO - [untitled0.py:3104] -    ✓ iop_apig.img (128414.5 KB)
+2025-07-21 17:01:07,867 - INFO - [untitled0.py:3104] -    ✓ iop_adet.img (128414.5 KB)
+2025-07-21 17:01:07,867 - INFO - [untitled0.py:3104] -    ✓ iop_agelb.img (128414.5 KB)
+2025-07-21 17:01:07,868 - INFO - [untitled0.py:3104] -    ✓ iop_bpart.img (128414.5 KB)
+2025-07-21 17:01:07,868 - INFO - [untitled0.py:3104] -    ✓ iop_bwit.img (128414.5 KB)
+2025-07-21 17:01:07,869 - INFO - [untitled0.py:3104] -    ✗ iop_btot.img (missing/empty)
+2025-07-21 17:01:07,870 - INFO - [untitled0.py:3107] - 
+🌊 JIANG TSS READINESS (0/8 bands):
+2025-07-21 17:01:07,870 - WARNING - [untitled0.py:3111] - ⚠ PARTIAL: Only 0/8 rhow bands available
+2025-07-21 17:01:07,870 - WARNING - [untitled0.py:3113] -    Missing bands: ['rhow_B1.img', 'rhow_B2.img', 'rhow_B3.img', 'rhow_B4.img', 'rhow_B5.img', 'rhow_B6.img', 'rhow_B7.img', 'rhow_B8A.img']
+2025-07-21 17:01:07,871 - INFO - [untitled0.py:3116] - 
+📊 OVERALL ASSESSMENT:
+2025-07-21 17:01:07,872 - WARNING - [untitled0.py:3125] - ⚠ LIMITED: Missing critical components
+2025-07-21 17:01:07,872 - INFO - [untitled0.py:3127] - ============================================================
+2025-07-21 17:01:07,873 - INFO - [untitled0.py:2861] - 📊 UPDATED SNAP PRODUCTS STATUS:
+2025-07-21 17:01:07,873 - INFO - [untitled0.py:2862] -    TSM=True, CHL=True, Uncertainties=False
+2025-07-21 17:01:07,874 - INFO - [untitled0.py:3141] - Starting TSS processing for S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip
+2025-07-21 17:01:07,874 - INFO - [untitled0.py:2051] - Initialized Advanced Aquatic Processor with scientific algorithms
+2025-07-21 17:01:07,875 - INFO - [untitled0.py:1010] - Initialized Jiang TSS Processor with clean methodology
+2025-07-21 17:01:07,875 - INFO - [untitled0.py:1013] - Jiang TSS enabled: True
+2025-07-21 17:01:07,876 - INFO - [untitled0.py:1014] - Advanced algorithms enabled: True
+2025-07-21 17:01:07,877 - INFO - [untitled0.py:1016] - Working algorithms available:
+2025-07-21 17:01:07,877 - INFO - [untitled0.py:1017] -   ✓ Water Clarity: True
+2025-07-21 17:01:07,877 - INFO - [untitled0.py:1018] -   ✓ HAB Detection: True
+2025-07-21 17:01:07,878 - INFO - [untitled0.py:1019] - Note: Only Sentinel-2 compatible algorithms included
+2025-07-21 17:01:07,879 - INFO - [untitled0.py:1085] - Starting CORRECTED Jiang TSS processing for S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip
+2025-07-21 17:01:07,880 - ERROR - [untitled0.py:1052] - Missing required bands: ['443nm (rhow_B1.img)', '490nm (rhow_B2.img)', '560nm (rhow_B3.img)', '665nm (rhow_B4.img)', '705nm (rhow_B5.img)', '740nm (rhow_B6.img)', '783nm (rhow_B7.img)', '865nm (rhow_B8A.img)']
+2025-07-21 17:01:07,880 - ERROR - [untitled0.py:3332] - Processing failed: Failed to load required bands
+2025-07-21 17:01:08,085 - INFO - [untitled0.py:3300] - 
+--------------------------------------------------------------------------------
+2025-07-21 17:01:08,085 - INFO - [untitled0.py:3301] - Processing 2/2: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306
+2025-07-21 17:01:08,086 - INFO - [untitled0.py:3302] - Mode: complete_pipeline
+2025-07-21 17:01:08,087 - INFO - [untitled0.py:3303] - --------------------------------------------------------------------------------
+2025-07-21 17:01:08,088 - INFO - [untitled0.py:2761] - Processing: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
+2025-07-21 17:01:08,088 - INFO - [untitled0.py:2762] -   Mode: complete_pipeline
+2025-07-21 17:01:08,089 - INFO - [untitled0.py:2763] -   Resolution: 10m
+2025-07-21 17:01:08,089 - INFO - [untitled0.py:2764] -   ECMWF: True
+2025-07-21 17:01:08,121 - INFO - [untitled0.py:2910] - Starting S2 processing with C2RCC...
+2025-07-21 17:06:57,384 - INFO - [untitled0.py:3072] - ============================================================
+2025-07-21 17:06:57,384 - INFO - [untitled0.py:3073] - C2RCC OUTPUT VERIFICATION REPORT
+2025-07-21 17:06:57,385 - INFO - [untitled0.py:3074] - ============================================================
+2025-07-21 17:06:57,386 - INFO - [untitled0.py:3077] - C2RCC file: Resampled_S2A_20190108T113441_T29TNF_Subset_C2RCC.dim (20.7 MB)
+2025-07-21 17:06:57,386 - INFO - [untitled0.py:3078] - Data folder: Resampled_S2A_20190108T113441_T29TNF_Subset_C2RCC.data
+2025-07-21 17:06:57,387 - INFO - [untitled0.py:3081] - 
+🧪 SNAP TSM/CHL PRODUCTS (Critical for Analysis):
+2025-07-21 17:06:57,388 - INFO - [untitled0.py:3093] - ℹ️  TSM/CHL products will be calculated from IOP products
+2025-07-21 17:06:57,388 - INFO - [untitled0.py:3094] -    Using SNAP formulas:
+2025-07-21 17:06:57,389 - INFO - [untitled0.py:3095] -    • TSM = TSMfac * (bpart + bwit)^TSMexp
+2025-07-21 17:06:57,389 - INFO - [untitled0.py:3096] -    • CHL = apig^CHLexp * CHLfac
+2025-07-21 17:06:57,390 - INFO - [untitled0.py:3099] - 
+🔬 SNAP IOP PRODUCTS (5/6 available):
+2025-07-21 17:06:57,391 - INFO - [untitled0.py:3104] -    ✓ iop_apig.img (128414.5 KB)
+2025-07-21 17:06:57,391 - INFO - [untitled0.py:3104] -    ✓ iop_adet.img (128414.5 KB)
+2025-07-21 17:06:57,392 - INFO - [untitled0.py:3104] -    ✓ iop_agelb.img (128414.5 KB)
+2025-07-21 17:06:57,392 - INFO - [untitled0.py:3104] -    ✓ iop_bpart.img (128414.5 KB)
+2025-07-21 17:06:57,393 - INFO - [untitled0.py:3104] -    ✓ iop_bwit.img (128414.5 KB)
+2025-07-21 17:06:57,393 - INFO - [untitled0.py:3104] -    ✗ iop_btot.img (missing/empty)
+2025-07-21 17:06:57,394 - INFO - [untitled0.py:3107] - 
+🌊 JIANG TSS READINESS (0/8 bands):
+2025-07-21 17:06:57,395 - WARNING - [untitled0.py:3111] - ⚠ PARTIAL: Only 0/8 rhow bands available
+2025-07-21 17:06:57,395 - WARNING - [untitled0.py:3113] -    Missing bands: ['rhow_B1.img', 'rhow_B2.img', 'rhow_B3.img', 'rhow_B4.img', 'rhow_B5.img', 'rhow_B6.img', 'rhow_B7.img', 'rhow_B8A.img']
+2025-07-21 17:06:57,396 - INFO - [untitled0.py:3116] - 
+📊 OVERALL ASSESSMENT:
+2025-07-21 17:06:57,396 - WARNING - [untitled0.py:3125] - ⚠ LIMITED: Missing critical components
+2025-07-21 17:06:57,397 - INFO - [untitled0.py:3127] - ============================================================
+2025-07-21 17:06:57,397 - INFO - [untitled0.py:2831] - ✅ S2 processing SUCCESS: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
+2025-07-21 17:06:57,398 - INFO - [untitled0.py:2832] -    Output: Resampled_S2A_20190108T113441_T29TNF_Subset_C2RCC.dim (20.7MB)
+2025-07-21 17:06:57,399 - INFO - [untitled0.py:2833] -    Processing time: 5.8 minutes
+2025-07-21 17:06:57,399 - INFO - [untitled0.py:2840] - Calculating missing SNAP TSM/CHL concentrations from IOP products...
+2025-07-21 17:06:57,400 - INFO - [untitled0.py:760] - SNAP TSM/CHL Calculator initialized:
+2025-07-21 17:06:57,400 - INFO - [untitled0.py:761] -   TSM formula: TSM = 1.06 * (bpart + bwit)^0.942
+2025-07-21 17:06:57,401 - INFO - [untitled0.py:762] -   CHL formula: CHL = apig^1.04 * 21.0
+2025-07-21 17:06:57,401 - INFO - [untitled0.py:767] - Calculating SNAP TSM/CHL from IOP products...
+2025-07-21 17:06:57,629 - INFO - [untitled0.py:793] - ✓ Loaded apig: (10980, 2994), mean=0.4889
+2025-07-21 17:06:57,863 - INFO - [untitled0.py:793] - ✓ Loaded bpart: (10980, 2994), mean=0.4945
+2025-07-21 17:06:58,124 - INFO - [untitled0.py:793] - ✓ Loaded bwit: (10980, 2994), mean=1.1904
+2025-07-21 17:06:58,125 - INFO - [untitled0.py:803] - Calculating CHL concentration from iop_apig...
+2025-07-21 17:06:58,647 - INFO - [untitled0.py:832] - CHL calculation: 27118445 valid pixels out of 27118445 processed
+2025-07-21 17:07:00,589 - INFO - [untitled0.py:559] - Successfully wrote raster: conc_chl.img
+2025-07-21 17:07:00,831 - INFO - [untitled0.py:851] - ✓ CHL concentration saved: 82.5% coverage, mean=12.265 mg/m³
+2025-07-21 17:07:00,832 - INFO - [untitled0.py:861] - Calculating TSM concentration from bpart + bwit (btot approximation)...
+2025-07-21 17:07:01,352 - INFO - [untitled0.py:893] - TSM calculation: 27118445 valid pixels out of 27118445 processed
+2025-07-21 17:07:03,380 - INFO - [untitled0.py:559] - Successfully wrote raster: conc_tsm.img
+2025-07-21 17:07:03,562 - INFO - [untitled0.py:912] - ✓ TSM concentration saved: 82.5% coverage, mean=2.031 g/m³
+2025-07-21 17:07:03,595 - INFO - [untitled0.py:2853] - ✅ SNAP TSM calculation successful!
+2025-07-21 17:07:03,596 - INFO - [untitled0.py:2856] - ✅ SNAP CHL calculation successful!
+2025-07-21 17:07:03,600 - INFO - [untitled0.py:3072] - ============================================================
+2025-07-21 17:07:03,600 - INFO - [untitled0.py:3073] - C2RCC OUTPUT VERIFICATION REPORT
+2025-07-21 17:07:03,601 - INFO - [untitled0.py:3074] - ============================================================
+2025-07-21 17:07:03,602 - INFO - [untitled0.py:3077] - C2RCC file: Resampled_S2A_20190108T113441_T29TNF_Subset_C2RCC.dim (20.7 MB)
+2025-07-21 17:07:03,602 - INFO - [untitled0.py:3078] - Data folder: Resampled_S2A_20190108T113441_T29TNF_Subset_C2RCC.data
+2025-07-21 17:07:03,603 - INFO - [untitled0.py:3081] - 
+🧪 SNAP TSM/CHL PRODUCTS (Critical for Analysis):
+2025-07-21 17:07:03,603 - INFO - [untitled0.py:3083] - ✅ SUCCESS: Both TSM and CHL products available!
+2025-07-21 17:07:03,604 - INFO - [untitled0.py:3084] -    ✓ TSM: conc_tsm.img (0.0 KB)
+2025-07-21 17:07:03,605 - INFO - [untitled0.py:3085] -    ✓ CHL: conc_chl.img (0.0 KB)
+2025-07-21 17:07:03,605 - INFO - [untitled0.py:3090] -    ⚠ Uncertainties: Not available (calculated products)
+2025-07-21 17:07:03,606 - INFO - [untitled0.py:3099] - 
+🔬 SNAP IOP PRODUCTS (5/6 available):
+2025-07-21 17:07:03,607 - INFO - [untitled0.py:3104] -    ✓ iop_apig.img (128414.5 KB)
+2025-07-21 17:07:03,607 - INFO - [untitled0.py:3104] -    ✓ iop_adet.img (128414.5 KB)
+2025-07-21 17:07:03,608 - INFO - [untitled0.py:3104] -    ✓ iop_agelb.img (128414.5 KB)
+2025-07-21 17:07:03,608 - INFO - [untitled0.py:3104] -    ✓ iop_bpart.img (128414.5 KB)
+2025-07-21 17:07:03,609 - INFO - [untitled0.py:3104] -    ✓ iop_bwit.img (128414.5 KB)
+2025-07-21 17:07:03,610 - INFO - [untitled0.py:3104] -    ✗ iop_btot.img (missing/empty)
+2025-07-21 17:07:03,610 - INFO - [untitled0.py:3107] - 
+🌊 JIANG TSS READINESS (0/8 bands):
+2025-07-21 17:07:03,611 - WARNING - [untitled0.py:3111] - ⚠ PARTIAL: Only 0/8 rhow bands available
+2025-07-21 17:07:03,612 - WARNING - [untitled0.py:3113] -    Missing bands: ['rhow_B1.img', 'rhow_B2.img', 'rhow_B3.img', 'rhow_B4.img', 'rhow_B5.img', 'rhow_B6.img', 'rhow_B7.img', 'rhow_B8A.img']
+2025-07-21 17:07:03,612 - INFO - [untitled0.py:3116] - 
+📊 OVERALL ASSESSMENT:
+2025-07-21 17:07:03,613 - WARNING - [untitled0.py:3125] - ⚠ LIMITED: Missing critical components
+2025-07-21 17:07:03,613 - INFO - [untitled0.py:3127] - ============================================================
+2025-07-21 17:07:03,614 - INFO - [untitled0.py:2861] - 📊 UPDATED SNAP PRODUCTS STATUS:
+2025-07-21 17:07:03,615 - INFO - [untitled0.py:2862] -    TSM=True, CHL=True, Uncertainties=False
+2025-07-21 17:07:03,615 - INFO - [untitled0.py:3141] - Starting TSS processing for S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
+2025-07-21 17:07:03,616 - INFO - [untitled0.py:2051] - Initialized Advanced Aquatic Processor with scientific algorithms
+2025-07-21 17:07:03,616 - INFO - [untitled0.py:1010] - Initialized Jiang TSS Processor with clean methodology
+2025-07-21 17:07:03,617 - INFO - [untitled0.py:1013] - Jiang TSS enabled: True
+2025-07-21 17:07:03,618 - INFO - [untitled0.py:1014] - Advanced algorithms enabled: True
+2025-07-21 17:07:03,618 - INFO - [untitled0.py:1016] - Working algorithms available:
+2025-07-21 17:07:03,619 - INFO - [untitled0.py:1017] -   ✓ Water Clarity: True
+2025-07-21 17:07:03,620 - INFO - [untitled0.py:1018] -   ✓ HAB Detection: True
+2025-07-21 17:07:03,620 - INFO - [untitled0.py:1019] - Note: Only Sentinel-2 compatible algorithms included
+2025-07-21 17:07:03,621 - INFO - [untitled0.py:1085] - Starting CORRECTED Jiang TSS processing for S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
+2025-07-21 17:07:03,622 - ERROR - [untitled0.py:1052] - Missing required bands: ['443nm (rhow_B1.img)', '490nm (rhow_B2.img)', '560nm (rhow_B3.img)', '665nm (rhow_B4.img)', '705nm (rhow_B5.img)', '740nm (rhow_B6.img)', '783nm (rhow_B7.img)', '865nm (rhow_B8A.img)']
+2025-07-21 17:07:03,622 - ERROR - [untitled0.py:3332] - Processing failed: Failed to load required bands
+2025-07-21 17:24:41,709 - INFO - [untitled0.py:6109] - Application finished successfully

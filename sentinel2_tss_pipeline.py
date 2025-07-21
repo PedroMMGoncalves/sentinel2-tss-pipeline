@@ -2530,145 +2530,171 @@ class S2Processor:
         
         logger.info(f"✓ Processing graph created for mode: {mode.value}")
     
+
     def create_s2_graph_with_subset(self) -> str:
-        """Create S2 processing graph with spatial subset"""
+        """Create S2 processing graph with spatial subset - REALISTIC DEBUG"""
         subset_params = self._get_subset_parameters()
         
+        # IMPORTANT: Don't force all bands - let S2Resampling decide what's appropriate
         graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-<graph id="S2_Complete_Processing_WithSubset">
-  <version>1.0</version>
-  
-  <!-- Step 1: Read Input Product -->
-  <node id="Read">
-    <operator>Read</operator>
-    <sources/>
-    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-      <file>${{sourceProduct}}</file>
-    </parameters>
-  </node>
-  
-  <!-- Step 2: S2 Resampling -->
-  <node id="S2Resampling">
-    <operator>S2Resampling</operator>
-    <sources>
-      <sourceProduct refid="Read"/>
-    </sources>
-    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-      <resolution>{self.config.resampling_config.target_resolution}</resolution>
-      <upsampling>{self.config.resampling_config.upsampling_method}</upsampling>
-      <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
-      <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
-      <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
-    </parameters>
-  </node>
-  
-  <!-- Step 3: Spatial Subset -->
-  <node id="Subset">
-    <operator>Subset</operator>
-    <sources>
-      <sourceProduct refid="S2Resampling"/>
-    </sources>
-    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-      {subset_params}
-      <subSamplingX>{self.config.subset_config.sub_sampling_x}</subSamplingX>
-      <subSamplingY>{self.config.subset_config.sub_sampling_y}</subSamplingY>
-      <fullSwath>{str(self.config.subset_config.full_swath).lower()}</fullSwath>
-      <copyMetadata>{str(self.config.subset_config.copy_metadata).lower()}</copyMetadata>
-    </parameters>
-  </node>
-  
-  <!-- Step 4: C2RCC Atmospheric Correction -->
-  <node id="c2rcc_msi">
-    <operator>c2rcc.msi</operator>
-    <sources>
-      <sourceProduct refid="Subset"/>
-    </sources>
-    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-      {self._get_c2rcc_parameters()}
-    </parameters>
-  </node>
-  
-  <!-- Step 5: Write Output -->
-  <node id="Write">
-    <operator>Write</operator>
-    <sources>
-      <sourceProduct refid="c2rcc_msi"/>
-    </sources>
-    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-      <file>${{targetProduct}}</file>
-      <formatName>BEAM-DIMAP</formatName>
-    </parameters>
-  </node>
-  
-</graph>'''
+    <graph id="S2_Complete_Processing_WithSubset_Debug">
+    <version>1.0</version>
+    
+    <!-- Step 1: Read Input Product -->
+    <node id="Read">
+        <operator>Read</operator>
+        <sources/>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        <file>${{sourceProduct}}</file>
+        </parameters>
+    </node>
+    
+    <!-- Step 2: S2 Resampling - DEFAULT BEHAVIOR (let SNAP decide which bands) -->
+    <node id="S2Resampling">
+        <operator>S2Resampling</operator>
+        <sources>
+        <sourceProduct refid="Read"/>
+        </sources>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        <resolution>{self.config.resampling_config.target_resolution}</resolution>
+        <upsampling>{self.config.resampling_config.upsampling_method}</upsampling>
+        <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
+        <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
+        <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
+        </parameters>
+    </node>
+    
+    <!-- DEBUG: Write Resampled Product to see what bands SNAP actually processes -->
+    <node id="WriteResampled">
+        <operator>Write</operator>
+        <sources>
+        <sourceProduct refid="S2Resampling"/>
+        </sources>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        <file>${{geometricProduct}}</file>
+        <formatName>BEAM-DIMAP</formatName>
+        </parameters>
+    </node>
+    
+    <!-- Step 3: Spatial Subset - DEFAULT BEHAVIOR -->
+    <node id="Subset">
+        <operator>Subset</operator>
+        <sources>
+        <sourceProduct refid="S2Resampling"/>
+        </sources>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        {subset_params}
+        <subSamplingX>{self.config.subset_config.sub_sampling_x}</subSamplingX>
+        <subSamplingY>{self.config.subset_config.sub_sampling_y}</subSamplingY>
+        <fullSwath>{str(self.config.subset_config.full_swath).lower()}</fullSwath>
+        <copyMetadata>{str(self.config.subset_config.copy_metadata).lower()}</copyMetadata>
+        </parameters>
+    </node>
+    
+    <!-- Step 4: C2RCC Atmospheric Correction -->
+    <node id="c2rcc_msi">
+        <operator>c2rcc.msi</operator>
+        <sources>
+        <sourceProduct refid="Subset"/>
+        </sources>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        {self._get_c2rcc_parameters()}
+        </parameters>
+    </node>
+    
+    <!-- Step 5: Write Output -->
+    <node id="Write">
+        <operator>Write</operator>
+        <sources>
+        <sourceProduct refid="c2rcc_msi"/>
+        </sources>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        <file>${{targetProduct}}</file>
+        <formatName>BEAM-DIMAP</formatName>
+        </parameters>
+    </node>
+    
+    </graph>'''
         
         graph_file = 's2_complete_processing_with_subset.xml'
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
         
-        logger.info(f"Complete processing graph saved: {graph_file}")
+        logger.info(f"REALISTIC DEBUG processing graph saved: {graph_file}")
         return graph_file
-    
+
     def create_s2_graph_no_subset(self) -> str:
-        """Create S2 processing graph without spatial subset"""
+        """Create S2 processing graph without spatial subset - REALISTIC DEBUG"""
         graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-<graph id="S2_Complete_Processing_NoSubset">
-  <version>1.0</version>
-  
-  <!-- Step 1: Read Input Product -->
-  <node id="Read">
-    <operator>Read</operator>
-    <sources/>
-    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-      <file>${{sourceProduct}}</file>
-    </parameters>
-  </node>
-  
-  <!-- Step 2: S2 Resampling -->
-  <node id="S2Resampling">
-    <operator>S2Resampling</operator>
-    <sources>
-      <sourceProduct refid="Read"/>
-    </sources>
-    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-      <resolution>{self.config.resampling_config.target_resolution}</resolution>
-      <upsampling>{self.config.resampling_config.upsampling_method}</upsampling>
-      <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
-      <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
-      <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
-    </parameters>
-  </node>
-  
-  <!-- Step 3: C2RCC Atmospheric Correction -->
-  <node id="c2rcc_msi">
-    <operator>c2rcc.msi</operator>
-    <sources>
-      <sourceProduct refid="S2Resampling"/>
-    </sources>
-    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-      {self._get_c2rcc_parameters()}
-    </parameters>
-  </node>
-  
-  <!-- Step 4: Write Output -->
-  <node id="Write">
-    <operator>Write</operator>
-    <sources>
-      <sourceProduct refid="c2rcc_msi"/>
-    </sources>
-    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-      <file>${{targetProduct}}</file>
-      <formatName>BEAM-DIMAP</formatName>
-    </parameters>
-  </node>
-  
-</graph>'''
+    <graph id="S2_Complete_Processing_NoSubset_Debug">
+    <version>1.0</version>
+    
+    <!-- Step 1: Read Input Product -->
+    <node id="Read">
+        <operator>Read</operator>
+        <sources/>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        <file>${{sourceProduct}}</file>
+        </parameters>
+    </node>
+    
+    <!-- Step 2: S2 Resampling - DEFAULT BEHAVIOR (let SNAP decide which bands) -->
+    <node id="S2Resampling">
+        <operator>S2Resampling</operator>
+        <sources>
+        <sourceProduct refid="Read"/>
+        </sources>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        <resolution>{self.config.resampling_config.target_resolution}</resolution>
+        <upsampling>{self.config.resampling_config.upsampling_method}</upsampling>
+        <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
+        <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
+        <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
+        </parameters>
+    </node>
+    
+    <!-- DEBUG: Write Resampled Product to see what bands SNAP actually processes -->
+    <node id="WriteResampled">
+        <operator>Write</operator>
+        <sources>
+        <sourceProduct refid="S2Resampling"/>
+        </sources>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        <file>${{geometricProduct}}</file>
+        <formatName>BEAM-DIMAP</formatName>
+        </parameters>
+    </node>
+    
+    <!-- Step 3: C2RCC Atmospheric Correction -->
+    <node id="c2rcc_msi">
+        <operator>c2rcc.msi</operator>
+        <sources>
+        <sourceProduct refid="S2Resampling"/>
+        </sources>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        {self._get_c2rcc_parameters()}
+        </parameters>
+    </node>
+    
+    <!-- Step 4: Write Output -->
+    <node id="Write">
+        <operator>Write</operator>
+        <sources>
+        <sourceProduct refid="c2rcc_msi"/>
+        </sources>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        <file>${{targetProduct}}</file>
+        <formatName>BEAM-DIMAP</formatName>
+        </parameters>
+    </node>
+    
+    </graph>'''
         
         graph_file = 's2_complete_processing_no_subset.xml'
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
         
-        logger.info(f"Complete processing graph saved: {graph_file}")
+        logger.info(f"REALISTIC DEBUG processing graph saved: {graph_file}")
         return graph_file
     
     def _get_subset_parameters(self) -> str:
@@ -2907,8 +2933,11 @@ class S2Processor:
             return {'error': ProcessingResult(False, "", None, error_msg)}
     
     def _run_s2_processing(self, input_path: str, output_path: str) -> bool:
-        """Run S2 processing using GPT"""
+        """Run S2 processing using GPT - DEBUG VERSION with geometric output"""
         try:
+            # Prepare geometric output path for debugging
+            geometric_output_path = output_path.replace('_C2RCC.dim', '_Geometric_DEBUG.dim')
+            
             # Prepare GPT command
             gpt_cmd = self.get_gpt_command()
             
@@ -2917,14 +2946,16 @@ class S2Processor:
                 self.main_graph_file,
                 f'-PsourceProduct={input_path}',
                 f'-PtargetProduct={output_path}',
+                f'-PgeometricProduct={geometric_output_path}',  # DEBUG: Add geometric output
                 f'-c', f'{self.config.memory_limit_gb}G',
                 f'-q', str(self.config.thread_count)
             ]
             
             logger.debug(f"GPT command: {' '.join(cmd)}")
+            logger.info(f"DEBUG: Geometric output will be saved to: {geometric_output_path}")
             
             # Run GPT processing with timeout
-            logger.info(f"Starting S2 processing with C2RCC...")
+            logger.info(f"Starting S2 processing with C2RCC and geometric debug output...")
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -2937,6 +2968,18 @@ class S2Processor:
                 if os.path.exists(output_path):
                     file_size = os.path.getsize(output_path)
                     if file_size > 1024 * 1024:  # > 1MB
+                        logger.info(f"✅ C2RCC output created: {os.path.basename(output_path)} ({file_size/1024/1024:.1f}MB)")
+                        
+                        # Check geometric output
+                        if os.path.exists(geometric_output_path):
+                            geom_size = os.path.getsize(geometric_output_path)
+                            logger.info(f"✅ Geometric output created: {os.path.basename(geometric_output_path)} ({geom_size/1024/1024:.1f}MB)")
+                            
+                            # DEBUG: Check geometric bands
+                            self._debug_geometric_bands(geometric_output_path)
+                        else:
+                            logger.warning(f"⚠ Geometric output not created: {geometric_output_path}")
+                        
                         return True
                     else:
                         logger.error(f"❌ Output file too small ({file_size} bytes)")
@@ -2950,13 +2993,193 @@ class S2Processor:
                 if result.stderr:
                     logger.error(f"GPT stderr: {result.stderr[:1000]}...")
                 return False
-                
+                    
         except subprocess.TimeoutExpired:
             logger.error(f"❌ GPT processing timeout")
             return False
         except Exception as e:
             logger.error(f"❌ GPT processing error: {str(e)}")
             return False
+
+    def _debug_geometric_bands(self, geometric_path: str):
+        """COMPLETE DEBUG - check spectral bands + sun angles + auxiliary data"""
+        try:
+            logger.info("🔍 COMPLETE C2RCC DEBUG: Analyzing all inputs required for atmospheric correction...")
+            
+            if geometric_path.endswith('.dim'):
+                data_folder = geometric_path.replace('.dim', '.data')
+            else:
+                return
+            
+            if not os.path.exists(data_folder):
+                logger.warning(f"Geometric data folder not found: {data_folder}")
+                return
+            
+            # List all files
+            try:
+                files = os.listdir(data_folder)
+                files.sort()
+                
+                logger.info(f"📊 COMPLETE GEOMETRIC OUTPUT ANALYSIS:")
+                logger.info(f"   Total files: {len(files)}")
+                
+                # ==================================================================
+                # 1. SPECTRAL BANDS CHECK
+                # ==================================================================
+                logger.info("📡 SPECTRAL BANDS:")
+                spectral_bands = []
+                for f in files:
+                    if f.endswith('.img') and any(band in f for band in ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B8A']):
+                        file_path = os.path.join(data_folder, f)
+                        file_size = os.path.getsize(file_path) / (1024*1024)
+                        spectral_bands.append(f)
+                        logger.info(f"     ✓ {f} ({file_size:.1f}MB)")
+                
+                # ==================================================================
+                # 2. SUN ANGLES CHECK (CRITICAL FOR C2RCC)
+                # ==================================================================
+                logger.info("☀️ SUN ANGLES (Critical for C2RCC atmospheric correction):")
+                
+                sun_angle_files = [
+                    'sun_zenith.img',
+                    'sun_azimuth.img', 
+                    'solar_zenith.img',
+                    'solar_azimuth.img',
+                    'sun_zenith_tn.img',
+                    'sun_azimuth_tn.img',
+                    'SZA.img',
+                    'SAA.img'
+                ]
+                
+                sun_files_found = []
+                for angle_file in sun_angle_files:
+                    if angle_file in files:
+                        file_path = os.path.join(data_folder, angle_file)
+                        file_size = os.path.getsize(file_path) / (1024*1024)
+                        sun_files_found.append(angle_file)
+                        logger.info(f"     ✓ {angle_file} ({file_size:.1f}MB)")
+                
+                if not sun_files_found:
+                    logger.error("     ❌ NO SUN ANGLE FILES FOUND!")
+                    logger.error("     This is CRITICAL - C2RCC cannot perform atmospheric correction without sun angles!")
+                    
+                    # Check if sun angles might be embedded differently
+                    logger.info("     🔍 Searching for alternative sun angle representations...")
+                    sun_related = [f for f in files if any(term in f.lower() for term in ['sun', 'solar', 'sza', 'saa', 'zenith', 'azimuth'])]
+                    if sun_related:
+                        logger.info(f"     Found sun-related files: {sun_related}")
+                    else:
+                        logger.error("     ❌ No sun angle data found in any form!")
+                
+                # ==================================================================
+                # 3. VIEW ANGLES CHECK
+                # ==================================================================
+                logger.info("👁️ VIEW ANGLES:")
+                
+                view_angle_files = [
+                    'view_zenith_mean.img',
+                    'view_azimuth_mean.img',
+                    'view_zenith.img',
+                    'view_azimuth.img',
+                    'VZA.img',
+                    'VAA.img'
+                ]
+                
+                view_files_found = []
+                for angle_file in view_angle_files:
+                    if angle_file in files:
+                        file_path = os.path.join(data_folder, angle_file)
+                        file_size = os.path.getsize(file_path) / (1024*1024)
+                        view_files_found.append(angle_file)
+                        logger.info(f"     ✓ {angle_file} ({file_size:.1f}MB)")
+                
+                if not view_files_found:
+                    logger.warning("     ⚠️ No explicit view angle files found")
+                    logger.warning("     C2RCC may use default values or derive from metadata")
+                
+                # ==================================================================
+                # 4. AUXILIARY DATA CHECK
+                # ==================================================================
+                logger.info("🗂️ AUXILIARY DATA:")
+                
+                aux_files = [
+                    'elevation.img',
+                    'dem.img',
+                    'altitude.img',
+                    'ozone.img',
+                    'pressure.img',
+                    'humidity.img',
+                    'temperature.img'
+                ]
+                
+                aux_found = []
+                for aux_file in aux_files:
+                    if aux_file in files:
+                        file_path = os.path.join(data_folder, aux_file)
+                        file_size = os.path.getsize(file_path) / (1024*1024)
+                        aux_found.append(aux_file)
+                        logger.info(f"     ✓ {aux_file} ({file_size:.1f}MB)")
+                
+                # ==================================================================
+                # 5. QUALITY FLAGS CHECK
+                # ==================================================================
+                logger.info("🏳️ QUALITY FLAGS:")
+                
+                quality_files = [f for f in files if any(term in f.lower() for term in ['quality', 'flag', 'mask', 'cloud'])]
+                for qf in quality_files:
+                    if qf.endswith('.img'):
+                        file_path = os.path.join(data_folder, qf)
+                        file_size = os.path.getsize(file_path) / (1024*1024)
+                        logger.info(f"     ✓ {qf} ({file_size:.1f}MB)")
+                
+                # ==================================================================
+                # 6. C2RCC READINESS ASSESSMENT
+                # ==================================================================
+                logger.info("🌊 C2RCC READINESS ASSESSMENT:")
+                
+                # Critical requirements
+                has_spectral_bands = len(spectral_bands) >= 6  # Need at least B1-B6
+                has_sun_angles = len(sun_files_found) > 0
+                has_b8a = any('B8A' in f for f in spectral_bands)
+                
+                logger.info(f"   Spectral bands: {len(spectral_bands)}/8 ({'✅' if has_spectral_bands else '❌'})")
+                logger.info(f"   Sun angles: {'✅ Available' if has_sun_angles else '❌ MISSING - CRITICAL!'}")
+                logger.info(f"   B8A (865nm): {'✅ Available' if has_b8a else '❌ Missing'}")
+                logger.info(f"   View angles: {'✅ Available' if view_files_found else '⚠️ Using defaults'}")
+                logger.info(f"   Auxiliary data: {'✅ Available' if aux_found else '⚠️ Using configuration values'}")
+                
+                # Overall assessment
+                if has_spectral_bands and has_sun_angles:
+                    logger.info("🎉 C2RCC READY: All critical inputs available!")
+                elif not has_sun_angles:
+                    logger.error("🚨 C2RCC WILL FAIL: Missing sun angles!")
+                    logger.error("   Sun angles are absolutely required for atmospheric correction")
+                else:
+                    logger.warning("⚠️ C2RCC DEGRADED: Missing some inputs")
+                
+                # Jiang implications
+                logger.info("🧪 IMPLICATIONS FOR JIANG TSS:")
+                if has_spectral_bands and has_sun_angles and has_b8a:
+                    logger.info("   ✅ Should generate all required rhow bands for Jiang processing")
+                elif not has_sun_angles:
+                    logger.error("   ❌ C2RCC will fail - no rhow bands will be generated")
+                elif not has_b8a:
+                    logger.warning("   ⚠️ Missing B8A - Jiang will have limited water type classification")
+                
+                # ==================================================================
+                # 7. FILE LIST FOR DEBUGGING
+                # ==================================================================
+                logger.info("📋 COMPLETE FILE LIST:")
+                for f in files:
+                    file_path = os.path.join(data_folder, f)
+                    file_size = os.path.getsize(file_path) / (1024*1024)
+                    logger.info(f"     {f} ({file_size:.1f}MB)")
+                    
+            except Exception as e:
+                logger.error(f"Error in complete geometric analysis: {e}")
+                
+        except Exception as e:
+            logger.error(f"Error in complete C2RCC debug: {e}")
     
     def _verify_c2rcc_output(self, c2rcc_path: str) -> Optional[Dict]:
         """Enhanced C2RCC verification that checks for both original and calculated TSM/CHL"""
