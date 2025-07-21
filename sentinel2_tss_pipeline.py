@@ -2532,28 +2532,29 @@ class S2Processor:
     
 
     def create_s2_graph_with_subset(self) -> str:
-        """Create FIXED S2 processing graph - removed bandNames from S2Resampling"""
+        """Create FIXED S2 processing graph - separate bands from tie-point grids"""
         subset_params = self._get_subset_parameters()
         
-        # COMPLETE: All S2 bands for current TSS + future modules
-        essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"  # All S2 bands for future modules
-        essential_angles = "sun_zenith,sun_azimuth,view_zenith_mean,view_azimuth_mean"  # Only critical angles
+        # FIXED: Separate spectral bands from tie-point grids
+        essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"  # Spectral bands only
+        essential_tie_points = "sun_zenith,sun_azimuth,view_zenith_mean,view_azimuth_mean"  # Tie-point grids
         
         graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
     <graph id="S2_Complete_Water_Processing_Fixed">
     <version>1.0</version>
     
-    <!-- Step 1: Read Input Product - ONLY ESSENTIAL BANDS -->
+    <!-- Step 1: Read Input Product - ONLY ESSENTIAL BANDS + TIE-POINTS -->
     <node id="Read">
         <operator>Read</operator>
         <sources/>
         <parameters class="com.bc.ceres.binding.dom.XppDomElement">
         <file>${{sourceProduct}}</file>
-        <bandNames>{essential_bands},{essential_angles}</bandNames>
+        <bandNames>{essential_bands}</bandNames>
+        <tiePointGridNames>{essential_tie_points}</tiePointGridNames>
         </parameters>
     </node>
     
-    <!-- Step 2: S2 Resampling - CORRECT: Uses 'bands' parameter -->
+    <!-- Step 2: S2 Resampling - SPECTRAL BANDS ONLY -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
         <sources>
@@ -2569,7 +2570,7 @@ class S2Processor:
         </parameters>
     </node>
     
-    <!-- Step 3: Spatial Subset - CORRECT: Uses 'sourceBands' parameter -->
+    <!-- Step 3: Spatial Subset - CORRECT: Separate bands and tie-point grids -->
     <node id="Subset">
         <operator>Subset</operator>
         <sources>
@@ -2581,7 +2582,8 @@ class S2Processor:
         <subSamplingY>{self.config.subset_config.sub_sampling_y}</subSamplingY>
         <fullSwath>{str(self.config.subset_config.full_swath).lower()}</fullSwath>
         <copyMetadata>{str(self.config.subset_config.copy_metadata).lower()}</copyMetadata>
-        <sourceBands>{essential_bands},{essential_angles}</sourceBands>
+        <sourceBands>{essential_bands}</sourceBands>
+        <tiePointGrids>{essential_tie_points}</tiePointGrids>
         </parameters>
     </node>
     
@@ -2618,27 +2620,28 @@ class S2Processor:
         return graph_file
 
     def create_s2_graph_no_subset(self) -> str:
-        """Create FIXED S2 processing graph without subset - removed bandNames from S2Resampling"""
+        """Create FIXED S2 processing graph without subset - separate bands from tie-point grids"""
         
-        # COMPLETE: All S2 bands for current TSS + future modules
-        essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"  # All S2 bands for future modules
-        essential_angles = "sun_zenith,sun_azimuth,view_zenith_mean,view_azimuth_mean"  # Only critical angles
+        # FIXED: Separate spectral bands from tie-point grids
+        essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"  # Spectral bands only
+        essential_tie_points = "sun_zenith,sun_azimuth,view_zenith_mean,view_azimuth_mean"  # Tie-point grids
         
         graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
     <graph id="S2_Complete_Water_Processing_NoSubset_Fixed">
     <version>1.0</version>
     
-    <!-- Step 1: Read Input Product - ONLY ESSENTIAL BANDS -->
+    <!-- Step 1: Read Input Product - ONLY ESSENTIAL BANDS + TIE-POINTS -->
     <node id="Read">
         <operator>Read</operator>
         <sources/>
         <parameters class="com.bc.ceres.binding.dom.XppDomElement">
         <file>${{sourceProduct}}</file>
-        <bandNames>{essential_bands},{essential_angles}</bandNames>
+        <bandNames>{essential_bands}</bandNames>
+        <tiePointGridNames>{essential_tie_points}</tiePointGridNames>
         </parameters>
     </node>
     
-    <!-- Step 2: S2 Resampling - CORRECT: Uses 'bands' parameter -->
+    <!-- Step 2: S2 Resampling - SPECTRAL BANDS ONLY -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
         <sources>
