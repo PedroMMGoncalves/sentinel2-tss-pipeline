@@ -488,3 +488,4 @@
 2025-07-22 17:58:39,355 - INFO - [sentinel2_tss_pipeline.py:1123] - Successfully found 12 spectral bands for Jiang TSS
 2025-07-22 17:58:41,695 - INFO - [sentinel2_tss_pipeline.py:1325] - Applying Jiang methodology (exact R translation)
 2025-07-22 17:58:42,918 - INFO - [sentinel2_tss_pipeline.py:1443] - Processing 41224482 valid pixels with corrected Jiang algorithm
+2025-07-22 18:02:46,588 - INFO - [sentinel2_tss_pipeline.py:7088] - Application interrupted by user
