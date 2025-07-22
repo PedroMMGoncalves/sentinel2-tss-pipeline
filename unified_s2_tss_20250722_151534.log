@@ -1,0 +1,10 @@
+2025-07-22 15:15:34,879 - INFO - [untitled0.py:6088] - ================================================================================
+2025-07-22 15:15:34,880 - INFO - [untitled0.py:6089] - UNIFIED S2 PROCESSING & TSS ESTIMATION PIPELINE v1.0
+2025-07-22 15:15:34,880 - INFO - [untitled0.py:6090] - ================================================================================
+2025-07-22 15:15:34,892 - INFO - [untitled0.py:6091] - SNAP_HOME: C:\Program Files\esa-snap
+2025-07-22 15:15:34,893 - INFO - [untitled0.py:6092] - GPT: C:\Program Files\esa-snap\bin\gpt.exe
+2025-07-22 15:15:34,894 - INFO - [untitled0.py:6093] - Python: 3.9.22 | packaged by conda-forge | (main, Apr 10 2025, 22:07:06) [MSC v.1929 64 bit (AMD64)]
+2025-07-22 15:15:34,894 - INFO - [untitled0.py:6094] - Platform: win32
+2025-07-22 15:15:34,895 - INFO - [untitled0.py:6095] - Working Directory: C:\Users\pedro.goncalves\OneDrive - LNEG - Laboratorio Nacional de Energia e Geologia\GitHub\sentinel2-tss-pipeline
+2025-07-22 15:15:34,896 - INFO - [untitled0.py:6096] - ================================================================================
+2025-07-22 15:15:34,896 - INFO - [untitled0.py:6105] - Starting GUI application...

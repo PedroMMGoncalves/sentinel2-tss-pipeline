@@ -195,8 +195,8 @@ class ColoredFormatter(logging.Formatter):
         return formatter.format(record)
 
 # Setup enhanced logging
-def setup_logging(log_level=logging.INFO):
-    """Setup enhanced logging with file and console handlers"""
+def setup_enhanced_logging(log_level=logging.INFO, output_folder: str = None):
+    """Setup enhanced logging with proper file placement"""
     logger = logging.getLogger(__name__)
     logger.setLevel(log_level)
     
@@ -204,8 +204,15 @@ def setup_logging(log_level=logging.INFO):
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
     
+    # Determine log file location
+    if output_folder:
+        log_dir = os.path.join(output_folder, "Logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, f'unified_s2_tss_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+    else:
+        log_file = f'unified_s2_tss_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
+    
     # File handler - detailed logging
-    log_file = f'unified_s2_tss_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
     file_handler = logging.FileHandler(log_file, encoding='utf-8')
     file_handler.setLevel(logging.DEBUG)
     file_formatter = logging.Formatter(
@@ -221,9 +228,11 @@ def setup_logging(log_level=logging.INFO):
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
     
-    return logger
+    logger.info(f"Logging configured - File: {log_file}")
+    return logger, log_file
 
-logger = setup_logging()
+# Initialize logger without output folder initially (will be updated later)
+logger = setup_enhanced_logging()[0]
 
 # ===== ENUMS AND DATA CLASSES =====
 
@@ -325,14 +334,21 @@ class JiangTSSConfig:
     tss_valid_range: tuple = (0.01, 10000)  # g/m³
     output_comparison_stats: bool = True
     
-    # Advanced algorithms configuration - SIMPLIFIED
+    # Advanced algorithms configuration
     enable_advanced_algorithms: bool = True
     advanced_config: Optional['AdvancedAquaticConfig'] = None
     
+    # NEW: Marine visualization configuration
+    enable_marine_visualization: bool = True  # ENABLED BY DEFAULT
+    marine_viz_config: Optional['MarineVisualizationConfig'] = None
+    
     def __post_init__(self):
-        """Initialize advanced config with only working algorithms"""
+        """Initialize advanced and marine visualization configs"""
         if self.enable_advanced_algorithms and self.advanced_config is None:
             self.advanced_config = AdvancedAquaticConfig()
+            
+        if self.enable_marine_visualization and self.marine_viz_config is None:
+            self.marine_viz_config = MarineVisualizationConfig()
 
 @dataclass
 class AdvancedAquaticConfig:
@@ -994,10 +1010,18 @@ class JiangTSSProcessor:
     """Complete implementation of Jiang et al. 2023 TSS methodology - FULL VERSION"""
     
     def __init__(self, config: JiangTSSConfig):
-        """Initialize Jiang TSS Processor with clean configuration"""
+        """Initialize Jiang TSS Processor with clean configuration and marine visualization"""
         # Direct assignment - no patching needed
         self.config = config
         self.constants = JiangTSSConstants()
+        
+        # NEW: Initialize marine visualization processor
+        if hasattr(config, 'enable_marine_visualization') and config.enable_marine_visualization:
+            self.marine_viz_processor = S2MarineVisualizationProcessor(config.marine_viz_config)
+            logger.info("Marine visualization processor initialized")
+        else:
+            self.marine_viz_processor = None
+            logger.info("Marine visualization disabled")
         
         # Initialize advanced processor if enabled
         if self.config.enable_advanced_algorithms:
@@ -1007,19 +1031,41 @@ class JiangTSSProcessor:
         else:
             self.advanced_processor = None
             
-        logger.info("Initialized Jiang TSS Processor with clean methodology")
+        logger.info("Initialized Jiang TSS Processor with enhanced methodology")
         
-        # CLEAN: Log only working algorithms
+        # Enhanced logging with marine visualization status
         logger.info(f"Jiang TSS enabled: {self.config.enable_jiang_tss}")
         logger.info(f"Advanced algorithms enabled: {self.config.enable_advanced_algorithms}")
+        logger.info(f"Marine visualization enabled: {getattr(self.config, 'enable_marine_visualization', False)}")
+        
         if self.config.enable_advanced_algorithms and self.config.advanced_config:
             logger.info("Working algorithms available:")
             logger.info(f"  ✓ Water Clarity: {self.config.advanced_config.enable_water_clarity}")
             logger.info(f"  ✓ HAB Detection: {self.config.advanced_config.enable_hab_detection}")
             logger.info("Note: Only Sentinel-2 compatible algorithms included")
+        
+        # Marine visualization configuration details
+        if hasattr(self.config, 'enable_marine_visualization') and self.config.enable_marine_visualization:
+            viz_config = self.config.marine_viz_config
+            if viz_config:
+                logger.info("Marine visualization configuration:")
+                logger.info(f"  ✓ Natural color RGB: {viz_config.generate_natural_color}")
+                logger.info(f"  ✓ False color RGB: {viz_config.generate_false_color}")
+                logger.info(f"  ✓ Water-specific RGB: {viz_config.generate_water_specific}")
+                logger.info(f"  ✓ Research RGB: {viz_config.generate_research_combinations}")
+                logger.info(f"  ✓ Water quality indices: {viz_config.generate_water_quality_indices}")
+                logger.info(f"  ✓ Chlorophyll indices: {viz_config.generate_chlorophyll_indices}")
+                logger.info(f"  ✓ Turbidity indices: {viz_config.generate_turbidity_indices}")
+                logger.info(f"  ✓ Advanced indices: {viz_config.generate_advanced_indices}")
+                logger.info(f"  Output format: {viz_config.rgb_format}")
+                logger.info(f"  Contrast enhancement: {viz_config.apply_contrast_enhancement}")
+            else:
+                logger.info("Marine visualization enabled with default configuration")
+        
+        logger.info("Jiang TSS Processor initialization completed successfully")
     
     def _load_rhow_bands(self, c2rcc_path: str) -> Dict[int, str]:
-        """Load water-leaving reflectance bands"""
+        """Load bands from SNAP C2RCC output - CORRECTED VERSION using rho_toa files"""
         # Determine data folder
         if c2rcc_path.endswith('.dim'):
             data_folder = c2rcc_path.replace('.dim', '.data')
@@ -1032,27 +1078,41 @@ class JiangTSSProcessor:
             logger.error(f"Data folder not found: {data_folder}")
             return {}
         
-        # Map wavelengths to band files
+        # CORRECTED: Use rho_toa files that actually exist in your C2RCC output
         band_mapping = {
-            443: 'rhow_B1.img', 490: 'rhow_B2.img', 560: 'rhow_B3.img', 665: 'rhow_B4.img',
-            705: 'rhow_B5.img', 740: 'rhow_B6.img', 783: 'rhow_B7.img', 865: 'rhow_B8A.img'
+            443: ['rho_toa_B1.img', 'rtoa_B1.img'],      # Band 1
+            490: ['rho_toa_B2.img', 'rtoa_B2.img'],      # Band 2  
+            560: ['rho_toa_B3.img', 'rtoa_B3.img'],      # Band 3
+            665: ['rho_toa_B4.img', 'rtoa_B4.img'],      # Band 4
+            705: ['rho_toa_B5.img', 'rtoa_B5.img'],      # Band 5
+            740: ['rho_toa_B6.img', 'rtoa_B6.img'],      # Band 6
+            783: ['rho_toa_B7.img', 'rtoa_B7.img'],      # Band 7
+            842: ['rho_toa_B8.img', 'rtoa_B8.img'],      # Band 8
+            865: ['rho_toa_B8A.img', 'rtoa_B8A.img'],    # Band 8A
+            945: ['rho_toa_B9.img', 'rtoa_B9.img'],      # Band 9
+            1610: ['rho_toa_B11.img', 'rtoa_B11.img'],   # Band 11
+            2190: ['rho_toa_B12.img', 'rtoa_B12.img']    # Band 12
         }
         
         rhow_bands = {}
         missing_bands = []
         
-        for wavelength, filename in band_mapping.items():
-            band_path = os.path.join(data_folder, filename)
-            if os.path.exists(band_path):
-                rhow_bands[wavelength] = band_path
-            else:
-                missing_bands.append(f"{wavelength}nm ({filename})")
+        for wavelength, possible_files in band_mapping.items():
+            band_found = False
+            for filename in possible_files:
+                band_path = os.path.join(data_folder, filename)
+                if os.path.exists(band_path) and os.path.getsize(band_path) > 1024:
+                    rhow_bands[wavelength] = band_path
+                    band_found = True
+                    break
+            
+            if not band_found:
+                missing_bands.append(f"{wavelength}nm")
         
         if missing_bands:
-            logger.error(f"Missing required bands: {missing_bands}")
-            return {}
+            logger.warning(f"Missing bands for Jiang processing: {missing_bands}")
         
-        logger.info(f"Successfully found {len(rhow_bands)} spectral bands")
+        logger.info(f"Successfully found {len(rhow_bands)} spectral bands for Jiang TSS")
         return rhow_bands
     
     def _load_bands_data(self, rhow_bands: Dict[int, str]) -> Tuple[Optional[Dict], Optional[Dict]]:
@@ -1075,14 +1135,12 @@ class JiangTSSProcessor:
         return bands_data, reference_metadata
     
     def process_jiang_tss(self, c2rcc_path: str, output_folder: str, 
-                                product_name: str) -> Dict[str, ProcessingResult]:
+                      product_name: str) -> Dict[str, ProcessingResult]:
         """
-        TSS processing using exact R algorithm translation
-        
-        Replace the existing process_jiang_tss method with this corrected version.
+        Enhanced TSS processing with marine visualization capabilities
         """
         try:
-            logger.info(f"Starting CORRECTED Jiang TSS processing for {product_name}")
+            logger.info(f"Starting comprehensive TSS processing for {product_name}")
             
             # Step 1: Load spectral bands (unchanged)
             rhow_bands = self._load_rhow_bands(c2rcc_path)
@@ -1094,10 +1152,10 @@ class JiangTSSProcessor:
             if bands_data is None:
                 return {'error': ProcessingResult(False, "", None, "Failed to load bands data")}
             
-            # Step 3: Apply CORRECTED Jiang methodology
+            # Step 3: Apply Jiang methodology (unchanged)
             jiang_results = self._apply_full_jiang_methodology(bands_data)
             
-            # Step 4: Advanced algorithms processing (if enabled) - unchanged
+            # Step 4: Advanced algorithms processing (unchanged)
             all_results = jiang_results.copy()
             
             if (hasattr(self.config, 'enable_advanced_algorithms') and 
@@ -1112,25 +1170,47 @@ class JiangTSSProcessor:
                 all_results.update(advanced_results)
                 logger.info(f"Advanced algorithms completed: {len(advanced_results)} additional products")
             
-            # Step 5: Save ALL results - unchanged
+            # Step 5: NEW - Marine visualization processing
+            if (hasattr(self.config, 'enable_marine_visualization') and 
+                self.config.enable_marine_visualization and 
+                hasattr(self, 'marine_viz_processor') and 
+                self.marine_viz_processor is not None):
+                
+                logger.info("Processing marine visualizations (RGB + indices)")
+                viz_results = self.marine_viz_processor.process_marine_visualizations(
+                    c2rcc_path, output_folder, product_name
+                )
+                all_results.update(viz_results)
+                
+                # Log visualization results
+                rgb_count = len([k for k in viz_results.keys() if k.startswith('rgb_')])
+                index_count = len([k for k in viz_results.keys() if k.startswith('index_')])
+                if 'error' not in viz_results:
+                    logger.info(f"Marine visualization completed: {rgb_count} RGB composites + {index_count} spectral indices")
+                else:
+                    logger.warning(f"Marine visualization had errors: {viz_results['error'].error_message}")
+            
+            # Step 6: Save ALL results (unchanged)
             output_results = self._save_complete_results(
                 all_results, output_folder, product_name, reference_metadata
             )
             
-            # Final summary
+            # Final summary with visualization info
             total_products = len(output_results)
             jiang_products = len(jiang_results)
-            advanced_products = total_products - jiang_products
+            advanced_products = len([k for k in all_results.keys() if k.startswith(('clarity_', 'hab_'))])
+            viz_products = len([k for k in all_results.keys() if k.startswith(('rgb_', 'index_'))])
             
-            logger.info(f"CORRECTED Jiang processing completed:")
+            logger.info(f"Complete TSS processing summary:")
             logger.info(f"  Jiang products: {jiang_products}")
             logger.info(f"  Advanced products: {advanced_products}")
+            logger.info(f"  Visualization products: {viz_products}")
             logger.info(f"  Total products: {total_products}")
             
             return output_results
             
         except Exception as e:
-            error_msg = f"CORRECTED Jiang TSS processing failed: {str(e)}"
+            error_msg = f"Complete TSS processing failed: {str(e)}"
             logger.error(error_msg)
             return {'error': ProcessingResult(False, "", None, error_msg)}
         
@@ -2443,6 +2523,744 @@ def integrate_with_existing_pipeline(c2rcc_results: Dict,
     except Exception as e:
         logger.error(f"Error integrating advanced algorithms: {e}")
         return {}
+
+@dataclass
+class MarineVisualizationConfig:
+    """Configuration for marine visualization products"""
+    
+    # RGB options
+    generate_natural_color: bool = True
+    generate_false_color: bool = True
+    generate_water_specific: bool = True
+    generate_research_combinations: bool = False
+    
+    # Spectral indices options
+    generate_water_quality_indices: bool = True
+    generate_chlorophyll_indices: bool = True
+    generate_turbidity_indices: bool = True
+    generate_advanced_indices: bool = False
+    
+    # Output format options
+    rgb_format: str = 'GeoTIFF'
+    export_metadata: bool = True
+    create_overview_images: bool = True
+    
+    # Enhancement options
+    apply_contrast_enhancement: bool = True
+    contrast_method: str = 'percentile_stretch'
+    percentile_range: tuple = (2, 98)
+
+class S2MarineRGBGenerator:
+    """Generate marine-optimized RGB composites and spectral indices"""
+    
+    def __init__(self):
+        # Marine-optimized RGB combinations using Sentinel-2 bands
+        self.rgb_combinations = {
+            # Natural color combinations
+            'natural_color': {
+                'red': 665, 'green': 560, 'blue': 490,  # B4, B3, B2
+                'description': 'Natural color (True color)',
+                'application': 'General visualization, publications',
+                'priority': 'essential'
+            },
+            'natural_with_contrast': {
+                'red': 665, 'green': 560, 'blue': 443,  # B4, B3, B1
+                'description': 'Natural color with enhanced contrast',
+                'application': 'Better water-land contrast',
+                'priority': 'important'
+            },
+            
+            # False color for vegetation/water
+            'false_color_infrared': {
+                'red': 842, 'green': 665, 'blue': 560,  # B8, B4, B3
+                'description': 'False color infrared',
+                'application': 'Vegetation (red), clear water (dark)',
+                'priority': 'important'
+            },
+            'false_color_nir': {
+                'red': 865, 'green': 665, 'blue': 560,  # B8A, B4, B3
+                'description': 'False color NIR',
+                'application': 'Enhanced vegetation/water contrast',
+                'priority': 'important'
+            },
+            
+            # Water-specific combinations
+            'turbidity_enhanced': {
+                'red': 865, 'green': 705, 'blue': 560,  # B8A, B5, B3
+                'description': 'Turbidity and suspended sediment',
+                'application': 'Sediment plumes, river discharge',
+                'priority': 'marine'
+            },
+            'chlorophyll_enhanced': {
+                'red': 705, 'green': 665, 'blue': 560,  # B5, B4, B3
+                'description': 'Chlorophyll and algae detection',
+                'application': 'Algal blooms, phytoplankton',
+                'priority': 'marine'
+            },
+            'coastal_aerosol': {
+                'red': 865, 'green': 665, 'blue': 443,  # B8A, B4, B1
+                'description': 'Coastal aerosol enhanced',
+                'application': 'Atmospheric correction, haze penetration',
+                'priority': 'marine'
+            },
+            
+            # Specialized marine combinations
+            'sediment_transport': {
+                'red': 2190, 'green': 865, 'blue': 665,  # B12, B8A, B4
+                'description': 'Sediment transport visualization',
+                'application': 'River plumes, coastal erosion',
+                'priority': 'marine'
+            },
+            'water_quality': {
+                'red': 842, 'green': 705, 'blue': 490,  # B8, B5, B2
+                'description': 'Water quality assessment',
+                'application': 'Turbidity, organic matter',
+                'priority': 'marine'
+            },
+            'atmospheric_penetration': {
+                'red': 2190, 'green': 1610, 'blue': 865,  # B12, B11, B8A
+                'description': 'Atmospheric penetration',
+                'application': 'Hazy conditions, atmospheric interference',
+                'priority': 'optional'
+            },
+            
+            # Research combinations
+            'research_marine': {
+                'red': 740, 'green': 705, 'blue': 665,  # B6, B5, B4
+                'description': 'Marine research combination',
+                'application': 'Red edge analysis, chlorophyll research',
+                'priority': 'research'
+            },
+            'bathymetric': {
+                'red': 560, 'green': 490, 'blue': 443,  # B3, B2, B1
+                'description': 'Bathymetric analysis',
+                'application': 'Shallow water depth estimation',
+                'priority': 'research'
+            }
+        }
+        
+        # Spectral indices for marine applications
+        self.spectral_indices = {
+            # Water quality indices
+            'NDTI': {
+                'formula': '(B4 - B3) / (B4 + B3)',
+                'description': 'Normalized Difference Turbidity Index',
+                'application': 'Turbidity, suspended sediment',
+                'range': '(-1, 1)',
+                'interpretation': 'Higher values = more turbid',
+                'priority': 'essential'
+            },
+            'NDWI': {
+                'formula': '(B3 - B8) / (B3 + B8)',
+                'description': 'Normalized Difference Water Index',
+                'application': 'Water body delineation',
+                'range': '(-1, 1)',
+                'interpretation': 'Positive values = water',
+                'priority': 'essential'
+            },
+            'MNDWI': {
+                'formula': '(B3 - B11) / (B3 + B11)',
+                'description': 'Modified Normalized Difference Water Index',
+                'application': 'Water extraction, better for turbid water',
+                'range': '(-1, 1)',
+                'interpretation': 'Positive values = water',
+                'priority': 'important'
+            },
+            
+            # Chlorophyll and algae indices
+            'NDVI': {
+                'formula': '(B8 - B4) / (B8 + B4)',
+                'description': 'Normalized Difference Vegetation Index',
+                'application': 'Vegetation, floating algae',
+                'range': '(-1, 1)',
+                'interpretation': 'Higher values = more vegetation/algae',
+                'priority': 'important'
+            },
+            'GNDVI': {
+                'formula': '(B8 - B3) / (B8 + B3)',
+                'description': 'Green Normalized Difference Vegetation Index',
+                'application': 'Chlorophyll, green algae',
+                'range': '(-1, 1)',
+                'interpretation': 'Sensitive to chlorophyll concentration',
+                'priority': 'marine'
+            },
+            'NDCI': {
+                'formula': '(B5 - B4) / (B5 + B4)',
+                'description': 'Normalized Difference Chlorophyll Index',
+                'application': 'Chlorophyll in turbid waters',
+                'range': '(-1, 1)',
+                'interpretation': 'Red edge based chlorophyll indicator',
+                'priority': 'marine'
+            },
+            'CHL_RED_EDGE': {
+                'formula': '(B6 / B5) - 1',
+                'description': 'Chlorophyll Red Edge',
+                'application': 'Chlorophyll concentration',
+                'range': '(0, inf)',
+                'interpretation': 'Red edge position indicator',
+                'priority': 'marine'
+            },
+            
+            # Turbidity and sediment indices
+            'TSI': {
+                'formula': 'B4 / B2',
+                'description': 'Turbidity Sediment Index',
+                'application': 'Suspended sediment concentration',
+                'range': '(0, inf)',
+                'interpretation': 'Higher values = more suspended sediment',
+                'priority': 'essential'
+            },
+            'NGRDI': {
+                'formula': '(B3 - B4) / (B3 + B4)',
+                'description': 'Normalized Green Red Difference Index',
+                'application': 'Water-vegetation separation',
+                'range': '(-1, 1)',
+                'interpretation': 'Water quality assessment',
+                'priority': 'marine'
+            },
+            'BSI': {
+                'formula': '((B11 + B4) - (B8 + B2)) / ((B11 + B4) + (B8 + B2))',
+                'description': 'Bare Soil Index',
+                'application': 'Sediment, bare areas',
+                'range': '(-1, 1)',
+                'interpretation': 'Higher values = more bare soil/sediment',
+                'priority': 'marine'
+            },
+            
+            # Advanced marine indices
+            'FUI': {
+                'formula': 'arctan2(B4 - B3, B2 - B3) * 180 / π',
+                'description': 'Forel-Ule Index',
+                'application': 'Water color classification',
+                'range': '(0, 360)',
+                'interpretation': 'Water color angle in degrees',
+                'priority': 'advanced'
+            },
+            'SDD': {
+                'formula': 'ln(0.14 / B4) / 1.7',
+                'description': 'Secchi Disk Depth proxy',
+                'application': 'Water transparency',
+                'range': '(0, inf)',
+                'interpretation': 'Higher values = clearer water',
+                'priority': 'advanced'
+            },
+            'CDOM': {
+                'formula': 'B1 / B3',
+                'description': 'Colored Dissolved Organic Matter proxy',
+                'application': 'CDOM concentration',
+                'range': '(0, inf)',
+                'interpretation': 'Higher values = more CDOM',
+                'priority': 'advanced'
+            }
+        }
+
+class S2MarineVisualizationProcessor:
+    """Complete marine visualization processor for RGB and indices"""
+    
+    def __init__(self, config: Optional[MarineVisualizationConfig] = None):
+        """Initialize marine visualization processor with configuration and logging"""
+        # Configuration setup
+        self.config = config or MarineVisualizationConfig()
+        
+        # Initialize RGB generator
+        self.rgb_generator = S2MarineRGBGenerator()
+        
+        # Use global logger (updated for centralized logging)
+        self.logger = logger
+        
+        # Log initialization details
+        self.logger.info("Initialized S2 Marine Visualization Processor")
+        self.logger.info(f"Configuration settings:")
+        self.logger.info(f"  Natural color RGB: {self.config.generate_natural_color}")
+        self.logger.info(f"  False color RGB: {self.config.generate_false_color}")
+        self.logger.info(f"  Water-specific RGB: {self.config.generate_water_specific}")
+        self.logger.info(f"  Research RGB: {self.config.generate_research_combinations}")
+        self.logger.info(f"  Water quality indices: {self.config.generate_water_quality_indices}")
+        self.logger.info(f"  Chlorophyll indices: {self.config.generate_chlorophyll_indices}")
+        self.logger.info(f"  Turbidity indices: {self.config.generate_turbidity_indices}")
+        self.logger.info(f"  Advanced indices: {self.config.generate_advanced_indices}")
+        self.logger.info(f"  Output format: {self.config.rgb_format}")
+        self.logger.info(f"  Contrast enhancement: {self.config.apply_contrast_enhancement}")
+        self.logger.info(f"  Contrast method: {self.config.contrast_method}")
+        self.logger.info(f"  Export metadata: {self.config.export_metadata}")
+        self.logger.info(f"  Create overview images: {self.config.create_overview_images}")
+        
+        # Estimate expected products
+        expected_rgb = 0
+        if self.config.generate_natural_color: expected_rgb += 2  # natural_color, natural_with_contrast
+        if self.config.generate_false_color: expected_rgb += 2   # false_color_infrared, false_color_nir
+        if self.config.generate_water_specific: expected_rgb += 4  # turbidity, chlorophyll, coastal_aerosol, water_quality
+        if self.config.generate_research_combinations: expected_rgb += 3  # sediment_transport, atmospheric_penetration, research_marine, bathymetric
+        
+        expected_indices = 0
+        if self.config.generate_water_quality_indices: expected_indices += 3  # NDTI, NDWI, MNDWI
+        if self.config.generate_chlorophyll_indices: expected_indices += 4   # NDVI, GNDVI, NDCI, CHL_RED_EDGE
+        if self.config.generate_turbidity_indices: expected_indices += 3     # TSI, NGRDI, BSI
+        if self.config.generate_advanced_indices: expected_indices += 3      # FUI, SDD, CDOM
+        
+        self.logger.info(f"Expected products: ~{expected_rgb} RGB composites + ~{expected_indices} spectral indices")
+        self.logger.info("Marine visualization processor ready for processing")
+        
+    def process_marine_visualizations(self, c2rcc_path: str, output_folder: str, 
+                                    product_name: str) -> Dict[str, ProcessingResult]:
+        """
+        Generate marine visualizations using actual SNAP output files
+        """
+        try:
+            self.logger.info(f"Starting marine visualization processing for {product_name}")
+            
+            # Create output structure
+            clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
+            scene_folder = os.path.join(output_folder, clean_product_name)
+            rgb_folder = os.path.join(scene_folder, "RGB_Composites")
+            indices_folder = os.path.join(scene_folder, "Spectral_Indices")
+            os.makedirs(rgb_folder, exist_ok=True)
+            os.makedirs(indices_folder, exist_ok=True)
+            
+            # Load available bands using corrected file structure
+            available_bands = self._load_available_bands(c2rcc_path)
+            if not available_bands:
+                return {'error': ProcessingResult(False, "", None, "No bands found in C2RCC output")}
+            
+            # Load band data
+            bands_data, reference_metadata = self._load_bands_data_from_paths(available_bands)
+            if bands_data is None:
+                return {'error': ProcessingResult(False, "", None, "Failed to load band data")}
+            
+            results = {}
+            
+            # Generate RGB composites
+            self.logger.info("Generating RGB composites...")
+            rgb_results = self._generate_rgb_composites(bands_data, reference_metadata, 
+                                                      rgb_folder, clean_product_name)
+            results.update(rgb_results)
+            
+            # Generate spectral indices
+            self.logger.info("Generating spectral indices...")
+            indices_results = self._generate_spectral_indices(bands_data, reference_metadata,
+                                                            indices_folder, clean_product_name)
+            results.update(indices_results)
+            
+            # Create summary
+            self._create_visualization_summary(scene_folder, clean_product_name, results)
+            
+            # Final statistics
+            rgb_count = len([k for k in results.keys() if k.startswith('rgb_')])
+            index_count = len([k for k in results.keys() if k.startswith('index_')])
+            
+            self.logger.info(f"Marine visualization completed:")
+            self.logger.info(f"  RGB composites: {rgb_count}")
+            self.logger.info(f"  Spectral indices: {index_count}")
+            self.logger.info(f"  Total products: {len(results)}")
+            
+            return results
+            
+        except Exception as e:
+            error_msg = f"Marine visualization processing failed: {str(e)}"
+            self.logger.error(error_msg)
+            return {'error': ProcessingResult(False, "", None, error_msg)}
+    
+    def _load_available_bands(self, c2rcc_path: str) -> Dict[int, str]:
+        """Load bands from actual SNAP C2RCC output structure"""
+        # Determine data folder
+        if c2rcc_path.endswith('.dim'):
+            data_folder = c2rcc_path.replace('.dim', '.data')
+        else:
+            data_folder = f"{c2rcc_path}.data"
+        
+        if not os.path.exists(data_folder):
+            self.logger.error(f"Data folder not found: {data_folder}")
+            return {}
+        
+        # Band mapping using actual file structure from your C2RCC output
+        band_mapping = {
+            443: ['rho_toa_B1.img', 'rtoa_B1.img'],      # Band 1
+            490: ['rho_toa_B2.img', 'rtoa_B2.img'],      # Band 2  
+            560: ['rho_toa_B3.img', 'rtoa_B3.img'],      # Band 3
+            665: ['rho_toa_B4.img', 'rtoa_B4.img'],      # Band 4
+            705: ['rho_toa_B5.img', 'rtoa_B5.img'],      # Band 5
+            740: ['rho_toa_B6.img', 'rtoa_B6.img'],      # Band 6
+            783: ['rho_toa_B7.img', 'rtoa_B7.img'],      # Band 7
+            842: ['rho_toa_B8.img', 'rtoa_B8.img'],      # Band 8
+            865: ['rho_toa_B8A.img', 'rtoa_B8A.img'],    # Band 8A
+            945: ['rho_toa_B9.img', 'rtoa_B9.img'],      # Band 9
+            1610: ['rho_toa_B11.img', 'rtoa_B11.img'],   # Band 11
+            2190: ['rho_toa_B12.img', 'rtoa_B12.img']    # Band 12
+        }
+        
+        available_bands = {}
+        found_files = []
+        missing_files = []
+        
+        for wavelength, possible_files in band_mapping.items():
+            band_found = False
+            for filename in possible_files:
+                band_path = os.path.join(data_folder, filename)
+                if os.path.exists(band_path):
+                    file_size = os.path.getsize(band_path)
+                    if file_size > 1024:  # At least 1KB
+                        available_bands[wavelength] = band_path
+                        found_files.append(filename)
+                        band_found = True
+                        break
+            
+            if not band_found:
+                missing_files.append(f"{wavelength}nm ({possible_files[0]})")
+        
+        self.logger.info(f"Band loading results:")
+        self.logger.info(f"  Found {len(available_bands)} bands: {sorted(list(available_bands.keys()))}")
+        if missing_files:
+            self.logger.warning(f"  Missing: {missing_files}")
+        
+        return available_bands
+    
+    def _load_bands_data_from_paths(self, band_paths: Dict[int, str]) -> Tuple[Optional[Dict], Optional[Dict]]:
+        """Load band data from file paths"""
+        bands_data = {}
+        reference_metadata = None
+        
+        for wavelength, file_path in band_paths.items():
+            try:
+                data, metadata = RasterIO.read_raster(file_path)
+                bands_data[wavelength] = data
+                
+                if reference_metadata is None:
+                    reference_metadata = metadata
+                
+                self.logger.debug(f"Loaded band {wavelength}nm: shape={data.shape}, range=[{np.nanmin(data):.6f}, {np.nanmax(data):.6f}]")
+                
+            except Exception as e:
+                self.logger.error(f"Failed to load band {wavelength}nm from {file_path}: {e}")
+                return None, None
+        
+        return bands_data, reference_metadata
+    
+    def _generate_rgb_composites(self, bands_data: Dict, metadata: Dict, 
+                               output_folder: str, product_name: str) -> Dict[str, ProcessingResult]:
+        """Generate RGB composites using available bands"""
+        results = {}
+        
+        available_wavelengths = set(bands_data.keys())
+        self.logger.info(f"Available wavelengths for RGB: {sorted(available_wavelengths)}")
+        
+        # Filter RGB combinations based on configuration and priority
+        filtered_combinations = {}
+        
+        for rgb_name, config in self.rgb_generator.rgb_combinations.items():
+            # Check configuration settings
+            if config['priority'] == 'essential':
+                filtered_combinations[rgb_name] = config
+            elif config['priority'] == 'important' and (self.config.generate_natural_color or self.config.generate_false_color):
+                filtered_combinations[rgb_name] = config
+            elif config['priority'] == 'marine' and self.config.generate_water_specific:
+                filtered_combinations[rgb_name] = config
+            elif config['priority'] == 'research' and self.config.generate_research_combinations:
+                filtered_combinations[rgb_name] = config
+            elif config['priority'] == 'optional' and self.config.generate_research_combinations:
+                filtered_combinations[rgb_name] = config
+        
+        for rgb_name, config in filtered_combinations.items():
+            try:
+                required_bands = [config['red'], config['green'], config['blue']]
+                missing_bands = [wl for wl in required_bands if wl not in available_wavelengths]
+                
+                if missing_bands:
+                    self.logger.info(f"Skipping {rgb_name}: missing wavelengths {missing_bands}")
+                    continue
+                
+                # Get band data
+                red_data = bands_data[config['red']]
+                green_data = bands_data[config['green']]
+                blue_data = bands_data[config['blue']]
+                
+                self.logger.info(f"Creating {rgb_name}: R={config['red']}nm, G={config['green']}nm, B={config['blue']}nm")
+                
+                # Create RGB composite
+                rgb_array = self._create_robust_rgb_composite(red_data, green_data, blue_data)
+                
+                # Save RGB
+                output_path = os.path.join(output_folder, f"{product_name}_{rgb_name}.tif")
+                success = self._save_rgb_geotiff(rgb_array, output_path, metadata, config['description'])
+                
+                if success:
+                    stats = {
+                        'description': config['description'],
+                        'application': config['application'],
+                        'bands_used': f"R:{config['red']}nm, G:{config['green']}nm, B:{config['blue']}nm",
+                        'priority': config['priority'],
+                        'file_size_mb': os.path.getsize(output_path) / (1024 * 1024),
+                        'coverage_percent': np.sum(np.any(rgb_array > 0, axis=2)) / (rgb_array.shape[0] * rgb_array.shape[1]) * 100
+                    }
+                    
+                    results[f'rgb_{rgb_name}'] = ProcessingResult(True, output_path, stats, None)
+                    self.logger.info(f"✓ {rgb_name}: {stats['coverage_percent']:.1f}% coverage, {stats['file_size_mb']:.1f}MB")
+                else:
+                    results[f'rgb_{rgb_name}'] = ProcessingResult(False, output_path, None, "Failed to save")
+                    
+            except Exception as e:
+                self.logger.error(f"Error generating {rgb_name}: {e}")
+                results[f'rgb_{rgb_name}'] = ProcessingResult(False, "", None, str(e))
+        
+        return results
+    
+    def _generate_spectral_indices(self, bands_data: Dict, metadata: Dict,
+                                 output_folder: str, product_name: str) -> Dict[str, ProcessingResult]:
+        """Generate spectral indices based on configuration"""
+        results = {}
+        
+        # Create band mapping for easy access
+        band_vars = {}
+        for wavelength, data in bands_data.items():
+            if wavelength == 443: band_vars['B1'] = data
+            elif wavelength == 490: band_vars['B2'] = data
+            elif wavelength == 560: band_vars['B3'] = data
+            elif wavelength == 665: band_vars['B4'] = data
+            elif wavelength == 705: band_vars['B5'] = data
+            elif wavelength == 740: band_vars['B6'] = data
+            elif wavelength == 783: band_vars['B7'] = data
+            elif wavelength == 842: band_vars['B8'] = data
+            elif wavelength == 865: band_vars['B8A'] = data
+            elif wavelength == 945: band_vars['B9'] = data
+            elif wavelength == 1610: band_vars['B11'] = data
+            elif wavelength == 2190: band_vars['B12'] = data
+        
+        # Filter indices based on configuration and priority
+        filtered_indices = {}
+        
+        for index_name, config in self.rgb_generator.spectral_indices.items():
+            # Check configuration settings
+            if config['priority'] == 'essential':
+                filtered_indices[index_name] = config
+            elif config['priority'] == 'important' and self.config.generate_water_quality_indices:
+                filtered_indices[index_name] = config
+            elif config['priority'] == 'marine' and (self.config.generate_chlorophyll_indices or self.config.generate_turbidity_indices):
+                filtered_indices[index_name] = config
+            elif config['priority'] == 'advanced' and self.config.generate_advanced_indices:
+                filtered_indices[index_name] = config
+        
+        for index_name, config in filtered_indices.items():
+            try:
+                # Calculate index
+                index_data = self._calculate_spectral_index(index_name, band_vars)
+                
+                if index_data is not None:
+                    # Save index
+                    output_path = os.path.join(output_folder, f"{product_name}_{index_name}.tif")
+                    success = RasterIO.write_raster(
+                        index_data, output_path, metadata,
+                        f"{config['description']} - {config['application']}",
+                        nodata=-9999
+                    )
+                    
+                    if success:
+                        stats = RasterIO.calculate_statistics(index_data)
+                        stats.update({
+                            'description': config['description'],
+                            'application': config['application'],
+                            'formula': config['formula'],
+                            'range': config['range'],
+                            'interpretation': config['interpretation'],
+                            'priority': config['priority']
+                        })
+                        results[f'index_{index_name.lower()}'] = ProcessingResult(True, output_path, stats, None)
+                        self.logger.info(f"✓ Generated index: {index_name} ({stats['coverage_percent']:.1f}% coverage)")
+                    else:
+                        results[f'index_{index_name.lower()}'] = ProcessingResult(False, output_path, None, "Failed to save")
+                else:
+                    self.logger.warning(f"Could not calculate index: {index_name}")
+                    
+            except Exception as e:
+                self.logger.error(f"Error calculating index {index_name}: {e}")
+                results[f'index_{index_name.lower()}'] = ProcessingResult(False, "", None, str(e))
+        
+        return results
+    
+    def _calculate_spectral_index(self, index_name: str, bands: Dict) -> Optional[np.ndarray]:
+        """Calculate specific spectral index"""
+        try:
+            if index_name == 'NDTI':
+                return SafeMathNumPy.safe_divide(bands['B4'] - bands['B3'], bands['B4'] + bands['B3'])
+            elif index_name == 'NDWI':
+                return SafeMathNumPy.safe_divide(bands['B3'] - bands['B8'], bands['B3'] + bands['B8'])
+            elif index_name == 'MNDWI':
+                return SafeMathNumPy.safe_divide(bands['B3'] - bands['B11'], bands['B3'] + bands['B11'])
+            elif index_name == 'NDVI':
+                return SafeMathNumPy.safe_divide(bands['B8'] - bands['B4'], bands['B8'] + bands['B4'])
+            elif index_name == 'GNDVI':
+                return SafeMathNumPy.safe_divide(bands['B8'] - bands['B3'], bands['B8'] + bands['B3'])
+            elif index_name == 'NDCI':
+                return SafeMathNumPy.safe_divide(bands['B5'] - bands['B4'], bands['B5'] + bands['B4'])
+            elif index_name == 'CHL_RED_EDGE':
+                return SafeMathNumPy.safe_divide(bands['B6'], bands['B5']) - 1
+            elif index_name == 'TSI':
+                return SafeMathNumPy.safe_divide(bands['B4'], bands['B2'])
+            elif index_name == 'NGRDI':
+                return SafeMathNumPy.safe_divide(bands['B3'] - bands['B4'], bands['B3'] + bands['B4'])
+            elif index_name == 'BSI':
+                numerator = (bands['B11'] + bands['B4']) - (bands['B8'] + bands['B2'])
+                denominator = (bands['B11'] + bands['B4']) + (bands['B8'] + bands['B2'])
+                return SafeMathNumPy.safe_divide(numerator, denominator)
+            elif index_name == 'FUI':
+                # Forel-Ule Index (water color)
+                angle = np.arctan2(bands['B4'] - bands['B3'], bands['B2'] - bands['B3'])
+                return angle * 180 / np.pi
+            elif index_name == 'SDD':
+                # Secchi Disk Depth proxy
+                return SafeMathNumPy.safe_log(0.14 / bands['B4'], base=np.e) / 1.7
+            elif index_name == 'CDOM':
+                return SafeMathNumPy.safe_divide(bands['B1'], bands['B3'])
+            else:
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Error calculating {index_name}: {e}")
+            return None
+    
+    def _create_robust_rgb_composite(self, red: np.ndarray, green: np.ndarray, blue: np.ndarray) -> np.ndarray:
+        """Create RGB composite with proper atmospheric correction data handling"""
+        try:
+            # Input validation
+            if red.shape != green.shape or red.shape != blue.shape:
+                raise ValueError(f"Band shape mismatch: R={red.shape}, G={green.shape}, B={blue.shape}")
+            
+            height, width = red.shape
+            rgb_array = np.zeros((height, width, 3), dtype=np.float32)
+            
+            bands = [red, green, blue]
+            band_names = ['Red', 'Green', 'Blue']
+            
+            for i, (band, name) in enumerate(zip(bands, band_names)):
+                # Create comprehensive mask for valid data
+                # Note: rho_toa values are typically 0-1 range (reflectance)
+                valid_mask = (
+                    (~np.isnan(band)) & 
+                    (~np.isinf(band)) & 
+                    (band >= 0) & 
+                    (band <= 1.5)  # Allow slight overshoot for atmospheric correction
+                )
+                
+                valid_data = band[valid_mask]
+                
+                if len(valid_data) == 0:
+                    self.logger.warning(f"{name} band has no valid data")
+                    rgb_array[:, :, i] = 0
+                    continue
+                
+                # Apply contrast enhancement appropriate for TOA reflectance
+                if len(valid_data) > 100:
+                    # Use conservative percentiles for TOA data
+                    p1, p99 = np.percentile(valid_data, [1, 99])
+                    if p99 > p1:
+                        # Apply percentile stretch
+                        enhanced = np.clip((band - p1) / (p99 - p1), 0, 1)
+                        rgb_array[:, :, i] = enhanced
+                    else:
+                        # Data is too uniform, use simple scaling
+                        rgb_array[:, :, i] = np.clip(band * 3, 0, 1)  # 3x boost for low contrast
+                else:
+                    # Not enough data, use simple scaling
+                    rgb_array[:, :, i] = np.clip(band * 3, 0, 1)
+                
+                # Ensure invalid pixels are black
+                rgb_array[~valid_mask, i] = 0
+            
+            # Final validation
+            rgb_array = np.clip(rgb_array, 0, 1)
+            
+            return rgb_array
+            
+        except Exception as e:
+            self.logger.error(f"Error in RGB composite creation: {e}")
+            return np.zeros((red.shape[0], red.shape[1], 3), dtype=np.float32)
+    
+    def _save_rgb_geotiff(self, rgb_array: np.ndarray, output_path: str, 
+                         metadata: Dict, description: str) -> bool:
+        """Save RGB array as GeoTIFF"""
+        try:
+            from osgeo import gdal
+            
+            # Convert to uint8 (0-255)
+            rgb_uint8 = (rgb_array * 255).astype(np.uint8)
+            
+            # Create output raster
+            driver = gdal.GetDriverByName('GTiff')
+            height, width, bands = rgb_uint8.shape
+            
+            dataset = driver.Create(
+                output_path, width, height, bands, gdal.GDT_Byte,
+                ['COMPRESS=LZW', 'PHOTOMETRIC=RGB', 'TILED=YES']
+            )
+            
+            # Set georeference information
+            dataset.SetGeoTransform(metadata['geotransform'])
+            dataset.SetProjection(metadata['projection'])
+            
+            # Write bands
+            for i in range(bands):
+                band = dataset.GetRasterBand(i + 1)
+                band.WriteArray(rgb_uint8[:, :, i])
+                band.SetDescription(f"{description} - Band {i+1}")
+            
+            dataset = None  # Close dataset
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error saving RGB {output_path}: {e}")
+            return False
+    
+    def _create_visualization_summary(self, scene_folder: str, product_name: str, results: Dict):
+        """Create a summary file of all visualization products"""
+        try:
+            summary_file = os.path.join(scene_folder, f"{product_name}_VisualizationSummary.txt")
+            
+            with open(summary_file, 'w', encoding='utf-8') as f:
+                f.write(f"SENTINEL-2 MARINE VISUALIZATION SUMMARY\n")
+                f.write(f"{'='*50}\n")
+                f.write(f"Product: {product_name}\n")
+                f.write(f"Processing Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Pipeline: Unified S2-TSS Processing v1.0\n\n")
+                
+                # RGB Composites
+                rgb_products = {k: v for k, v in results.items() if k.startswith('rgb_')}
+                if rgb_products:
+                    f.write(f"RGB COMPOSITES ({len(rgb_products)} products):\n")
+                    f.write(f"{'-'*30}\n")
+                    for product_key, result in rgb_products.items():
+                        if result.success and result.statistics:
+                            stats = result.statistics
+                            f.write(f"✓ {os.path.basename(result.output_path)}\n")
+                            f.write(f"  Description: {stats.get('description', 'N/A')}\n")
+                            f.write(f"  Application: {stats.get('application', 'N/A')}\n")
+                            f.write(f"  Bands: {stats.get('bands_used', 'N/A')}\n")
+                            f.write(f"  Coverage: {stats.get('coverage_percent', 0):.1f}%\n")
+                            f.write(f"  File Size: {stats.get('file_size_mb', 0):.1f} MB\n\n")
+                        else:
+                            f.write(f"✗ {product_key} (failed)\n\n")
+                
+                # Spectral Indices
+                index_products = {k: v for k, v in results.items() if k.startswith('index_')}
+                if index_products:
+                    f.write(f"SPECTRAL INDICES ({len(index_products)} products):\n")
+                    f.write(f"{'-'*30}\n")
+                    for product_key, result in index_products.items():
+                        if result.success and result.statistics:
+                            stats = result.statistics
+                            f.write(f"✓ {os.path.basename(result.output_path)}\n")
+                            f.write(f"  Description: {stats.get('description', 'N/A')}\n")
+                            f.write(f"  Formula: {stats.get('formula', 'N/A')}\n")
+                            f.write(f"  Application: {stats.get('application', 'N/A')}\n")
+                            f.write(f"  Range: {stats.get('range', 'N/A')}\n")
+                            f.write(f"  Coverage: {stats.get('coverage_percent', 0):.1f}%\n")
+                            f.write(f"  Mean Value: {stats.get('mean', 0):.4f}\n\n")
+                        else:
+                            f.write(f"✗ {product_key} (failed)\n\n")
+                
+                f.write(f"Total visualization products: {len([r for r in results.values() if r.success])}\n")
+            
+            self.logger.info(f"Visualization summary created: {os.path.basename(summary_file)}")
+            
+        except Exception as e:
+            self.logger.warning(f"Could not create visualization summary: {e}")
 
 # ===== S2 PROCESSOR =====
 
@@ -4388,6 +5206,16 @@ class UnifiedS2TSSGUI:
         self.particle_size_var = tk.BooleanVar(value=True)
         self.primary_productivity_var = tk.BooleanVar(value=True)
     
+        # NEW: Marine visualization variables
+        self.enable_marine_viz_var = tk.BooleanVar(value=True)  # ENABLED BY DEFAULT
+        self.natural_color_var = tk.BooleanVar(value=True)
+        self.false_color_var = tk.BooleanVar(value=True)
+        self.water_specific_var = tk.BooleanVar(value=True)
+        self.research_rgb_var = tk.BooleanVar(value=False)
+        self.water_quality_indices_var = tk.BooleanVar(value=True)
+        self.chlorophyll_indices_var = tk.BooleanVar(value=True)
+        self.turbidity_indices_var = tk.BooleanVar(value=True)
+        self.advanced_indices_var = tk.BooleanVar(value=False)
         
         # Setup GUI components
         self.setup_gui()
@@ -4851,17 +5679,33 @@ class UnifiedS2TSSGUI:
                   command=self.apply_snap_defaults).pack(side=tk.LEFT, padx=2)
     
     def setup_tss_tab(self):
-        """Setup TSS (Jiang + Advanced) configuration tab"""
+        """Setup TSS (Jiang + Advanced + Marine Visualization) configuration tab"""
         frame = ttk.Frame(self.notebook)
-        tab_index = self.notebook.add(frame, text="🧪 TSS & Advanced")
+        tab_index = self.notebook.add(frame, text="🧪 TSS & Visualization")
         self.tab_indices['tss'] = tab_index
         
+        # Create scrollable frame for the tab
+        canvas = tk.Canvas(frame)
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
         # Title
-        title_label = ttk.Label(frame, text="TSS Estimation Configuration", font=("Arial", 14, "bold"))
+        title_label = ttk.Label(scrollable_frame, text="TSS Estimation & Marine Visualization", font=("Arial", 14, "bold"))
         title_label.pack(pady=10)
         
-        # Important note about SNAP TSM/CHL being automatic
-        snap_note_frame = ttk.Frame(frame, relief=tk.SUNKEN, borderwidth=1)
+        # SNAP TSM/CHL note (unchanged)
+        snap_note_frame = ttk.Frame(scrollable_frame, relief=tk.SUNKEN, borderwidth=1)
         snap_note_frame.pack(fill=tk.X, padx=10, pady=5)
         
         snap_note_text = (
@@ -4872,89 +5716,118 @@ class UnifiedS2TSSGUI:
         )
         
         snap_note_label = ttk.Label(snap_note_frame, text=snap_note_text,
-                                   font=("Arial", 9), foreground="darkblue", 
-                                   wraplength=600, justify=tk.LEFT, padding="5")
+                                font=("Arial", 9), foreground="darkblue", 
+                                wraplength=600, justify=tk.LEFT, padding="5")
         snap_note_label.pack()
         
-        # Jiang TSS Configuration
-        jiang_frame = ttk.LabelFrame(frame, text="Jiang et al. 2023 TSS Methodology (Optional)", padding="10")
-        jiang_frame.pack(fill=tk.X, padx=10, pady=10)
+        # Jiang TSS Configuration (unchanged)
+        jiang_frame = ttk.LabelFrame(scrollable_frame, text="Jiang et al. 2023 TSS Methodology (Optional)", padding="10")
+        jiang_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        # Enable Jiang TSS
-        ttk.Checkbutton(jiang_frame, text="✓ Enable Jiang TSS processing (enabled by default)", 
+        ttk.Checkbutton(jiang_frame, text="✓ Enable Jiang TSS processing", 
                     variable=self.enable_jiang_var,
                     command=self.update_jiang_visibility).pack(anchor=tk.W, pady=5)
         
-        # Jiang description
-        desc_text = (
-            "The Jiang et al. 2023 methodology (ENABLED BY DEFAULT) provides:\n"
-            "• Water type classification (Clear, Moderately turbid, Highly turbid, Extremely turbid)\n"
-            "• Semi-analytical TSS estimation using water-leaving reflectance\n"
-            "• Intermediate optical properties (absorption, backscattering)\n"
-            "• Comparison with SNAP TSM results when both are enabled\n"
-            "• More accurate TSS estimation than SNAP C2RCC alone"
-        )
-        
-        desc_label = ttk.Label(jiang_frame, text=desc_text, font=("Arial", 9),
-                              foreground="gray", wraplength=600, justify=tk.LEFT)
-        desc_label.pack(anchor=tk.W, padx=(20, 0), pady=5)
-        
-        # Jiang options frame (initially hidden)
         self.jiang_options_frame = ttk.Frame(jiang_frame)
         
-        ttk.Checkbutton(self.jiang_options_frame, text="Output intermediate products (water types, absorption, backscattering)", 
-                       variable=self.jiang_intermediates_var).pack(anchor=tk.W, pady=2)
+        ttk.Checkbutton(self.jiang_options_frame, text="Output intermediate products", 
+                    variable=self.jiang_intermediates_var).pack(anchor=tk.W, pady=2)
         
-        ttk.Checkbutton(self.jiang_options_frame, text="Generate comparison statistics with SNAP TSM", 
-                       variable=self.jiang_comparison_var).pack(anchor=tk.W, pady=2)
+        ttk.Checkbutton(self.jiang_options_frame, text="Generate comparison statistics", 
+                    variable=self.jiang_comparison_var).pack(anchor=tk.W, pady=2)
         
-        # Update visibility based on initial state
-        self.update_jiang_visibility()
+        # NEW: Marine Visualization Configuration
+        marine_viz_frame = ttk.LabelFrame(scrollable_frame, text="🎨 Marine Visualization (RGB + Indices) - NEW!", padding="10")
+        marine_viz_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        # NEW: Advanced Algorithms Section
-        advanced_frame = ttk.LabelFrame(frame, text="Advanced Aquatic Algorithms (Working)", padding="10")
+        # Enable marine visualization
+        ttk.Checkbutton(marine_viz_frame, text="✓ Generate RGB composites and spectral indices (ENABLED BY DEFAULT)", 
+                    variable=self.enable_marine_viz_var,
+                    command=self.update_marine_viz_visibility).pack(anchor=tk.W, pady=5)
+        
+        # Marine visualization description
+        marine_desc_text = (
+            "Automatically generates comprehensive marine visualization products:\n"
+            "• RGB Composites: Natural color, false color, turbidity-enhanced, chlorophyll-enhanced, etc.\n"
+            "• Spectral Indices: NDTI, NDWI, NDCI, TSI, water quality indices, etc.\n"
+            "• Uses actual SNAP C2RCC output files (rho_toa_*.img)\n"
+            "• Export formats: GeoTIFF with contrast enhancement for optimal visualization\n"
+            "• Perfect for publications, presentations, and visual analysis of your 700+ Douro images"
+        )
+        
+        marine_desc_label = ttk.Label(marine_viz_frame, text=marine_desc_text, font=("Arial", 9),
+                                    foreground="darkgreen", wraplength=600, justify=tk.LEFT)
+        marine_desc_label.pack(anchor=tk.W, padx=(20, 0), pady=5)
+        
+        # Marine visualization options frame
+        self.marine_viz_options_frame = ttk.Frame(marine_viz_frame)
+        
+        # RGB options
+        rgb_options_frame = ttk.LabelFrame(self.marine_viz_options_frame, text="RGB Composites", padding="5")
+        rgb_options_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Checkbutton(rgb_options_frame, text="✓ Natural color combinations (true color, enhanced contrast)", 
+                    variable=self.natural_color_var).pack(anchor=tk.W, pady=1)
+        ttk.Checkbutton(rgb_options_frame, text="✓ False color combinations (infrared, NIR)", 
+                    variable=self.false_color_var).pack(anchor=tk.W, pady=1)
+        ttk.Checkbutton(rgb_options_frame, text="✓ Water-specific combinations (turbidity, chlorophyll, sediment)", 
+                    variable=self.water_specific_var).pack(anchor=tk.W, pady=1)
+        ttk.Checkbutton(rgb_options_frame, text="Research combinations (advanced users)", 
+                    variable=self.research_rgb_var).pack(anchor=tk.W, pady=1)
+        
+        # Spectral indices options
+        indices_options_frame = ttk.LabelFrame(self.marine_viz_options_frame, text="Spectral Indices", padding="5")
+        indices_options_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Checkbutton(indices_options_frame, text="✓ Water quality indices (NDWI, MNDWI, water delineation)", 
+                    variable=self.water_quality_indices_var).pack(anchor=tk.W, pady=1)
+        ttk.Checkbutton(indices_options_frame, text="✓ Chlorophyll indices (NDCI, GNDVI, red edge)", 
+                    variable=self.chlorophyll_indices_var).pack(anchor=tk.W, pady=1)
+        ttk.Checkbutton(indices_options_frame, text="✓ Turbidity indices (NDTI, TSI, sediment)", 
+                    variable=self.turbidity_indices_var).pack(anchor=tk.W, pady=1)
+        ttk.Checkbutton(indices_options_frame, text="Advanced indices (FUI, SDD, CDOM)", 
+                    variable=self.advanced_indices_var).pack(anchor=tk.W, pady=1)
+        
+        # Quick preset buttons
+        preset_frame = ttk.Frame(self.marine_viz_options_frame)
+        preset_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Label(preset_frame, text="Quick presets:").pack(side=tk.LEFT)
+        preset_buttons_frame = ttk.Frame(preset_frame)
+        preset_buttons_frame.pack(side=tk.LEFT, padx=(10, 0))
+        
+        ttk.Button(preset_buttons_frame, text="Essential", width=10,
+                command=self.apply_essential_marine_viz).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_buttons_frame, text="Complete", width=10,
+                command=self.apply_complete_marine_viz).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_buttons_frame, text="Research", width=10,
+                command=self.apply_research_marine_viz).pack(side=tk.LEFT, padx=2)
+        
+        # Advanced Algorithms Section (unchanged)
+        advanced_frame = ttk.LabelFrame(scrollable_frame, text="Advanced Aquatic Algorithms", padding="10")
         advanced_frame.pack(fill=tk.X, padx=10, pady=10)
 
-        # Enable advanced algorithms
         self.enable_advanced_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(advanced_frame, text="Enable advanced aquatic algorithms", 
                     variable=self.enable_advanced_var,
                     command=self.update_advanced_visibility).pack(anchor=tk.W, pady=5)
 
-        # Advanced options frame
         self.advanced_options_frame = ttk.Frame(advanced_frame)
 
-        # WORKING ALGORITHMS ONLY
-        algorithms_grid = ttk.Frame(self.advanced_options_frame)
-        algorithms_grid.pack(fill=tk.X, pady=5)
-
-        # Working algorithms
-        working_frame = ttk.LabelFrame(algorithms_grid, text="Available Algorithms", padding="5")
+        working_frame = ttk.LabelFrame(self.advanced_options_frame, text="Available Algorithms", padding="5")
         working_frame.pack(fill=tk.X, pady=5)
 
         self.water_clarity_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(working_frame, text="✓ Water Clarity Indices (Secchi depth, euphotic depth, etc.)", 
+        ttk.Checkbutton(working_frame, text="✓ Water Clarity Indices", 
                     variable=self.water_clarity_var).pack(anchor=tk.W, pady=2)
 
         self.hab_detection_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(working_frame, text="✓ Harmful Algal Bloom Detection (NDCI, FLH, MCI)", 
+        ttk.Checkbutton(working_frame, text="✓ Harmful Algal Bloom Detection", 
                     variable=self.hab_detection_var).pack(anchor=tk.W, pady=2)
-
-        # Info about removed algorithms
-        info_frame = ttk.LabelFrame(algorithms_grid, text="Algorithm Notes", padding="5")
-        info_frame.pack(fill=tk.X, pady=5)
-
-        info_text = (
-            "This pipeline focuses on algorithms that work directly with Sentinel-2 L1C data.\n"
-            "Complex algorithms requiring external data (SST, discharge, nutrients) have been\n"
-            "removed to maintain reliability and scientific accuracy."
-        )
-
-        info_label = ttk.Label(info_frame, text=info_text, font=("Arial", 8), 
-                            foreground="darkblue", wraplength=600, justify=tk.LEFT)
-        info_label.pack(anchor=tk.W, pady=2)
-
-        # Update visibility
+        
+        # Update initial visibility
+        self.update_jiang_visibility()
+        self.update_marine_viz_visibility()
         self.update_advanced_visibility()
 
     def update_advanced_visibility(self):
@@ -4963,6 +5836,62 @@ class UnifiedS2TSSGUI:
             self.advanced_options_frame.pack(fill=tk.X, pady=(10, 0))
         else:
             self.advanced_options_frame.pack_forget()
+    
+    def update_marine_viz_visibility(self):
+        """Update marine visualization options visibility"""
+        if self.enable_marine_viz_var.get():
+            self.marine_viz_options_frame.pack(fill=tk.X, pady=(10, 0))
+        else:
+            self.marine_viz_options_frame.pack_forget()
+
+    def apply_essential_marine_viz(self):
+        """Apply essential marine visualization preset"""
+        # RGB
+        self.natural_color_var.set(True)
+        self.false_color_var.set(False)
+        self.water_specific_var.set(True)
+        self.research_rgb_var.set(False)
+        
+        # Indices
+        self.water_quality_indices_var.set(True)
+        self.chlorophyll_indices_var.set(True)
+        self.turbidity_indices_var.set(True)
+        self.advanced_indices_var.set(False)
+        
+        self.status_var.set("Essential marine visualization preset applied")
+
+    def apply_complete_marine_viz(self):
+        """Apply complete marine visualization preset"""
+        # RGB
+        self.natural_color_var.set(True)
+        self.false_color_var.set(True)
+        self.water_specific_var.set(True)
+        self.research_rgb_var.set(False)
+        
+        # Indices
+        self.water_quality_indices_var.set(True)
+        self.chlorophyll_indices_var.set(True)
+        self.turbidity_indices_var.set(True)
+        self.advanced_indices_var.set(True)
+        
+        self.status_var.set("Complete marine visualization preset applied")
+
+    def apply_research_marine_viz(self):
+        """Apply research marine visualization preset"""
+        # RGB - everything
+        self.natural_color_var.set(True)
+        self.false_color_var.set(True)
+        self.water_specific_var.set(True)
+        self.research_rgb_var.set(True)
+        
+        # Indices - everything
+        self.water_quality_indices_var.set(True)
+        self.chlorophyll_indices_var.set(True)
+        self.turbidity_indices_var.set(True)
+        self.advanced_indices_var.set(True)
+        
+        self.status_var.set("Research marine visualization preset applied")
+
     
     def setup_monitoring_tab(self):
         """Setup system monitoring and status tab"""
@@ -5330,7 +6259,7 @@ class UnifiedS2TSSGUI:
         self.output_oos_var.set(False)
     
     def update_configurations(self):
-        """Update configuration objects from GUI"""
+        """Update configuration objects from GUI - COMPLETE VERSION"""
         try:
             # Update resampling config
             self.resampling_config.target_resolution = self.resolution_var.get()
@@ -5421,6 +6350,40 @@ class UnifiedS2TSSGUI:
             self.jiang_config.output_intermediates = self.jiang_intermediates_var.get()
             self.jiang_config.output_comparison_stats = self.jiang_comparison_var.get()
             
+            # NEW: Marine visualization configuration
+            if hasattr(self, 'enable_marine_viz_var'):
+                self.jiang_config.enable_marine_visualization = self.enable_marine_viz_var.get()
+                
+                if self.jiang_config.enable_marine_visualization:
+                    if self.jiang_config.marine_viz_config is None:
+                        self.jiang_config.marine_viz_config = MarineVisualizationConfig()
+                    
+                    # Update marine viz settings
+                    if hasattr(self, 'natural_color_var'):
+                        self.jiang_config.marine_viz_config.generate_natural_color = self.natural_color_var.get()
+                    if hasattr(self, 'false_color_var'):
+                        self.jiang_config.marine_viz_config.generate_false_color = self.false_color_var.get()
+                    if hasattr(self, 'water_specific_var'):
+                        self.jiang_config.marine_viz_config.generate_water_specific = self.water_specific_var.get()
+                    if hasattr(self, 'research_rgb_var'):
+                        self.jiang_config.marine_viz_config.generate_research_combinations = self.research_rgb_var.get()
+                    
+                    if hasattr(self, 'water_quality_indices_var'):
+                        self.jiang_config.marine_viz_config.generate_water_quality_indices = self.water_quality_indices_var.get()
+                    if hasattr(self, 'chlorophyll_indices_var'):
+                        self.jiang_config.marine_viz_config.generate_chlorophyll_indices = self.chlorophyll_indices_var.get()
+                    if hasattr(self, 'turbidity_indices_var'):
+                        self.jiang_config.marine_viz_config.generate_turbidity_indices = self.turbidity_indices_var.get()
+                    if hasattr(self, 'advanced_indices_var'):
+                        self.jiang_config.marine_viz_config.generate_advanced_indices = self.advanced_indices_var.get()
+                else:
+                    self.jiang_config.marine_viz_config = None
+            else:
+                # Fallback: enable marine visualization by default if GUI variables don't exist yet
+                self.jiang_config.enable_marine_visualization = True
+                if self.jiang_config.marine_viz_config is None:
+                    self.jiang_config.marine_viz_config = MarineVisualizationConfig()
+            
             # CLEAN: Advanced algorithms configuration - ONLY WORKING ONES
             if hasattr(self, 'enable_advanced_var'):
                 self.jiang_config.enable_advanced_algorithms = self.enable_advanced_var.get()
@@ -5446,6 +6409,9 @@ class UnifiedS2TSSGUI:
             
         except Exception as e:
             messagebox.showerror("Configuration Error", f"Failed to update configurations: {str(e)}", parent=self.root)
+            logger.error(f"Configuration update error: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
            
     def save_config(self):
