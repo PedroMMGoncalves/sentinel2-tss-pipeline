@@ -2532,12 +2532,12 @@ class S2Processor:
     
 
     def create_s2_graph_with_subset(self) -> str:
-        """Create S2 processing graph with COMPLETE band support for Jiang TSS"""
+        """Create S2 processing graph - revert to working version with band fix"""
         
         # Get existing subset parameters
         subset_config = self.config.subset_config
         
-        # COMPLETE: ALL S2 bands including B7 and B8A (CRITICAL for Jiang TSS)
+        # COMPLETE: ALL S2 bands including B7 and B8A (this was the only needed change)
         essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"
         
         # Check if subset is actually needed
@@ -2548,10 +2548,10 @@ class S2Processor:
                         subset_config.pixel_size_y is not None)
         
         if has_geometry_subset or has_pixel_subset:
-            # WITH SUBSET: Use Read operator subset parameters
+            # WITH SUBSET: Use the EXACT same approach that worked before
             logger.info("Processing with spatial subset using Read operator (SNAP native)")
             
-            # Build Read parameters with subset
+            # Build Read parameters with subset - EXACT same as working version
             read_subset_params = ""
             if has_geometry_subset:
                 escaped_wkt = subset_config.geometry_wkt.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
@@ -2563,10 +2563,10 @@ class S2Processor:
         <pixelRegion>{subset_config.pixel_start_x},{subset_config.pixel_start_y},{subset_config.pixel_size_x},{subset_config.pixel_size_y}</pixelRegion>'''
             
             graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-    <graph id="S2_Complete_Band_Support">
+    <graph id="S2_Working_With_All_Bands">
     <version>1.0</version>
 
-    <!-- Step 1: Read with SNAP native subset - ALL BANDS -->
+    <!-- Step 1: Read with SNAP native subset -->
     <node id="Read">
         <operator>Read</operator>
         <sources/>
@@ -2577,7 +2577,7 @@ class S2Processor:
         </parameters>
     </node>
 
-    <!-- Step 2: S2 Resampling - EXPLICITLY REQUEST ALL BANDS INCLUDING B7, B8A -->
+    <!-- Step 2: S2 Resampling - NOW WITH ALL BANDS -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
         <sources>
@@ -2593,7 +2593,7 @@ class S2Processor:
         </parameters>
     </node>
 
-    <!-- Step 3: C2RCC - should now output ALL rhown bands -->
+    <!-- Step 3: C2RCC -->
     <node id="c2rcc_msi">
         <operator>c2rcc.msi</operator>
         <sources>
@@ -2619,14 +2619,13 @@ class S2Processor:
     </graph>'''
             
         else:
-            # NO SUBSET: Standard processing with ALL BANDS
+            # NO SUBSET: Standard processing - SAME AS BEFORE
             logger.info("Processing full scene without subset")
             
             graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
     <graph id="S2_Full_Scene_All_Bands">
     <version>1.0</version>
 
-    <!-- Step 1: Read full scene - ALL BANDS -->
     <node id="Read">
         <operator>Read</operator>
         <sources/>
@@ -2637,7 +2636,6 @@ class S2Processor:
         </parameters>
     </node>
 
-    <!-- Step 2: S2 Resampling - ALL BANDS INCLUDING B7, B8A -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
         <sources>
@@ -2653,7 +2651,6 @@ class S2Processor:
         </parameters>
     </node>
 
-    <!-- Step 3: C2RCC - with ALL input bands -->
     <node id="c2rcc_msi">
         <operator>c2rcc.msi</operator>
         <sources>
@@ -2664,13 +2661,12 @@ class S2Processor:
         </parameters>
     </node>
 
-    <!-- Step 4: Write Output -->
     <node id="Write">
         <operator>Write</operator>
         <sources>
         <sourceProduct refid="c2rcc_msi"/>
         </sources>
-        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        <parameters class="com.bc-ceres.binding.dom.XppDomElement">
         <file>${{targetProduct}}</file>
         <formatName>BEAM-DIMAP</formatName>
         </parameters>
@@ -2682,8 +2678,62 @@ class S2Processor:
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
         
-        logger.info(f"Complete band support graph saved: {graph_file}")
+        logger.info(f"Working graph with all bands saved: {graph_file}")
         return graph_file
+
+
+    def _run_s2_processing(self, input_path: str, output_path: str) -> bool:
+        """REVERT to original working _run_s2_processing method - don't break what works"""
+        try:
+            # Prepare GPT command - EXACT SAME AS WORKING VERSION
+            gpt_cmd = self.get_gpt_command()
+            
+            cmd = [
+                gpt_cmd,
+                self.main_graph_file,
+                f'-PsourceProduct={input_path}',
+                f'-PtargetProduct={output_path}',
+                f'-c', f'{self.config.memory_limit_gb}G',
+                f'-q', str(self.config.thread_count)
+            ]
+            
+            logger.debug(f"GPT command: {' '.join(cmd)}")
+            
+            # Run GPT processing with timeout - EXACT SAME AS WORKING VERSION
+            logger.info(f"Starting COMPLETE S2 processing (all bands for current + future modules)...")
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=3600  # 1 hour timeout
+            )
+            
+            # Check processing results - EXACT SAME AS WORKING VERSION
+            if result.returncode == 0:
+                if os.path.exists(output_path):
+                    file_size = os.path.getsize(output_path)
+                    if file_size > 1024 * 1024:  # > 1MB
+                        logger.info(f"✅ COMPLETE C2RCC output created: {os.path.basename(output_path)} ({file_size/1024/1024:.1f}MB)")
+                        return True
+                    else:
+                        logger.error(f"❌ Output file too small ({file_size} bytes)")
+                        return False
+                else:
+                    logger.error(f"❌ Output file not created")
+                    return False
+            else:
+                logger.error(f"❌ GPT processing failed")
+                logger.error(f"Return code: {result.returncode}")
+                if result.stderr:
+                    logger.error(f"GPT stderr: {result.stderr[:1000]}...")
+                return False
+                        
+        except subprocess.TimeoutExpired:
+            logger.error(f"❌ GPT processing timeout")
+            return False
+        except Exception as e:
+            logger.error(f"❌ GPT processing error: {str(e)}")
+            return False
     
     def _get_subset_parameters(self) -> str:
         """Generate subset parameters for XML with proper escaping"""
