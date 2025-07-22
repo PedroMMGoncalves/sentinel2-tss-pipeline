@@ -160,3 +160,4 @@
 2025-07-22 10:49:13,749 - INFO - [sentinel2_tss_pipeline.py:2794] -   Resolution: 10m
 2025-07-22 10:49:13,751 - INFO - [sentinel2_tss_pipeline.py:2795] -   ECMWF: True
 2025-07-22 10:49:13,753 - INFO - [sentinel2_tss_pipeline.py:2941] - Starting COMPLETE S2 processing (all bands for current + future modules)...
+2025-07-22 10:52:44,471 - INFO - [sentinel2_tss_pipeline.py:6328] - Application finished successfully
