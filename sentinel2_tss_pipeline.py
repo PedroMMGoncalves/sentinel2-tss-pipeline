@@ -2532,7 +2532,7 @@ class S2Processor:
     
 
     def create_s2_graph_with_subset(self) -> str:
-        """Create WORKING S2 processing graph - correct order for C2RCC compatibility"""
+        """Create FINAL working S2 processing graph - based on SNAP documentation"""
         
         # Get existing subset parameters
         subset_config = self.config.subset_config
@@ -2548,33 +2548,38 @@ class S2Processor:
                         subset_config.pixel_size_y is not None)
         
         if has_geometry_subset or has_pixel_subset:
-            # WITH SUBSET: Read → S2Resampling → Subset → C2RCC
-            logger.info("Processing with spatial subset - using correct order for C2RCC")
+            # WITH SUBSET: Use Read operator subset parameters (from SNAP docs)
+            logger.info("Processing with spatial subset using Read operator (SNAP native)")
             
-            # Build subset parameters for Subset operator
-            subset_params = ""
+            # Build Read parameters with subset - using EXACT SNAP parameter names
+            read_subset_params = ""
             if has_geometry_subset:
+                # Use geometryRegion parameter from SNAP Read documentation
                 escaped_wkt = subset_config.geometry_wkt.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                subset_params = f"<geoRegion>{escaped_wkt}</geoRegion>"
+                read_subset_params = f'''
+        <geometryRegion>{escaped_wkt}</geometryRegion>'''
+                
             elif has_pixel_subset:
-                subset_params = f"<region>{subset_config.pixel_start_x},{subset_config.pixel_start_y},{subset_config.pixel_size_x},{subset_config.pixel_size_y}</region>"
+                # Use pixelRegion parameter from SNAP Read documentation
+                read_subset_params = f'''
+        <pixelRegion>{subset_config.pixel_start_x},{subset_config.pixel_start_y},{subset_config.pixel_size_x},{subset_config.pixel_size_y}</pixelRegion>'''
             
             graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-    <graph id="S2_Working_Subset_Processing">
+    <graph id="S2_SNAP_Native_Subset">
     <version>1.0</version>
 
-    <!-- Step 1: Read full L1C product - preserves S2 structure -->
+    <!-- Step 1: Read with SNAP native subset - preserves S2 structure -->
     <node id="Read">
         <operator>Read</operator>
         <sources/>
         <parameters class="com.bc.ceres.binding.dom.XppDomElement">
         <file>${{sourceProduct}}</file>
         <sourceBands>{essential_bands}</sourceBands>
-        <copyMetadata>true</copyMetadata>
+        <copyMetadata>true</copyMetadata>{read_subset_params}
         </parameters>
     </node>
 
-    <!-- Step 2: S2 Resampling FIRST - requires intact S2 structure -->
+    <!-- Step 2: S2 Resampling - works on subset with preserved S2 structure -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
         <sources>
@@ -2586,38 +2591,21 @@ class S2Processor:
         <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
         <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
         <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
-        <bands>{essential_bands}</bands>
         </parameters>
     </node>
 
-    <!-- Step 3: Subset AFTER resampling - faster processing for C2RCC -->
-    <node id="Subset">
-        <operator>Subset</operator>
-        <sources>
-        <sourceProduct refid="S2Resampling"/>
-        </sources>
-        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-        {subset_params}
-        <subSamplingX>{subset_config.sub_sampling_x}</subSamplingX>
-        <subSamplingY>{subset_config.sub_sampling_y}</subSamplingY>
-        <fullSwath>{str(subset_config.full_swath).lower()}</fullSwath>
-        <copyMetadata>{str(subset_config.copy_metadata).lower()}</copyMetadata>
-        <sourceBands>{essential_bands}</sourceBands>
-        </parameters>
-    </node>
-
-    <!-- Step 4: C2RCC - works on properly resampled then subset data -->
+    <!-- Step 3: C2RCC - should work on properly subset and resampled S2 product -->
     <node id="c2rcc_msi">
         <operator>c2rcc.msi</operator>
         <sources>
-        <sourceProduct refid="Subset"/>
+        <sourceProduct refid="S2Resampling"/>
         </sources>
         <parameters class="com.bc.ceres.binding.dom.XppDomElement">
         {self._get_c2rcc_parameters()}
         </parameters>
     </node>
 
-    <!-- Step 5: Write Output -->
+    <!-- Step 4: Write Output -->
     <node id="Write">
         <operator>Write</operator>
         <sources>
@@ -2632,7 +2620,7 @@ class S2Processor:
     </graph>'''
             
         else:
-            # NO SUBSET: Read → S2Resampling → C2RCC
+            # NO SUBSET: Standard processing
             logger.info("Processing full scene without subset")
             
             graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
@@ -2650,7 +2638,7 @@ class S2Processor:
         </parameters>
     </node>
 
-    <!-- Step 2: S2 Resampling - Full scene -->
+    <!-- Step 2: S2 Resampling -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
         <sources>
@@ -2662,11 +2650,10 @@ class S2Processor:
         <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
         <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
         <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
-        <bands>{essential_bands}</bands>
         </parameters>
     </node>
 
-    <!-- Step 3: C2RCC - directly on resampled product -->
+    <!-- Step 3: C2RCC -->
     <node id="c2rcc_msi">
         <operator>c2rcc.msi</operator>
         <sources>
@@ -2695,7 +2682,7 @@ class S2Processor:
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
         
-        logger.info(f"WORKING S2 processing graph saved: {graph_file}")
+        logger.info(f"SNAP native processing graph saved: {graph_file}")
         return graph_file
     
     def _get_subset_parameters(self) -> str:
