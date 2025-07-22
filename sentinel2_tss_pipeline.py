@@ -2532,7 +2532,7 @@ class S2Processor:
     
 
     def create_s2_graph_with_subset(self) -> str:
-        """Create FIXED S2 processing graph - subset in Read operator for maximum speed"""
+        """Create S2 processing graph - handles both subset and full scene processing"""
         
         # Get existing subset parameters
         subset_config = self.config.subset_config
@@ -2540,33 +2540,39 @@ class S2Processor:
         # COMPLETE: All S2 bands for current TSS + future modules
         essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"
         
-        # Build Read operator parameters with integrated subset
-        read_params = f'''<file>${{sourceProduct}}</file>
-        <bandNames>{essential_bands}</bandNames>'''
+        # Check if subset is actually needed
+        has_geometry_subset = subset_config.geometry_wkt is not None
+        has_pixel_subset = (subset_config.pixel_start_x is not None and 
+                        subset_config.pixel_start_y is not None and 
+                        subset_config.pixel_size_x is not None and 
+                        subset_config.pixel_size_y is not None)
         
-        # Add subset parameters directly to Read operator (FIXED APPROACH)
-        if subset_config.geometry_wkt:
-            # Geometry-based subset
-            escaped_wkt = subset_config.geometry_wkt.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            read_params += f'''
-        <geoRegion>{escaped_wkt}</geoRegion>'''
+        if has_geometry_subset or has_pixel_subset:
+            # CASE 1: WITH SUBSET - Use Read operator subset for maximum speed
+            logger.info("Processing with spatial subset using Read operator")
             
-        elif subset_config.pixel_start_x is not None:
-            # Pixel-based subset
-            read_params += f'''
-        <region>{subset_config.pixel_start_x},{subset_config.pixel_start_y},{subset_config.pixel_size_x},{subset_config.pixel_size_y}</region>'''
-        
-        # Add common subset parameters
-        read_params += f'''
-        <subSamplingX>{subset_config.sub_sampling_x}</subSamplingX>
-        <subSamplingY>{subset_config.sub_sampling_y}</subSamplingY>
+            # Build Read operator parameters with subset
+            read_params = f'''<file>${{sourceProduct}}</file>
+        <sourceBands>{essential_bands}</sourceBands>
         <copyMetadata>{str(subset_config.copy_metadata).lower()}</copyMetadata>'''
-        
-        graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-    <graph id="S2_Fixed_Speed_Processing">
+            
+            # Add subset parameters using correct SNAP parameter names
+            if has_geometry_subset:
+                # Geometry-based subset
+                escaped_wkt = subset_config.geometry_wkt.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                read_params += f'''
+        <geometryRegion>{escaped_wkt}</geometryRegion>'''
+                
+            elif has_pixel_subset:
+                # Pixel-based subset
+                read_params += f'''
+        <pixelRegion>{subset_config.pixel_start_x},{subset_config.pixel_start_y},{subset_config.pixel_size_x},{subset_config.pixel_size_y}</pixelRegion>'''
+            
+            graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
+    <graph id="S2_Fast_Subset_Processing">
     <version>1.0</version>
 
-    <!-- Step 1: Read with Integrated Subset - FASTEST approach -->
+    <!-- Step 1: Read with Subset - FASTEST for subset processing -->
     <node id="Read">
         <operator>Read</operator>
         <sources/>
@@ -2575,7 +2581,67 @@ class S2Processor:
         </parameters>
     </node>
 
-    <!-- Step 2: S2 Resampling - Now works on subset data with preserved S2 structure -->
+    <!-- Step 2: S2 Resampling - Works on subset data -->
+    <node id="S2Resampling">
+        <operator>S2Resampling</operator>
+        <sources>
+        <sourceProduct refid="Read"/>
+        </sources>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        <resolution>{self.config.resampling_config.target_resolution}</resolution>
+        <upsampling>{self.config.resampling_config.upsampling_method}</upsampling>
+        <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
+        <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
+        <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
+        <bands>{essential_bands}</bands>
+        </parameters>
+    </node>
+
+    <!-- Step 3: C2RCC Atmospheric Correction -->
+    <node id="c2rcc_msi">
+        <operator>c2rcc.msi</operator>
+        <sources>
+        <sourceProduct refid="S2Resampling"/>
+        </sources>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        {self._get_c2rcc_parameters()}
+        </parameters>
+    </node>
+
+    <!-- Step 4: Write Output -->
+    <node id="Write">
+        <operator>Write</operator>
+        <sources>
+        <sourceProduct refid="c2rcc_msi"/>
+        </sources>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        <file>${{targetProduct}}</file>
+        <formatName>BEAM-DIMAP</formatName>
+        </parameters>
+    </node>
+
+    </graph>'''
+            
+        else:
+            # CASE 2: NO SUBSET - Full scene processing (use existing no-subset graph)
+            logger.info("Processing full scene without subset")
+            
+            graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
+    <graph id="S2_Full_Scene_Processing">
+    <version>1.0</version>
+
+    <!-- Step 1: Read full scene -->
+    <node id="Read">
+        <operator>Read</operator>
+        <sources/>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        <file>${{sourceProduct}}</file>
+        <sourceBands>{essential_bands}</sourceBands>
+        <copyMetadata>true</copyMetadata>
+        </parameters>
+    </node>
+
+    <!-- Step 2: S2 Resampling - Full scene -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
         <sources>
@@ -2620,27 +2686,49 @@ class S2Processor:
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
         
-        logger.info(f"FIXED SPEED processing graph saved: {graph_file}")
+        logger.info(f"S2 processing graph saved: {graph_file}")
         return graph_file
 
 
+    def _get_subset_parameters(self) -> str:
+        """Generate subset parameters for XML - FULL SUPPORT with proper validation"""
+        subset_config = self.config.subset_config
+        
+        # Check for geometry-based subset
+        if subset_config.geometry_wkt:
+            escaped_wkt = subset_config.geometry_wkt.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            return f"<geoRegion>{escaped_wkt}</geoRegion>"
+        
+        # Check for pixel-based subset
+        elif (subset_config.pixel_start_x is not None and 
+            subset_config.pixel_start_y is not None and 
+            subset_config.pixel_size_x is not None and 
+            subset_config.pixel_size_y is not None):
+            return f"<region>{subset_config.pixel_start_x},{subset_config.pixel_start_y},{subset_config.pixel_size_x},{subset_config.pixel_size_y}</region>"
+        
+        # No subset parameters
+        else:
+            return ""
+
+
     def create_s2_graph_no_subset(self) -> str:
-        """Create processing graph without subset - unchanged for consistency"""
+        """Create processing graph without subset - kept for compatibility"""
         
         # COMPLETE: All S2 bands for current TSS + future modules
         essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"
         
         graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-    <graph id="S2_Complete_Water_Processing_NoSubset">
+    <graph id="S2_No_Subset_Processing">
     <version>1.0</version>
 
-    <!-- Step 1: Read Input Product - ALL BANDS (tie-points come automatically) -->
+    <!-- Step 1: Read Input Product - Full scene -->
     <node id="Read">
         <operator>Read</operator>
         <sources/>
         <parameters class="com.bc.ceres.binding.dom.XppDomElement">
         <file>${{sourceProduct}}</file>
-        <bandNames>{essential_bands}</bandNames>
+        <sourceBands>{essential_bands}</sourceBands>
+        <copyMetadata>true</copyMetadata>
         </parameters>
     </node>
 

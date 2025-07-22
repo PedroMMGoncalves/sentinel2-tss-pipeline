@@ -1,0 +1,81 @@
+2025-07-22 09:23:57,698 - INFO - [sentinel2_tss_pipeline.py:6273] - Auto-detected SNAP_HOME: C:\Program Files\esa-snap
+2025-07-22 09:23:57,699 - INFO - [sentinel2_tss_pipeline.py:6314] - ================================================================================
+2025-07-22 09:23:57,700 - INFO - [sentinel2_tss_pipeline.py:6315] - UNIFIED S2 PROCESSING & TSS ESTIMATION PIPELINE v1.0
+2025-07-22 09:23:57,700 - INFO - [sentinel2_tss_pipeline.py:6316] - ================================================================================
+2025-07-22 09:23:57,701 - INFO - [sentinel2_tss_pipeline.py:6317] - SNAP_HOME: C:\Program Files\esa-snap
+2025-07-22 09:23:57,701 - INFO - [sentinel2_tss_pipeline.py:6318] - GPT: C:\Program Files\esa-snap\bin\gpt.exe
+2025-07-22 09:23:57,702 - INFO - [sentinel2_tss_pipeline.py:6319] - Python: 3.9.22 | packaged by conda-forge | (main, Apr 10 2025, 22:07:06) [MSC v.1929 64 bit (AMD64)]
+2025-07-22 09:23:57,702 - INFO - [sentinel2_tss_pipeline.py:6320] - Platform: win32
+2025-07-22 09:23:57,703 - INFO - [sentinel2_tss_pipeline.py:6321] - Working Directory: C:\Users\pedro.goncalves\OneDrive - LNEG - Laboratorio Nacional de Energia e Geologia\GitHub\sentinel2-tss-pipeline
+2025-07-22 09:23:57,703 - INFO - [sentinel2_tss_pipeline.py:6322] - ================================================================================
+2025-07-22 09:23:57,704 - INFO - [sentinel2_tss_pipeline.py:6331] - Starting GUI application...
+2025-07-22 09:24:41,100 - INFO - [sentinel2_tss_pipeline.py:2491] - SNAP_HOME: C:\Program Files\esa-snap
+2025-07-22 09:24:46,231 - INFO - [sentinel2_tss_pipeline.py:2502] - ✓ GPT validated: C:\Program Files\esa-snap\bin\gpt.exe
+2025-07-22 09:24:46,233 - INFO - [sentinel2_tss_pipeline.py:2623] - FIXED SPEED processing graph saved: s2_complete_processing_with_subset.xml
+2025-07-22 09:24:46,234 - INFO - [sentinel2_tss_pipeline.py:2531] - ✓ Processing graph created for mode: complete_pipeline
+2025-07-22 09:24:46,235 - INFO - [sentinel2_tss_pipeline.py:2068] - Initialized Advanced Aquatic Processor with scientific algorithms
+2025-07-22 09:24:46,235 - INFO - [sentinel2_tss_pipeline.py:1010] - Initialized Jiang TSS Processor with clean methodology
+2025-07-22 09:24:46,236 - INFO - [sentinel2_tss_pipeline.py:1013] - Jiang TSS enabled: True
+2025-07-22 09:24:46,237 - INFO - [sentinel2_tss_pipeline.py:1014] - Advanced algorithms enabled: True
+2025-07-22 09:24:46,237 - INFO - [sentinel2_tss_pipeline.py:1016] - Working algorithms available:
+2025-07-22 09:24:46,238 - INFO - [sentinel2_tss_pipeline.py:1017] -   ✓ Water Clarity: True
+2025-07-22 09:24:46,239 - INFO - [sentinel2_tss_pipeline.py:1018] -   ✓ HAB Detection: True
+2025-07-22 09:24:46,239 - INFO - [sentinel2_tss_pipeline.py:1019] - Note: Only Sentinel-2 compatible algorithms included
+2025-07-22 09:24:46,240 - INFO - [sentinel2_tss_pipeline.py:3452] - Initialized Unified S2-TSS Processor - Mode: complete_pipeline
+2025-07-22 09:24:46,241 - INFO - [sentinel2_tss_pipeline.py:5835] - TEST MODE: Processing only 2 products
+2025-07-22 09:24:46,242 - INFO - [sentinel2_tss_pipeline.py:3526] - 
+--------------------------------------------------------------------------------
+2025-07-22 09:24:46,242 - INFO - [sentinel2_tss_pipeline.py:3527] - Processing 1/2: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753
+2025-07-22 09:24:46,244 - INFO - [sentinel2_tss_pipeline.py:3528] - Mode: complete_pipeline
+2025-07-22 09:24:46,244 - INFO - [sentinel2_tss_pipeline.py:3529] - --------------------------------------------------------------------------------
+2025-07-22 09:24:46,245 - INFO - [sentinel2_tss_pipeline.py:2799] - Processing: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip
+2025-07-22 09:24:46,246 - INFO - [sentinel2_tss_pipeline.py:2800] -   Mode: complete_pipeline
+2025-07-22 09:24:46,246 - INFO - [sentinel2_tss_pipeline.py:2801] -   Resolution: 10m
+2025-07-22 09:24:46,247 - INFO - [sentinel2_tss_pipeline.py:2802] -   ECMWF: True
+2025-07-22 09:24:46,249 - INFO - [sentinel2_tss_pipeline.py:2948] - Starting COMPLETE S2 processing (all bands for current + future modules)...
+2025-07-22 09:24:51,366 - ERROR - [sentinel2_tss_pipeline.py:2970] - ❌ GPT processing failed
+2025-07-22 09:24:51,367 - ERROR - [sentinel2_tss_pipeline.py:2971] - Return code: 1
+2025-07-22 09:24:51,367 - ERROR - [sentinel2_tss_pipeline.py:2973] - GPT stderr: INFO: org.esa.snap.core.gpf.operators.tooladapter.ToolAdapterIO: Initializing external tool adapters
+INFO: org.esa.snap.core.util.EngineVersionCheckActivator: Please check regularly for new updates for the best SNAP experience.
+
+Error: [NodeId: Read] Operator 'ReadOp': Unknown element 'geoRegion'
+org.esa.snap.core.gpf.graph.GraphException: [NodeId: Read] Operator 'ReadOp': Unknown element 'geoRegion'
+	at org.esa.snap.core.gpf.graph.NodeContext.initTargetProduct(NodeContext.java:79)
+	at org.esa.snap.core.gpf.graph.GraphContext.initNodeContext(GraphContext.java:213)
+	at org.esa.snap.core.gpf.graph.GraphContext.initNodeContext(GraphContext.java:195)
+	at org.esa.snap.core.gpf.graph.GraphContext.initNodeContext(GraphContext.java:195)
+	at org.esa.snap.core.gpf.graph.GraphContext.initNodeContext(GraphContext.java:195)
+	at org.esa.snap.core.gpf.graph.GraphContext.initOutput(GraphContext.java:179)
+	at org.esa.snap.core.gpf.graph.GraphContext.init(GraphContext.java:98)
+	at org.esa.snap.core.gpf....
+2025-07-22 09:24:51,368 - ERROR - [sentinel2_tss_pipeline.py:2917] - ❌ S2 processing FAILED: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip
+2025-07-22 09:24:51,369 - INFO - [sentinel2_tss_pipeline.py:3562] - ✓ Processing completed: 0 products generated
+2025-07-22 09:24:51,526 - INFO - [sentinel2_tss_pipeline.py:3611] - → Progress: 1/2 (50.0%), ETA: 0.2 minutes
+2025-07-22 09:24:51,528 - INFO - [sentinel2_tss_pipeline.py:3526] - 
+--------------------------------------------------------------------------------
+2025-07-22 09:24:51,528 - INFO - [sentinel2_tss_pipeline.py:3527] - Processing 2/2: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306
+2025-07-22 09:24:51,529 - INFO - [sentinel2_tss_pipeline.py:3528] - Mode: complete_pipeline
+2025-07-22 09:24:51,529 - INFO - [sentinel2_tss_pipeline.py:3529] - --------------------------------------------------------------------------------
+2025-07-22 09:24:51,530 - INFO - [sentinel2_tss_pipeline.py:2799] - Processing: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
+2025-07-22 09:24:51,530 - INFO - [sentinel2_tss_pipeline.py:2800] -   Mode: complete_pipeline
+2025-07-22 09:24:51,531 - INFO - [sentinel2_tss_pipeline.py:2801] -   Resolution: 10m
+2025-07-22 09:24:51,531 - INFO - [sentinel2_tss_pipeline.py:2802] -   ECMWF: True
+2025-07-22 09:24:51,534 - INFO - [sentinel2_tss_pipeline.py:2948] - Starting COMPLETE S2 processing (all bands for current + future modules)...
+2025-07-22 09:24:56,648 - ERROR - [sentinel2_tss_pipeline.py:2970] - ❌ GPT processing failed
+2025-07-22 09:24:56,649 - ERROR - [sentinel2_tss_pipeline.py:2971] - Return code: 1
+2025-07-22 09:24:56,649 - ERROR - [sentinel2_tss_pipeline.py:2973] - GPT stderr: INFO: org.esa.snap.core.gpf.operators.tooladapter.ToolAdapterIO: Initializing external tool adapters
+INFO: org.esa.snap.core.util.EngineVersionCheckActivator: Please check regularly for new updates for the best SNAP experience.
+
+Error: [NodeId: Read] Operator 'ReadOp': Unknown element 'geoRegion'
+org.esa.snap.core.gpf.graph.GraphException: [NodeId: Read] Operator 'ReadOp': Unknown element 'geoRegion'
+	at org.esa.snap.core.gpf.graph.NodeContext.initTargetProduct(NodeContext.java:79)
+	at org.esa.snap.core.gpf.graph.GraphContext.initNodeContext(GraphContext.java:213)
+	at org.esa.snap.core.gpf.graph.GraphContext.initNodeContext(GraphContext.java:195)
+	at org.esa.snap.core.gpf.graph.GraphContext.initNodeContext(GraphContext.java:195)
+	at org.esa.snap.core.gpf.graph.GraphContext.initNodeContext(GraphContext.java:195)
+	at org.esa.snap.core.gpf.graph.GraphContext.initOutput(GraphContext.java:179)
+	at org.esa.snap.core.gpf.graph.GraphContext.init(GraphContext.java:98)
+	at org.esa.snap.core.gpf....
+2025-07-22 09:24:56,650 - ERROR - [sentinel2_tss_pipeline.py:2917] - ❌ S2 processing FAILED: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
+2025-07-22 09:24:56,651 - INFO - [sentinel2_tss_pipeline.py:3562] - ✓ Processing completed: 0 products generated
+2025-07-22 09:24:56,783 - INFO - [sentinel2_tss_pipeline.py:3611] - → Progress: 2/2 (100.0%), ETA: 0.0 minutes
