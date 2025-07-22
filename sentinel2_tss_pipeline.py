@@ -2532,18 +2532,17 @@ class S2Processor:
     
 
     def create_s2_graph_with_subset(self) -> str:
-        """Create FIXED S2 processing graph - separate bands from tie-point grids"""
+        """Create SPEED OPTIMIZED S2 processing graph - SUBSET FIRST for maximum speed"""
         subset_params = self._get_subset_parameters()
         
-        # FIXED: Separate spectral bands from tie-point grids
+        # COMPLETE: All S2 bands for current TSS + future modules
         essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"  # Spectral bands only
-        essential_tie_points = "sun_zenith,sun_azimuth,view_zenith_mean,view_azimuth_mean"  # Tie-point grids
         
         graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-    <graph id="S2_Complete_Water_Processing_Fixed">
+    <graph id="S2_Speed_Optimized_Processing">
     <version>1.0</version>
     
-    <!-- Step 1: Read Input Product - ONLY SPECTRAL BANDS (tie-points come automatically) -->
+    <!-- Step 1: Read Input Product - ALL BANDS (tie-points come automatically) -->
     <node id="Read">
         <operator>Read</operator>
         <sources/>
@@ -2553,11 +2552,27 @@ class S2Processor:
         </parameters>
     </node>
     
-    <!-- Step 2: S2 Resampling - SPECTRAL BANDS ONLY -->
+    <!-- Step 2: SUBSET FIRST - Reduces data volume for faster resampling -->
+    <node id="Subset">
+        <operator>Subset</operator>
+        <sources>
+        <sourceProduct refid="Read"/>
+        </sources>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        {subset_params}
+        <subSamplingX>{self.config.subset_config.sub_sampling_x}</subSamplingX>
+        <subSamplingY>{self.config.subset_config.sub_sampling_y}</subSamplingY>
+        <fullSwath>{str(self.config.subset_config.full_swath).lower()}</fullSwath>
+        <copyMetadata>{str(self.config.subset_config.copy_metadata).lower()}</copyMetadata>
+        <sourceBands>{essential_bands}</sourceBands>
+        </parameters>
+    </node>
+    
+    <!-- Step 3: S2 Resampling - Now works on SMALLER subset data -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
         <sources>
-        <sourceProduct refid="Read"/>
+        <sourceProduct refid="Subset"/>
         </sources>
         <parameters class="com.bc.ceres.binding.dom.XppDomElement">
         <resolution>{self.config.resampling_config.target_resolution}</resolution>
@@ -2569,28 +2584,11 @@ class S2Processor:
         </parameters>
     </node>
     
-    <!-- Step 3: Spatial Subset - CORRECT: Separate bands and tie-point grids -->
-    <node id="Subset">
-        <operator>Subset</operator>
-        <sources>
-        <sourceProduct refid="S2Resampling"/>
-        </sources>
-        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-        {subset_params}
-        <subSamplingX>{self.config.subset_config.sub_sampling_x}</subSamplingX>
-        <subSamplingY>{self.config.subset_config.sub_sampling_y}</subSamplingY>
-        <fullSwath>{str(self.config.subset_config.full_swath).lower()}</fullSwath>
-        <copyMetadata>{str(self.config.subset_config.copy_metadata).lower()}</copyMetadata>
-        <sourceBands>{essential_bands}</sourceBands>
-        <tiePointGrids>{essential_tie_points}</tiePointGrids>
-        </parameters>
-    </node>
-    
-    <!-- Step 4: C2RCC Atmospheric Correction -->
+    <!-- Step 4: C2RCC Atmospheric Correction - Works on subset+resampled data -->
     <node id="c2rcc_msi">
         <operator>c2rcc.msi</operator>
         <sources>
-        <sourceProduct refid="Subset"/>
+        <sourceProduct refid="S2Resampling"/>
         </sources>
         <parameters class="com.bc.ceres.binding.dom.XppDomElement">
         {self._get_c2rcc_parameters()}
@@ -2615,21 +2613,20 @@ class S2Processor:
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
         
-        logger.info(f"FIXED processing graph saved: {graph_file}")
+        logger.info(f"SPEED OPTIMIZED processing graph saved: {graph_file}")
         return graph_file
 
     def create_s2_graph_no_subset(self) -> str:
-        """Create FIXED S2 processing graph without subset - separate bands from tie-point grids"""
+        """Create processing graph without subset - same order for consistency"""
         
-        # FIXED: Separate spectral bands from tie-point grids
+        # COMPLETE: All S2 bands for current TSS + future modules
         essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"  # Spectral bands only
-        essential_tie_points = "sun_zenith,sun_azimuth,view_zenith_mean,view_azimuth_mean"  # Tie-point grids
         
         graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-    <graph id="S2_Complete_Water_Processing_NoSubset_Fixed">
+    <graph id="S2_Complete_Water_Processing_NoSubset_Optimized">
     <version>1.0</version>
     
-    <!-- Step 1: Read Input Product - ONLY SPECTRAL BANDS (tie-points come automatically) -->
+    <!-- Step 1: Read Input Product - ALL BANDS (tie-points come automatically) -->
     <node id="Read">
         <operator>Read</operator>
         <sources/>
@@ -2639,7 +2636,7 @@ class S2Processor:
         </parameters>
     </node>
     
-    <!-- Step 2: S2 Resampling - SPECTRAL BANDS ONLY -->
+    <!-- Step 2: S2 Resampling - Full scene processing -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
         <sources>
@@ -2684,7 +2681,7 @@ class S2Processor:
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
         
-        logger.info(f"FIXED processing graph saved: {graph_file}")
+        logger.info(f"OPTIMIZED processing graph saved: {graph_file}")
         return graph_file
     
     def _get_subset_parameters(self) -> str:
