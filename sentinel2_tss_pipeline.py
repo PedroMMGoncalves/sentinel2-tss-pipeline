@@ -991,21 +991,28 @@ class JiangTSSConstants:
 
 @dataclass
 class JiangTSSConfig:
-    """Jiang TSS methodology configuration - CLEAN VERSION"""
-    enable_jiang_tss: bool = True  # ENABLED BY DEFAULT
+    """Jiang TSS methodology configuration with marine visualization"""
+    enable_jiang_tss: bool = True
     output_intermediates: bool = True
     water_mask_threshold: float = 0.01
-    tss_valid_range: tuple = (0.01, 10000)  # g/m³
+    tss_valid_range: tuple = (0.01, 10000)
     output_comparison_stats: bool = True
     
-    # Advanced algorithms configuration - SIMPLIFIED
+    # Advanced algorithms configuration
     enable_advanced_algorithms: bool = True
     advanced_config: Optional['AdvancedAquaticConfig'] = None
     
+    # Marine visualization configuration - NEW
+    enable_marine_visualization: bool = True  # ENABLED BY DEFAULT
+    marine_viz_config: Optional['MarineVisualizationConfig'] = None
+    
     def __post_init__(self):
-        """Initialize advanced config with only working algorithms"""
+        """Initialize advanced and marine visualization configs"""
         if self.enable_advanced_algorithms and self.advanced_config is None:
             self.advanced_config = AdvancedAquaticConfig()
+            
+        if self.enable_marine_visualization and self.marine_viz_config is None:
+            self.marine_viz_config = MarineVisualizationConfig()
             
 class JiangTSSProcessor:
     """Complete implementation of Jiang et al. 2023 TSS methodology - FULL VERSION"""
@@ -6351,12 +6358,13 @@ class UnifiedS2TSSGUI:
             self.jiang_config.output_intermediates = self.jiang_intermediates_var.get()
             self.jiang_config.output_comparison_stats = self.jiang_comparison_var.get()
             
-            # NEW: Marine visualization configuration
+            # NEW: Marine visualization configuration - CORRECTED
             if hasattr(self, 'enable_marine_viz_var'):
                 self.jiang_config.enable_marine_visualization = self.enable_marine_viz_var.get()
                 
                 if self.jiang_config.enable_marine_visualization:
-                    if self.jiang_config.marine_viz_config is None:
+                    # Ensure marine_viz_config exists
+                    if not hasattr(self.jiang_config, 'marine_viz_config') or self.jiang_config.marine_viz_config is None:
                         self.jiang_config.marine_viz_config = MarineVisualizationConfig()
                     
                     # Update marine viz settings
@@ -6378,14 +6386,15 @@ class UnifiedS2TSSGUI:
                     if hasattr(self, 'advanced_indices_var'):
                         self.jiang_config.marine_viz_config.generate_advanced_indices = self.advanced_indices_var.get()
                 else:
+                    # Marine visualization disabled - set to None
                     self.jiang_config.marine_viz_config = None
             else:
                 # Fallback: enable marine visualization by default if GUI variables don't exist yet
                 self.jiang_config.enable_marine_visualization = True
-                if self.jiang_config.marine_viz_config is None:
+                if not hasattr(self.jiang_config, 'marine_viz_config') or self.jiang_config.marine_viz_config is None:
                     self.jiang_config.marine_viz_config = MarineVisualizationConfig()
             
-            # CLEAN: Advanced algorithms configuration - ONLY WORKING ONES
+            # Advanced algorithms configuration - ONLY WORKING ONES
             if hasattr(self, 'enable_advanced_var'):
                 self.jiang_config.enable_advanced_algorithms = self.enable_advanced_var.get()
             else:
@@ -6393,7 +6402,7 @@ class UnifiedS2TSSGUI:
 
             # Configure only working algorithms
             if self.jiang_config.enable_advanced_algorithms:
-                if self.jiang_config.advanced_config is None:
+                if not hasattr(self.jiang_config, 'advanced_config') or self.jiang_config.advanced_config is None:
                     self.jiang_config.advanced_config = AdvancedAquaticConfig()
                 
                 # Set working algorithm states
