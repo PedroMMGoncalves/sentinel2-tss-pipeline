@@ -2532,7 +2532,7 @@ class S2Processor:
     
 
     def create_s2_graph_with_subset(self) -> str:
-        """Create S2 processing graph - handles both subset and full scene processing"""
+        """Create WORKING S2 processing graph - correct order for C2RCC compatibility"""
         
         # Get existing subset parameters
         subset_config = self.config.subset_config
@@ -2548,40 +2548,33 @@ class S2Processor:
                         subset_config.pixel_size_y is not None)
         
         if has_geometry_subset or has_pixel_subset:
-            # CASE 1: WITH SUBSET - Use Read operator subset for maximum speed
-            logger.info("Processing with spatial subset using Read operator")
+            # WITH SUBSET: Read → S2Resampling → Subset → C2RCC
+            logger.info("Processing with spatial subset - using correct order for C2RCC")
             
-            # Build Read operator parameters with subset
-            read_params = f'''<file>${{sourceProduct}}</file>
-        <sourceBands>{essential_bands}</sourceBands>
-        <copyMetadata>{str(subset_config.copy_metadata).lower()}</copyMetadata>'''
-            
-            # Add subset parameters using correct SNAP parameter names
+            # Build subset parameters for Subset operator
+            subset_params = ""
             if has_geometry_subset:
-                # Geometry-based subset
                 escaped_wkt = subset_config.geometry_wkt.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                read_params += f'''
-        <geometryRegion>{escaped_wkt}</geometryRegion>'''
-                
+                subset_params = f"<geoRegion>{escaped_wkt}</geoRegion>"
             elif has_pixel_subset:
-                # Pixel-based subset
-                read_params += f'''
-        <pixelRegion>{subset_config.pixel_start_x},{subset_config.pixel_start_y},{subset_config.pixel_size_x},{subset_config.pixel_size_y}</pixelRegion>'''
+                subset_params = f"<region>{subset_config.pixel_start_x},{subset_config.pixel_start_y},{subset_config.pixel_size_x},{subset_config.pixel_size_y}</region>"
             
             graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-    <graph id="S2_Fast_Subset_Processing">
+    <graph id="S2_Working_Subset_Processing">
     <version>1.0</version>
 
-    <!-- Step 1: Read with Subset - FASTEST for subset processing -->
+    <!-- Step 1: Read full L1C product - preserves S2 structure -->
     <node id="Read">
         <operator>Read</operator>
         <sources/>
         <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-        {read_params}
+        <file>${{sourceProduct}}</file>
+        <sourceBands>{essential_bands}</sourceBands>
+        <copyMetadata>true</copyMetadata>
         </parameters>
     </node>
 
-    <!-- Step 2: S2 Resampling - Works on subset data -->
+    <!-- Step 2: S2 Resampling FIRST - requires intact S2 structure -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
         <sources>
@@ -2597,18 +2590,34 @@ class S2Processor:
         </parameters>
     </node>
 
-    <!-- Step 3: C2RCC Atmospheric Correction -->
+    <!-- Step 3: Subset AFTER resampling - faster processing for C2RCC -->
+    <node id="Subset">
+        <operator>Subset</operator>
+        <sources>
+        <sourceProduct refid="S2Resampling"/>
+        </sources>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        {subset_params}
+        <subSamplingX>{subset_config.sub_sampling_x}</subSamplingX>
+        <subSamplingY>{subset_config.sub_sampling_y}</subSamplingY>
+        <fullSwath>{str(subset_config.full_swath).lower()}</fullSwath>
+        <copyMetadata>{str(subset_config.copy_metadata).lower()}</copyMetadata>
+        <sourceBands>{essential_bands}</sourceBands>
+        </parameters>
+    </node>
+
+    <!-- Step 4: C2RCC - works on properly resampled then subset data -->
     <node id="c2rcc_msi">
         <operator>c2rcc.msi</operator>
         <sources>
-        <sourceProduct refid="S2Resampling"/>
+        <sourceProduct refid="Subset"/>
         </sources>
         <parameters class="com.bc.ceres.binding.dom.XppDomElement">
         {self._get_c2rcc_parameters()}
         </parameters>
     </node>
 
-    <!-- Step 4: Write Output -->
+    <!-- Step 5: Write Output -->
     <node id="Write">
         <operator>Write</operator>
         <sources>
@@ -2623,7 +2632,7 @@ class S2Processor:
     </graph>'''
             
         else:
-            # CASE 2: NO SUBSET - Full scene processing (use existing no-subset graph)
+            # NO SUBSET: Read → S2Resampling → C2RCC
             logger.info("Processing full scene without subset")
             
             graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
@@ -2657,7 +2666,7 @@ class S2Processor:
         </parameters>
     </node>
 
-    <!-- Step 3: C2RCC Atmospheric Correction -->
+    <!-- Step 3: C2RCC - directly on resampled product -->
     <node id="c2rcc_msi">
         <operator>c2rcc.msi</operator>
         <sources>
@@ -2686,98 +2695,7 @@ class S2Processor:
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
         
-        logger.info(f"S2 processing graph saved: {graph_file}")
-        return graph_file
-
-
-    def _get_subset_parameters(self) -> str:
-        """Generate subset parameters for XML - FULL SUPPORT with proper validation"""
-        subset_config = self.config.subset_config
-        
-        # Check for geometry-based subset
-        if subset_config.geometry_wkt:
-            escaped_wkt = subset_config.geometry_wkt.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            return f"<geoRegion>{escaped_wkt}</geoRegion>"
-        
-        # Check for pixel-based subset
-        elif (subset_config.pixel_start_x is not None and 
-            subset_config.pixel_start_y is not None and 
-            subset_config.pixel_size_x is not None and 
-            subset_config.pixel_size_y is not None):
-            return f"<region>{subset_config.pixel_start_x},{subset_config.pixel_start_y},{subset_config.pixel_size_x},{subset_config.pixel_size_y}</region>"
-        
-        # No subset parameters
-        else:
-            return ""
-
-
-    def create_s2_graph_no_subset(self) -> str:
-        """Create processing graph without subset - kept for compatibility"""
-        
-        # COMPLETE: All S2 bands for current TSS + future modules
-        essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"
-        
-        graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-    <graph id="S2_No_Subset_Processing">
-    <version>1.0</version>
-
-    <!-- Step 1: Read Input Product - Full scene -->
-    <node id="Read">
-        <operator>Read</operator>
-        <sources/>
-        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-        <file>${{sourceProduct}}</file>
-        <sourceBands>{essential_bands}</sourceBands>
-        <copyMetadata>true</copyMetadata>
-        </parameters>
-    </node>
-
-    <!-- Step 2: S2 Resampling - Full scene processing -->
-    <node id="S2Resampling">
-        <operator>S2Resampling</operator>
-        <sources>
-        <sourceProduct refid="Read"/>
-        </sources>
-        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-        <resolution>{self.config.resampling_config.target_resolution}</resolution>
-        <upsampling>{self.config.resampling_config.upsampling_method}</upsampling>
-        <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
-        <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
-        <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
-        <bands>{essential_bands}</bands>
-        </parameters>
-    </node>
-
-    <!-- Step 3: C2RCC Atmospheric Correction -->
-    <node id="c2rcc_msi">
-        <operator>c2rcc.msi</operator>
-        <sources>
-        <sourceProduct refid="S2Resampling"/>
-        </sources>
-        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-        {self._get_c2rcc_parameters()}
-        </parameters>
-    </node>
-
-    <!-- Step 4: Write Output -->
-    <node id="Write">
-        <operator>Write</operator>
-        <sources>
-        <sourceProduct refid="c2rcc_msi"/>
-        </sources>
-        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-        <file>${{targetProduct}}</file>
-        <formatName>BEAM-DIMAP</formatName>
-        </parameters>
-    </node>
-
-    </graph>'''
-        
-        graph_file = 's2_complete_processing_no_subset.xml'
-        with open(graph_file, 'w', encoding='utf-8') as f:
-            f.write(graph_content)
-        
-        logger.info(f"No-subset processing graph saved: {graph_file}")
+        logger.info(f"WORKING S2 processing graph saved: {graph_file}")
         return graph_file
     
     def _get_subset_parameters(self) -> str:
