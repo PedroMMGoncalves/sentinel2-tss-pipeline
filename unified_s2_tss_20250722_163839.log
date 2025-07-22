@@ -367,3 +367,124 @@
 2025-07-22 17:44:54,575 - INFO - [sentinel2_tss_pipeline.py:3589] -   Resolution: 10m
 2025-07-22 17:44:54,576 - INFO - [sentinel2_tss_pipeline.py:3590] -   ECMWF: True
 2025-07-22 17:44:54,579 - INFO - [sentinel2_tss_pipeline.py:3736] - Starting S2 processing with C2RCC...
+2025-07-22 17:58:32,743 - INFO - [sentinel2_tss_pipeline.py:3898] - ============================================================
+2025-07-22 17:58:32,744 - INFO - [sentinel2_tss_pipeline.py:3899] - C2RCC OUTPUT VERIFICATION REPORT
+2025-07-22 17:58:32,745 - INFO - [sentinel2_tss_pipeline.py:3900] - ============================================================
+2025-07-22 17:58:32,746 - INFO - [sentinel2_tss_pipeline.py:3903] - C2RCC file: Resampled_S2A_20190108T113441_T29TNF_Subset_C2RCC.dim (20.7 MB)
+2025-07-22 17:58:32,746 - INFO - [sentinel2_tss_pipeline.py:3904] - Data folder: Resampled_S2A_20190108T113441_T29TNF_Subset_C2RCC.data
+2025-07-22 17:58:32,747 - INFO - [sentinel2_tss_pipeline.py:3907] - 
+🧪 SNAP TSM/CHL PRODUCTS (Critical for Analysis):
+2025-07-22 17:58:32,747 - INFO - [sentinel2_tss_pipeline.py:3919] - ℹ️  TSM/CHL products will be calculated from IOP products
+2025-07-22 17:58:32,748 - INFO - [sentinel2_tss_pipeline.py:3920] -    Using SNAP formulas:
+2025-07-22 17:58:32,749 - INFO - [sentinel2_tss_pipeline.py:3921] -    • TSM = TSMfac * (bpart + bwit)^TSMexp
+2025-07-22 17:58:32,749 - INFO - [sentinel2_tss_pipeline.py:3922] -    • CHL = apig^CHLexp * CHLfac
+2025-07-22 17:58:32,750 - INFO - [sentinel2_tss_pipeline.py:3925] - 
+🔬 SNAP IOP PRODUCTS (5/6 available):
+2025-07-22 17:58:32,751 - INFO - [sentinel2_tss_pipeline.py:3930] -    ✓ iop_apig.img (250524.1 KB)
+2025-07-22 17:58:32,751 - INFO - [sentinel2_tss_pipeline.py:3930] -    ✓ iop_adet.img (250524.1 KB)
+2025-07-22 17:58:32,752 - INFO - [sentinel2_tss_pipeline.py:3930] -    ✓ iop_agelb.img (250524.1 KB)
+2025-07-22 17:58:32,752 - INFO - [sentinel2_tss_pipeline.py:3930] -    ✓ iop_bpart.img (250524.1 KB)
+2025-07-22 17:58:32,753 - INFO - [sentinel2_tss_pipeline.py:3930] -    ✓ iop_bwit.img (250524.1 KB)
+2025-07-22 17:58:32,754 - INFO - [sentinel2_tss_pipeline.py:3930] -    ✗ iop_btot.img (missing/empty)
+2025-07-22 17:58:32,754 - INFO - [sentinel2_tss_pipeline.py:3933] - 
+🌊 JIANG TSS READINESS (0/8 bands):
+2025-07-22 17:58:32,755 - WARNING - [sentinel2_tss_pipeline.py:3937] - ⚠ PARTIAL: Only 0/8 rhow bands available
+2025-07-22 17:58:32,756 - WARNING - [sentinel2_tss_pipeline.py:3939] -    Missing bands: ['rhow_B1.img', 'rhow_B2.img', 'rhow_B3.img', 'rhow_B4.img', 'rhow_B5.img', 'rhow_B6.img', 'rhow_B7.img', 'rhow_B8A.img']
+2025-07-22 17:58:32,756 - INFO - [sentinel2_tss_pipeline.py:3942] - 
+📊 OVERALL ASSESSMENT:
+2025-07-22 17:58:32,757 - WARNING - [sentinel2_tss_pipeline.py:3951] - ⚠ LIMITED: Missing critical components
+2025-07-22 17:58:32,757 - INFO - [sentinel2_tss_pipeline.py:3953] - ============================================================
+2025-07-22 17:58:32,758 - INFO - [sentinel2_tss_pipeline.py:3657] - ✅ S2 processing SUCCESS: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
+2025-07-22 17:58:32,759 - INFO - [sentinel2_tss_pipeline.py:3658] -    Output: Resampled_S2A_20190108T113441_T29TNF_Subset_C2RCC.dim (20.7MB)
+2025-07-22 17:58:32,760 - INFO - [sentinel2_tss_pipeline.py:3659] -    Processing time: 13.6 minutes
+2025-07-22 17:58:32,760 - INFO - [sentinel2_tss_pipeline.py:3666] - Calculating missing SNAP TSM/CHL concentrations from IOP products...
+2025-07-22 17:58:32,761 - INFO - [sentinel2_tss_pipeline.py:777] - SNAP TSM/CHL Calculator initialized:
+2025-07-22 17:58:32,762 - INFO - [sentinel2_tss_pipeline.py:778] -   TSM formula: TSM = 1.06 * (bpart + bwit)^0.942
+2025-07-22 17:58:32,762 - INFO - [sentinel2_tss_pipeline.py:779] -   CHL formula: CHL = apig^1.04 * 21.0
+2025-07-22 17:58:32,763 - INFO - [sentinel2_tss_pipeline.py:784] - Calculating SNAP TSM/CHL from IOP products...
+2025-07-22 17:58:33,170 - INFO - [sentinel2_tss_pipeline.py:810] - ✓ Loaded apig: (5841, 10980), mean=0.1639
+2025-07-22 17:58:33,615 - INFO - [sentinel2_tss_pipeline.py:810] - ✓ Loaded bpart: (5841, 10980), mean=0.1599
+2025-07-22 17:58:34,049 - INFO - [sentinel2_tss_pipeline.py:810] - ✓ Loaded bwit: (5841, 10980), mean=0.4428
+2025-07-22 17:58:34,050 - INFO - [sentinel2_tss_pipeline.py:820] - Calculating CHL concentration from iop_apig...
+2025-07-22 17:58:34,601 - INFO - [sentinel2_tss_pipeline.py:849] - CHL calculation: 18614363 valid pixels out of 18614363 processed
+2025-07-22 17:58:36,452 - INFO - [sentinel2_tss_pipeline.py:576] - Successfully wrote raster: conc_chl.img
+2025-07-22 17:58:36,641 - INFO - [sentinel2_tss_pipeline.py:868] - ✓ CHL concentration saved: 29.0% coverage, mean=11.695 mg/m³
+2025-07-22 17:58:36,642 - INFO - [sentinel2_tss_pipeline.py:878] - Calculating TSM concentration from bpart + bwit (btot approximation)...
+2025-07-22 17:58:37,231 - INFO - [sentinel2_tss_pipeline.py:910] - TSM calculation: 18614363 valid pixels out of 18614363 processed
+2025-07-22 17:58:39,081 - INFO - [sentinel2_tss_pipeline.py:576] - Successfully wrote raster: conc_tsm.img
+2025-07-22 17:58:39,260 - INFO - [sentinel2_tss_pipeline.py:929] - ✓ TSM concentration saved: 29.0% coverage, mean=2.062 g/m³
+2025-07-22 17:58:39,307 - INFO - [sentinel2_tss_pipeline.py:3679] - ✅ SNAP TSM calculation successful!
+2025-07-22 17:58:39,308 - INFO - [sentinel2_tss_pipeline.py:3682] - ✅ SNAP CHL calculation successful!
+2025-07-22 17:58:39,311 - INFO - [sentinel2_tss_pipeline.py:3898] - ============================================================
+2025-07-22 17:58:39,312 - INFO - [sentinel2_tss_pipeline.py:3899] - C2RCC OUTPUT VERIFICATION REPORT
+2025-07-22 17:58:39,312 - INFO - [sentinel2_tss_pipeline.py:3900] - ============================================================
+2025-07-22 17:58:39,313 - INFO - [sentinel2_tss_pipeline.py:3903] - C2RCC file: Resampled_S2A_20190108T113441_T29TNF_Subset_C2RCC.dim (20.7 MB)
+2025-07-22 17:58:39,313 - INFO - [sentinel2_tss_pipeline.py:3904] - Data folder: Resampled_S2A_20190108T113441_T29TNF_Subset_C2RCC.data
+2025-07-22 17:58:39,314 - INFO - [sentinel2_tss_pipeline.py:3907] - 
+🧪 SNAP TSM/CHL PRODUCTS (Critical for Analysis):
+2025-07-22 17:58:39,315 - INFO - [sentinel2_tss_pipeline.py:3909] - ✅ SUCCESS: Both TSM and CHL products available!
+2025-07-22 17:58:39,316 - INFO - [sentinel2_tss_pipeline.py:3910] -    ✓ TSM: conc_tsm.img (0.0 KB)
+2025-07-22 17:58:39,316 - INFO - [sentinel2_tss_pipeline.py:3911] -    ✓ CHL: conc_chl.img (0.0 KB)
+2025-07-22 17:58:39,317 - INFO - [sentinel2_tss_pipeline.py:3916] -    ⚠ Uncertainties: Not available (calculated products)
+2025-07-22 17:58:39,317 - INFO - [sentinel2_tss_pipeline.py:3925] - 
+🔬 SNAP IOP PRODUCTS (5/6 available):
+2025-07-22 17:58:39,318 - INFO - [sentinel2_tss_pipeline.py:3930] -    ✓ iop_apig.img (250524.1 KB)
+2025-07-22 17:58:39,319 - INFO - [sentinel2_tss_pipeline.py:3930] -    ✓ iop_adet.img (250524.1 KB)
+2025-07-22 17:58:39,319 - INFO - [sentinel2_tss_pipeline.py:3930] -    ✓ iop_agelb.img (250524.1 KB)
+2025-07-22 17:58:39,320 - INFO - [sentinel2_tss_pipeline.py:3930] -    ✓ iop_bpart.img (250524.1 KB)
+2025-07-22 17:58:39,321 - INFO - [sentinel2_tss_pipeline.py:3930] -    ✓ iop_bwit.img (250524.1 KB)
+2025-07-22 17:58:39,321 - INFO - [sentinel2_tss_pipeline.py:3930] -    ✗ iop_btot.img (missing/empty)
+2025-07-22 17:58:39,322 - INFO - [sentinel2_tss_pipeline.py:3933] - 
+🌊 JIANG TSS READINESS (0/8 bands):
+2025-07-22 17:58:39,322 - WARNING - [sentinel2_tss_pipeline.py:3937] - ⚠ PARTIAL: Only 0/8 rhow bands available
+2025-07-22 17:58:39,323 - WARNING - [sentinel2_tss_pipeline.py:3939] -    Missing bands: ['rhow_B1.img', 'rhow_B2.img', 'rhow_B3.img', 'rhow_B4.img', 'rhow_B5.img', 'rhow_B6.img', 'rhow_B7.img', 'rhow_B8A.img']
+2025-07-22 17:58:39,324 - INFO - [sentinel2_tss_pipeline.py:3942] - 
+📊 OVERALL ASSESSMENT:
+2025-07-22 17:58:39,324 - WARNING - [sentinel2_tss_pipeline.py:3951] - ⚠ LIMITED: Missing critical components
+2025-07-22 17:58:39,325 - INFO - [sentinel2_tss_pipeline.py:3953] - ============================================================
+2025-07-22 17:58:39,325 - INFO - [sentinel2_tss_pipeline.py:3687] - 📊 UPDATED SNAP PRODUCTS STATUS:
+2025-07-22 17:58:39,326 - INFO - [sentinel2_tss_pipeline.py:3688] -    TSM=True, CHL=True, Uncertainties=False
+2025-07-22 17:58:39,327 - INFO - [sentinel2_tss_pipeline.py:3967] - Starting TSS processing for S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
+2025-07-22 17:58:39,327 - INFO - [sentinel2_tss_pipeline.py:2780] - Initialized S2 Marine Visualization Processor
+2025-07-22 17:58:39,328 - INFO - [sentinel2_tss_pipeline.py:2781] - Configuration settings:
+2025-07-22 17:58:39,329 - INFO - [sentinel2_tss_pipeline.py:2782] -   Natural color RGB: True
+2025-07-22 17:58:39,329 - INFO - [sentinel2_tss_pipeline.py:2783] -   False color RGB: True
+2025-07-22 17:58:39,330 - INFO - [sentinel2_tss_pipeline.py:2784] -   Water-specific RGB: True
+2025-07-22 17:58:39,331 - INFO - [sentinel2_tss_pipeline.py:2785] -   Research RGB: True
+2025-07-22 17:58:39,331 - INFO - [sentinel2_tss_pipeline.py:2786] -   Water quality indices: True
+2025-07-22 17:58:39,332 - INFO - [sentinel2_tss_pipeline.py:2787] -   Chlorophyll indices: True
+2025-07-22 17:58:39,332 - INFO - [sentinel2_tss_pipeline.py:2788] -   Turbidity indices: True
+2025-07-22 17:58:39,333 - INFO - [sentinel2_tss_pipeline.py:2789] -   Advanced indices: True
+2025-07-22 17:58:39,334 - INFO - [sentinel2_tss_pipeline.py:2790] -   Output format: GeoTIFF
+2025-07-22 17:58:39,334 - INFO - [sentinel2_tss_pipeline.py:2791] -   Contrast enhancement: True
+2025-07-22 17:58:39,335 - INFO - [sentinel2_tss_pipeline.py:2792] -   Contrast method: percentile_stretch
+2025-07-22 17:58:39,336 - INFO - [sentinel2_tss_pipeline.py:2793] -   Export metadata: True
+2025-07-22 17:58:39,336 - INFO - [sentinel2_tss_pipeline.py:2794] -   Create overview images: True
+2025-07-22 17:58:39,337 - INFO - [sentinel2_tss_pipeline.py:2809] - Expected products: ~11 RGB composites + ~13 spectral indices
+2025-07-22 17:58:39,337 - INFO - [sentinel2_tss_pipeline.py:2810] - Marine visualization processor ready for processing
+2025-07-22 17:58:39,338 - INFO - [sentinel2_tss_pipeline.py:1029] - Marine visualization processor initialized
+2025-07-22 17:58:39,339 - INFO - [sentinel2_tss_pipeline.py:2139] - Initialized Advanced Aquatic Processor with scientific algorithms
+2025-07-22 17:58:39,339 - INFO - [sentinel2_tss_pipeline.py:1042] - Initialized Jiang TSS Processor with enhanced methodology
+2025-07-22 17:58:39,340 - INFO - [sentinel2_tss_pipeline.py:1045] - Jiang TSS enabled: True
+2025-07-22 17:58:39,340 - INFO - [sentinel2_tss_pipeline.py:1046] - Advanced algorithms enabled: True
+2025-07-22 17:58:39,341 - INFO - [sentinel2_tss_pipeline.py:1047] - Marine visualization enabled: True
+2025-07-22 17:58:39,342 - INFO - [sentinel2_tss_pipeline.py:1050] - Working algorithms available:
+2025-07-22 17:58:39,342 - INFO - [sentinel2_tss_pipeline.py:1051] -   ✓ Water Clarity: True
+2025-07-22 17:58:39,343 - INFO - [sentinel2_tss_pipeline.py:1052] -   ✓ HAB Detection: True
+2025-07-22 17:58:39,344 - INFO - [sentinel2_tss_pipeline.py:1053] - Note: Only Sentinel-2 compatible algorithms included
+2025-07-22 17:58:39,344 - INFO - [sentinel2_tss_pipeline.py:1059] - Marine visualization configuration:
+2025-07-22 17:58:39,345 - INFO - [sentinel2_tss_pipeline.py:1060] -   ✓ Natural color RGB: True
+2025-07-22 17:58:39,346 - INFO - [sentinel2_tss_pipeline.py:1061] -   ✓ False color RGB: True
+2025-07-22 17:58:39,346 - INFO - [sentinel2_tss_pipeline.py:1062] -   ✓ Water-specific RGB: True
+2025-07-22 17:58:39,347 - INFO - [sentinel2_tss_pipeline.py:1063] -   ✓ Research RGB: True
+2025-07-22 17:58:39,347 - INFO - [sentinel2_tss_pipeline.py:1064] -   ✓ Water quality indices: True
+2025-07-22 17:58:39,348 - INFO - [sentinel2_tss_pipeline.py:1065] -   ✓ Chlorophyll indices: True
+2025-07-22 17:58:39,349 - INFO - [sentinel2_tss_pipeline.py:1066] -   ✓ Turbidity indices: True
+2025-07-22 17:58:39,349 - INFO - [sentinel2_tss_pipeline.py:1067] -   ✓ Advanced indices: True
+2025-07-22 17:58:39,350 - INFO - [sentinel2_tss_pipeline.py:1068] -   Output format: GeoTIFF
+2025-07-22 17:58:39,351 - INFO - [sentinel2_tss_pipeline.py:1069] -   Contrast enhancement: True
+2025-07-22 17:58:39,351 - INFO - [sentinel2_tss_pipeline.py:1073] - Jiang TSS Processor initialization completed successfully
+2025-07-22 17:58:39,352 - INFO - [sentinel2_tss_pipeline.py:1151] - Starting comprehensive TSS processing for S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
+2025-07-22 17:58:39,355 - INFO - [sentinel2_tss_pipeline.py:1123] - Successfully found 12 spectral bands for Jiang TSS
+2025-07-22 17:58:41,695 - INFO - [sentinel2_tss_pipeline.py:1325] - Applying Jiang methodology (exact R translation)
+2025-07-22 17:58:42,918 - INFO - [sentinel2_tss_pipeline.py:1443] - Processing 41224482 valid pixels with corrected Jiang algorithm
