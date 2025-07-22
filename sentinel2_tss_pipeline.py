@@ -2532,12 +2532,12 @@ class S2Processor:
     
 
     def create_s2_graph_with_subset(self) -> str:
-        """Create FINAL working S2 processing graph - based on SNAP documentation"""
+        """Create S2 processing graph with COMPLETE band support for Jiang TSS"""
         
         # Get existing subset parameters
         subset_config = self.config.subset_config
         
-        # COMPLETE: All S2 bands for current TSS + future modules
+        # COMPLETE: ALL S2 bands including B7 and B8A (CRITICAL for Jiang TSS)
         essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"
         
         # Check if subset is actually needed
@@ -2548,27 +2548,25 @@ class S2Processor:
                         subset_config.pixel_size_y is not None)
         
         if has_geometry_subset or has_pixel_subset:
-            # WITH SUBSET: Use Read operator subset parameters (from SNAP docs)
+            # WITH SUBSET: Use Read operator subset parameters
             logger.info("Processing with spatial subset using Read operator (SNAP native)")
             
-            # Build Read parameters with subset - using EXACT SNAP parameter names
+            # Build Read parameters with subset
             read_subset_params = ""
             if has_geometry_subset:
-                # Use geometryRegion parameter from SNAP Read documentation
                 escaped_wkt = subset_config.geometry_wkt.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                 read_subset_params = f'''
         <geometryRegion>{escaped_wkt}</geometryRegion>'''
                 
             elif has_pixel_subset:
-                # Use pixelRegion parameter from SNAP Read documentation
                 read_subset_params = f'''
         <pixelRegion>{subset_config.pixel_start_x},{subset_config.pixel_start_y},{subset_config.pixel_size_x},{subset_config.pixel_size_y}</pixelRegion>'''
             
             graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-    <graph id="S2_SNAP_Native_Subset">
+    <graph id="S2_Complete_Band_Support">
     <version>1.0</version>
 
-    <!-- Step 1: Read with SNAP native subset - preserves S2 structure -->
+    <!-- Step 1: Read with SNAP native subset - ALL BANDS -->
     <node id="Read">
         <operator>Read</operator>
         <sources/>
@@ -2579,7 +2577,7 @@ class S2Processor:
         </parameters>
     </node>
 
-    <!-- Step 2: S2 Resampling - works on subset with preserved S2 structure -->
+    <!-- Step 2: S2 Resampling - EXPLICITLY REQUEST ALL BANDS INCLUDING B7, B8A -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
         <sources>
@@ -2591,10 +2589,11 @@ class S2Processor:
         <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
         <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
         <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
+        <bands>{essential_bands}</bands>
         </parameters>
     </node>
 
-    <!-- Step 3: C2RCC - should work on properly subset and resampled S2 product -->
+    <!-- Step 3: C2RCC - should now output ALL rhown bands -->
     <node id="c2rcc_msi">
         <operator>c2rcc.msi</operator>
         <sources>
@@ -2620,14 +2619,14 @@ class S2Processor:
     </graph>'''
             
         else:
-            # NO SUBSET: Standard processing
+            # NO SUBSET: Standard processing with ALL BANDS
             logger.info("Processing full scene without subset")
             
             graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-    <graph id="S2_Full_Scene_Processing">
+    <graph id="S2_Full_Scene_All_Bands">
     <version>1.0</version>
 
-    <!-- Step 1: Read full scene -->
+    <!-- Step 1: Read full scene - ALL BANDS -->
     <node id="Read">
         <operator>Read</operator>
         <sources/>
@@ -2638,7 +2637,7 @@ class S2Processor:
         </parameters>
     </node>
 
-    <!-- Step 2: S2 Resampling -->
+    <!-- Step 2: S2 Resampling - ALL BANDS INCLUDING B7, B8A -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
         <sources>
@@ -2650,10 +2649,11 @@ class S2Processor:
         <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
         <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
         <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
+        <bands>{essential_bands}</bands>
         </parameters>
     </node>
 
-    <!-- Step 3: C2RCC -->
+    <!-- Step 3: C2RCC - with ALL input bands -->
     <node id="c2rcc_msi">
         <operator>c2rcc.msi</operator>
         <sources>
@@ -2682,7 +2682,7 @@ class S2Processor:
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
         
-        logger.info(f"SNAP native processing graph saved: {graph_file}")
+        logger.info(f"Complete band support graph saved: {graph_file}")
         return graph_file
     
     def _get_subset_parameters(self) -> str:
