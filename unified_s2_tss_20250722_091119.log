@@ -1,0 +1,82 @@
+2025-07-22 09:11:19,349 - INFO - [sentinel2_tss_pipeline.py:6265] - Auto-detected SNAP_HOME: C:\Program Files\esa-snap
+2025-07-22 09:11:19,351 - INFO - [sentinel2_tss_pipeline.py:6306] - ================================================================================
+2025-07-22 09:11:19,351 - INFO - [sentinel2_tss_pipeline.py:6307] - UNIFIED S2 PROCESSING & TSS ESTIMATION PIPELINE v1.0
+2025-07-22 09:11:19,352 - INFO - [sentinel2_tss_pipeline.py:6308] - ================================================================================
+2025-07-22 09:11:19,352 - INFO - [sentinel2_tss_pipeline.py:6309] - SNAP_HOME: C:\Program Files\esa-snap
+2025-07-22 09:11:19,353 - INFO - [sentinel2_tss_pipeline.py:6310] - GPT: C:\Program Files\esa-snap\bin\gpt.exe
+2025-07-22 09:11:19,354 - INFO - [sentinel2_tss_pipeline.py:6311] - Python: 3.9.22 | packaged by conda-forge | (main, Apr 10 2025, 22:07:06) [MSC v.1929 64 bit (AMD64)]
+2025-07-22 09:11:19,354 - INFO - [sentinel2_tss_pipeline.py:6312] - Platform: win32
+2025-07-22 09:11:19,354 - INFO - [sentinel2_tss_pipeline.py:6313] - Working Directory: C:\Users\pedro.goncalves\OneDrive - LNEG - Laboratorio Nacional de Energia e Geologia\GitHub\sentinel2-tss-pipeline
+2025-07-22 09:11:19,355 - INFO - [sentinel2_tss_pipeline.py:6314] - ================================================================================
+2025-07-22 09:11:19,356 - INFO - [sentinel2_tss_pipeline.py:6323] - Starting GUI application...
+2025-07-22 09:12:15,645 - INFO - [sentinel2_tss_pipeline.py:2491] - SNAP_HOME: C:\Program Files\esa-snap
+2025-07-22 09:12:21,408 - INFO - [sentinel2_tss_pipeline.py:2502] - ✓ GPT validated: C:\Program Files\esa-snap\bin\gpt.exe
+2025-07-22 09:12:21,409 - INFO - [sentinel2_tss_pipeline.py:2616] - SPEED OPTIMIZED processing graph saved: s2_complete_processing_with_subset.xml
+2025-07-22 09:12:21,410 - INFO - [sentinel2_tss_pipeline.py:2531] - ✓ Processing graph created for mode: complete_pipeline
+2025-07-22 09:12:21,411 - INFO - [sentinel2_tss_pipeline.py:2068] - Initialized Advanced Aquatic Processor with scientific algorithms
+2025-07-22 09:12:21,411 - INFO - [sentinel2_tss_pipeline.py:1010] - Initialized Jiang TSS Processor with clean methodology
+2025-07-22 09:12:21,412 - INFO - [sentinel2_tss_pipeline.py:1013] - Jiang TSS enabled: True
+2025-07-22 09:12:21,412 - INFO - [sentinel2_tss_pipeline.py:1014] - Advanced algorithms enabled: True
+2025-07-22 09:12:21,413 - INFO - [sentinel2_tss_pipeline.py:1016] - Working algorithms available:
+2025-07-22 09:12:21,413 - INFO - [sentinel2_tss_pipeline.py:1017] -   ✓ Water Clarity: True
+2025-07-22 09:12:21,414 - INFO - [sentinel2_tss_pipeline.py:1018] -   ✓ HAB Detection: True
+2025-07-22 09:12:21,414 - INFO - [sentinel2_tss_pipeline.py:1019] - Note: Only Sentinel-2 compatible algorithms included
+2025-07-22 09:12:21,415 - INFO - [sentinel2_tss_pipeline.py:3444] - Initialized Unified S2-TSS Processor - Mode: complete_pipeline
+2025-07-22 09:12:21,415 - INFO - [sentinel2_tss_pipeline.py:5827] - TEST MODE: Processing only 2 products
+2025-07-22 09:12:21,416 - INFO - [sentinel2_tss_pipeline.py:3518] - 
+--------------------------------------------------------------------------------
+2025-07-22 09:12:21,417 - INFO - [sentinel2_tss_pipeline.py:3519] - Processing 1/2: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753
+2025-07-22 09:12:21,417 - INFO - [sentinel2_tss_pipeline.py:3520] - Mode: complete_pipeline
+2025-07-22 09:12:21,418 - INFO - [sentinel2_tss_pipeline.py:3521] - --------------------------------------------------------------------------------
+2025-07-22 09:12:21,419 - INFO - [sentinel2_tss_pipeline.py:2791] - Processing: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip
+2025-07-22 09:12:21,419 - INFO - [sentinel2_tss_pipeline.py:2792] -   Mode: complete_pipeline
+2025-07-22 09:12:21,420 - INFO - [sentinel2_tss_pipeline.py:2793] -   Resolution: 10m
+2025-07-22 09:12:21,421 - INFO - [sentinel2_tss_pipeline.py:2794] -   ECMWF: True
+2025-07-22 09:12:21,423 - INFO - [sentinel2_tss_pipeline.py:2940] - Starting COMPLETE S2 processing (all bands for current + future modules)...
+2025-07-22 09:12:39,384 - ERROR - [sentinel2_tss_pipeline.py:2962] - ❌ GPT processing failed
+2025-07-22 09:12:39,385 - ERROR - [sentinel2_tss_pipeline.py:2963] - Return code: 1
+2025-07-22 09:12:39,385 - ERROR - [sentinel2_tss_pipeline.py:2965] - GPT stderr: INFO: org.esa.snap.core.gpf.operators.tooladapter.ToolAdapterIO: Initializing external tool adapters
+INFO: org.esa.snap.core.util.EngineVersionCheckActivator: Please check regularly for new updates for the best SNAP experience.
+1633 [main] INFO hdf.hdflib.HDFLibrary - HDF4 library: 
+1633 [main] INFO hdf.hdflib.HDFLibrary -  successfully loaded.
+1643 [main] INFO hdf.hdf5lib.H5 - HDF5 library: 
+1643 [main] INFO hdf.hdf5lib.H5 -  successfully loaded.
+INFO: eu.esa.opt.dataio.s2.ortho.S2OrthoProductReaderPlugIn: Building product reader - EPSG:32629
+WARNING: org.esa.snap.core.metadata.GenericXmlMetadata: Metadata: the path to element [metadata_level] does not exist
+WARNING: org.esa.snap.core.metadata.GenericXmlMetadata: Metadata: the path to element [granuleidentifier] does not exist
+WARNING: org.esa.snap.core.metadata.GenericXmlMetadata: Metadata: the path to element [bandid] does not exist
+
+Error: [NodeId: S2Resampling] Invalid S2 source product.
+org.esa.snap.core.gpf.graph.GraphException:...
+2025-07-22 09:12:39,386 - ERROR - [sentinel2_tss_pipeline.py:2909] - ❌ S2 processing FAILED: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip
+2025-07-22 09:12:39,387 - INFO - [sentinel2_tss_pipeline.py:3554] - ✓ Processing completed: 0 products generated
+2025-07-22 09:12:39,558 - INFO - [sentinel2_tss_pipeline.py:3603] - → Progress: 1/2 (50.0%), ETA: 0.4 minutes
+2025-07-22 09:12:39,560 - INFO - [sentinel2_tss_pipeline.py:3518] - 
+--------------------------------------------------------------------------------
+2025-07-22 09:12:39,561 - INFO - [sentinel2_tss_pipeline.py:3519] - Processing 2/2: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306
+2025-07-22 09:12:39,561 - INFO - [sentinel2_tss_pipeline.py:3520] - Mode: complete_pipeline
+2025-07-22 09:12:39,562 - INFO - [sentinel2_tss_pipeline.py:3521] - --------------------------------------------------------------------------------
+2025-07-22 09:12:39,563 - INFO - [sentinel2_tss_pipeline.py:2791] - Processing: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
+2025-07-22 09:12:39,563 - INFO - [sentinel2_tss_pipeline.py:2792] -   Mode: complete_pipeline
+2025-07-22 09:12:39,564 - INFO - [sentinel2_tss_pipeline.py:2793] -   Resolution: 10m
+2025-07-22 09:12:39,565 - INFO - [sentinel2_tss_pipeline.py:2794] -   ECMWF: True
+2025-07-22 09:12:39,577 - INFO - [sentinel2_tss_pipeline.py:2940] - Starting COMPLETE S2 processing (all bands for current + future modules)...
+2025-07-22 09:12:57,315 - ERROR - [sentinel2_tss_pipeline.py:2962] - ❌ GPT processing failed
+2025-07-22 09:12:57,316 - ERROR - [sentinel2_tss_pipeline.py:2963] - Return code: 1
+2025-07-22 09:12:57,317 - ERROR - [sentinel2_tss_pipeline.py:2965] - GPT stderr: INFO: org.esa.snap.core.gpf.operators.tooladapter.ToolAdapterIO: Initializing external tool adapters
+INFO: org.esa.snap.core.util.EngineVersionCheckActivator: Please check regularly for new updates for the best SNAP experience.
+1756 [main] INFO hdf.hdflib.HDFLibrary - HDF4 library: 
+1756 [main] INFO hdf.hdflib.HDFLibrary -  successfully loaded.
+1763 [main] INFO hdf.hdf5lib.H5 - HDF5 library: 
+1763 [main] INFO hdf.hdf5lib.H5 -  successfully loaded.
+INFO: eu.esa.opt.dataio.s2.ortho.S2OrthoProductReaderPlugIn: Building product reader - EPSG:32629
+WARNING: org.esa.snap.core.metadata.GenericXmlMetadata: Metadata: the path to element [metadata_level] does not exist
+WARNING: org.esa.snap.core.metadata.GenericXmlMetadata: Metadata: the path to element [granuleidentifier] does not exist
+WARNING: org.esa.snap.core.metadata.GenericXmlMetadata: Metadata: the path to element [bandid] does not exist
+
+Error: [NodeId: S2Resampling] Invalid S2 source product.
+org.esa.snap.core.gpf.graph.GraphException:...
+2025-07-22 09:12:57,317 - ERROR - [sentinel2_tss_pipeline.py:2909] - ❌ S2 processing FAILED: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
+2025-07-22 09:12:57,318 - INFO - [sentinel2_tss_pipeline.py:3554] - ✓ Processing completed: 0 products generated
+2025-07-22 09:12:57,506 - INFO - [sentinel2_tss_pipeline.py:3603] - → Progress: 2/2 (100.0%), ETA: 0.0 minutes
+2025-07-22 09:19:42,437 - INFO - [sentinel2_tss_pipeline.py:6327] - Application finished successfully

@@ -2532,47 +2532,54 @@ class S2Processor:
     
 
     def create_s2_graph_with_subset(self) -> str:
-        """Create SPEED OPTIMIZED S2 processing graph - SUBSET FIRST for maximum speed"""
-        subset_params = self._get_subset_parameters()
+        """Create FIXED S2 processing graph - subset in Read operator for maximum speed"""
+        
+        # Get existing subset parameters
+        subset_config = self.config.subset_config
         
         # COMPLETE: All S2 bands for current TSS + future modules
-        essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"  # Spectral bands only
+        essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"
+        
+        # Build Read operator parameters with integrated subset
+        read_params = f'''<file>${{sourceProduct}}</file>
+        <bandNames>{essential_bands}</bandNames>'''
+        
+        # Add subset parameters directly to Read operator (FIXED APPROACH)
+        if subset_config.geometry_wkt:
+            # Geometry-based subset
+            escaped_wkt = subset_config.geometry_wkt.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            read_params += f'''
+        <geoRegion>{escaped_wkt}</geoRegion>'''
+            
+        elif subset_config.pixel_start_x is not None:
+            # Pixel-based subset
+            read_params += f'''
+        <region>{subset_config.pixel_start_x},{subset_config.pixel_start_y},{subset_config.pixel_size_x},{subset_config.pixel_size_y}</region>'''
+        
+        # Add common subset parameters
+        read_params += f'''
+        <subSamplingX>{subset_config.sub_sampling_x}</subSamplingX>
+        <subSamplingY>{subset_config.sub_sampling_y}</subSamplingY>
+        <copyMetadata>{str(subset_config.copy_metadata).lower()}</copyMetadata>'''
         
         graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-    <graph id="S2_Speed_Optimized_Processing">
+    <graph id="S2_Fixed_Speed_Processing">
     <version>1.0</version>
-    
-    <!-- Step 1: Read Input Product - ALL BANDS (tie-points come automatically) -->
+
+    <!-- Step 1: Read with Integrated Subset - FASTEST approach -->
     <node id="Read">
         <operator>Read</operator>
         <sources/>
         <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-        <file>${{sourceProduct}}</file>
-        <bandNames>{essential_bands}</bandNames>
+        {read_params}
         </parameters>
     </node>
-    
-    <!-- Step 2: SUBSET FIRST - Reduces data volume for faster resampling -->
-    <node id="Subset">
-        <operator>Subset</operator>
-        <sources>
-        <sourceProduct refid="Read"/>
-        </sources>
-        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-        {subset_params}
-        <subSamplingX>{self.config.subset_config.sub_sampling_x}</subSamplingX>
-        <subSamplingY>{self.config.subset_config.sub_sampling_y}</subSamplingY>
-        <fullSwath>{str(self.config.subset_config.full_swath).lower()}</fullSwath>
-        <copyMetadata>{str(self.config.subset_config.copy_metadata).lower()}</copyMetadata>
-        <sourceBands>{essential_bands}</sourceBands>
-        </parameters>
-    </node>
-    
-    <!-- Step 3: S2 Resampling - Now works on SMALLER subset data -->
+
+    <!-- Step 2: S2 Resampling - Now works on subset data with preserved S2 structure -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
         <sources>
-        <sourceProduct refid="Subset"/>
+        <sourceProduct refid="Read"/>
         </sources>
         <parameters class="com.bc.ceres.binding.dom.XppDomElement">
         <resolution>{self.config.resampling_config.target_resolution}</resolution>
@@ -2583,8 +2590,8 @@ class S2Processor:
         <bands>{essential_bands}</bands>
         </parameters>
     </node>
-    
-    <!-- Step 4: C2RCC Atmospheric Correction - Works on subset+resampled data -->
+
+    <!-- Step 3: C2RCC Atmospheric Correction -->
     <node id="c2rcc_msi">
         <operator>c2rcc.msi</operator>
         <sources>
@@ -2594,8 +2601,8 @@ class S2Processor:
         {self._get_c2rcc_parameters()}
         </parameters>
     </node>
-    
-    <!-- Step 5: Write Output -->
+
+    <!-- Step 4: Write Output -->
     <node id="Write">
         <operator>Write</operator>
         <sources>
@@ -2606,26 +2613,27 @@ class S2Processor:
         <formatName>BEAM-DIMAP</formatName>
         </parameters>
     </node>
-    
+
     </graph>'''
         
         graph_file = 's2_complete_processing_with_subset.xml'
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
         
-        logger.info(f"SPEED OPTIMIZED processing graph saved: {graph_file}")
+        logger.info(f"FIXED SPEED processing graph saved: {graph_file}")
         return graph_file
 
+
     def create_s2_graph_no_subset(self) -> str:
-        """Create processing graph without subset - same order for consistency"""
+        """Create processing graph without subset - unchanged for consistency"""
         
         # COMPLETE: All S2 bands for current TSS + future modules
-        essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"  # Spectral bands only
+        essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"
         
         graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-    <graph id="S2_Complete_Water_Processing_NoSubset_Optimized">
+    <graph id="S2_Complete_Water_Processing_NoSubset">
     <version>1.0</version>
-    
+
     <!-- Step 1: Read Input Product - ALL BANDS (tie-points come automatically) -->
     <node id="Read">
         <operator>Read</operator>
@@ -2635,7 +2643,7 @@ class S2Processor:
         <bandNames>{essential_bands}</bandNames>
         </parameters>
     </node>
-    
+
     <!-- Step 2: S2 Resampling - Full scene processing -->
     <node id="S2Resampling">
         <operator>S2Resampling</operator>
@@ -2651,7 +2659,7 @@ class S2Processor:
         <bands>{essential_bands}</bands>
         </parameters>
     </node>
-    
+
     <!-- Step 3: C2RCC Atmospheric Correction -->
     <node id="c2rcc_msi">
         <operator>c2rcc.msi</operator>
@@ -2662,7 +2670,7 @@ class S2Processor:
         {self._get_c2rcc_parameters()}
         </parameters>
     </node>
-    
+
     <!-- Step 4: Write Output -->
     <node id="Write">
         <operator>Write</operator>
@@ -2674,14 +2682,14 @@ class S2Processor:
         <formatName>BEAM-DIMAP</formatName>
         </parameters>
     </node>
-    
+
     </graph>'''
         
         graph_file = 's2_complete_processing_no_subset.xml'
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
         
-        logger.info(f"OPTIMIZED processing graph saved: {graph_file}")
+        logger.info(f"No-subset processing graph saved: {graph_file}")
         return graph_file
     
     def _get_subset_parameters(self) -> str:
