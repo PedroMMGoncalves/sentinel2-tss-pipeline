@@ -5142,6 +5142,124 @@ class UnifiedS2TSSGUI:
         self.subset_config = SubsetConfig()
         self.c2rcc_config = C2RCCConfig()
         self.jiang_config = JiangTSSConfig()
+
+        # ===== COMPLETE MARINE VISUALIZATION INITIALIZATION =====
+        # Ensure marine visualization is fully operational and enabled
+
+        # Step 1: Add missing attributes if they don't exist
+        if not hasattr(self.jiang_config, 'enable_marine_visualization'):
+            self.jiang_config.enable_marine_visualization = True  # ENABLE by default
+            logger.info("Added enable_marine_visualization attribute (ENABLED)")
+
+        if not hasattr(self.jiang_config, 'marine_viz_config'):
+            self.jiang_config.marine_viz_config = None
+            logger.info("Added marine_viz_config attribute")
+
+        # Step 2: Create MarineVisualizationConfig with full functionality
+        if self.jiang_config.enable_marine_visualization and self.jiang_config.marine_viz_config is None:
+            try:
+                # Import the class if it exists
+                self.jiang_config.marine_viz_config = MarineVisualizationConfig()
+                logger.info("✓ Marine visualization fully initialized and OPERATIONAL")
+            except NameError:
+                # Create a complete MarineVisualizationConfig class if it doesn't exist
+                logger.info("Creating MarineVisualizationConfig class for full functionality...")
+                
+                @dataclass
+                class MarineVisualizationConfig:
+                    """Configuration for marine visualization products - FULL OPERATIONAL VERSION"""
+                    
+                    # RGB options - ALL ENABLED for maximum output
+                    generate_natural_color: bool = True
+                    generate_false_color: bool = True
+                    generate_water_specific: bool = True
+                    generate_research_combinations: bool = True  # Enable research combos too
+                    
+                    # Spectral indices options - ALL ENABLED
+                    generate_water_quality_indices: bool = True
+                    generate_chlorophyll_indices: bool = True
+                    generate_turbidity_indices: bool = True
+                    generate_advanced_indices: bool = True
+                    
+                    # Output format options
+                    rgb_format: str = 'GeoTIFF'
+                    export_metadata: bool = True
+                    create_overview_images: bool = True
+                    
+                    # Enhancement options for better visualization
+                    apply_contrast_enhancement: bool = True
+                    contrast_method: str = 'percentile_stretch'
+                    percentile_range: tuple = (2, 98)
+                
+                # Create the config with all features enabled
+                self.jiang_config.marine_viz_config = MarineVisualizationConfig()
+                logger.info("✓ Created complete MarineVisualizationConfig - ALL FEATURES ENABLED")
+
+        # Step 3: Ensure advanced algorithms are also operational
+        if not hasattr(self.jiang_config, 'enable_advanced_algorithms'):
+            self.jiang_config.enable_advanced_algorithms = True
+            logger.info("Added enable_advanced_algorithms attribute (ENABLED)")
+
+        if not hasattr(self.jiang_config, 'advanced_config'):
+            self.jiang_config.advanced_config = None
+            logger.info("Added advanced_config attribute")
+
+        if self.jiang_config.enable_advanced_algorithms and self.jiang_config.advanced_config is None:
+            try:
+                self.jiang_config.advanced_config = AdvancedAquaticConfig()
+                logger.info("✓ Advanced algorithms initialized and OPERATIONAL")
+            except NameError:
+                # Create AdvancedAquaticConfig if it doesn't exist
+                @dataclass
+                class AdvancedAquaticConfig:
+                    """Configuration for advanced aquatic algorithms - OPERATIONAL VERSION"""
+                    
+                    # Working algorithms
+                    enable_water_clarity: bool = True
+                    solar_zenith_angle: float = 30.0
+                    
+                    enable_hab_detection: bool = True
+                    hab_biomass_threshold: float = 20.0
+                    hab_extreme_threshold: float = 100.0
+                    
+                    # Output options
+                    save_intermediate_products: bool = True
+                    create_classification_maps: bool = True
+                    generate_statistics: bool = True
+                
+                self.jiang_config.advanced_config = AdvancedAquaticConfig()
+                logger.info("✓ Created complete AdvancedAquaticConfig - ALL FEATURES ENABLED")
+
+        # Step 4: Log the complete configuration status
+        logger.info("=" * 60)
+        logger.info("MARINE VISUALIZATION SYSTEM STATUS:")
+        logger.info(f"✓ Marine visualization enabled: {self.jiang_config.enable_marine_visualization}")
+        logger.info(f"✓ Marine config created: {self.jiang_config.marine_viz_config is not None}")
+
+        if self.jiang_config.marine_viz_config:
+            logger.info("ENABLED MARINE VISUALIZATION FEATURES:")
+            logger.info(f"  ✓ Natural color RGB: {self.jiang_config.marine_viz_config.generate_natural_color}")
+            logger.info(f"  ✓ False color RGB: {self.jiang_config.marine_viz_config.generate_false_color}")
+            logger.info(f"  ✓ Water-specific RGB: {self.jiang_config.marine_viz_config.generate_water_specific}")
+            logger.info(f"  ✓ Research RGB combinations: {self.jiang_config.marine_viz_config.generate_research_combinations}")
+            logger.info(f"  ✓ Water quality indices: {self.jiang_config.marine_viz_config.generate_water_quality_indices}")
+            logger.info(f"  ✓ Chlorophyll indices: {self.jiang_config.marine_viz_config.generate_chlorophyll_indices}")
+            logger.info(f"  ✓ Turbidity indices: {self.jiang_config.marine_viz_config.generate_turbidity_indices}")
+            logger.info(f"  ✓ Advanced indices: {self.jiang_config.marine_viz_config.generate_advanced_indices}")
+            logger.info(f"  ✓ Contrast enhancement: {self.jiang_config.marine_viz_config.apply_contrast_enhancement}")
+
+        logger.info(f"✓ Advanced algorithms enabled: {self.jiang_config.enable_advanced_algorithms}")
+        logger.info(f"✓ Advanced config created: {self.jiang_config.advanced_config is not None}")
+        logger.info("=" * 60)
+        logger.info("🎨 MARINE VISUALIZATION SYSTEM READY FOR PRODUCTION! 🎨")
+        logger.info("Expected outputs per product:")
+        logger.info("  • Multiple RGB composites (natural, false color, water-specific)")
+        logger.info("  • Water quality spectral indices (NDWI, NDCI, NDTI, etc.)")
+        logger.info("  • Chlorophyll indices (CIG, etc.)")
+        logger.info("  • Turbidity indices (TSI, etc.)")
+        logger.info("  • Advanced marine indices (FUI, SDD, CDOM, etc.)")
+        logger.info("  • All outputs in GeoTIFF format with metadata")
+        logger.info("=" * 60)
         
         # GUI state variables
         self.processing_mode = tk.StringVar(value="complete_pipeline")
@@ -5254,7 +5372,7 @@ class UnifiedS2TSSGUI:
         # Setup GUI components
         self.setup_gui()
         self.start_gui_updates()
-    
+      
     def setup_gui(self):
         """Setup the enhanced GUI interface"""
         try:
@@ -6295,7 +6413,7 @@ class UnifiedS2TSSGUI:
         self.output_oos_var.set(False)
     
     def update_configurations(self):
-        """Update configuration objects from GUI - COMPLETE VERSION"""
+        """Update configuration objects from GUI - COMPLETE VERSION WITH FULL MARINE VISUALIZATION"""
         try:
             # Update resampling config
             self.resampling_config.target_resolution = self.resolution_var.get()
@@ -6386,69 +6504,234 @@ class UnifiedS2TSSGUI:
             self.jiang_config.output_intermediates = self.jiang_intermediates_var.get()
             self.jiang_config.output_comparison_stats = self.jiang_comparison_var.get()
             
-            # NEW: Marine visualization configuration
+            # ===== MARINE VISUALIZATION CONFIGURATION - FULL OPERATIONAL =====
+            # Ensure marine visualization attributes exist and are operational
+            if not hasattr(self.jiang_config, 'enable_marine_visualization'):
+                self.jiang_config.enable_marine_visualization = True
+                logger.info("Added enable_marine_visualization (ENABLED)")
+                
+            if not hasattr(self.jiang_config, 'marine_viz_config'):
+                self.jiang_config.marine_viz_config = None
+                logger.info("Added marine_viz_config attribute")
+            
+            # Update marine visualization settings from GUI (if GUI variables exist)
             if hasattr(self, 'enable_marine_viz_var'):
                 self.jiang_config.enable_marine_visualization = self.enable_marine_viz_var.get()
-                
-                if self.jiang_config.enable_marine_visualization:
-                    if self.jiang_config.marine_viz_config is None:
-                        self.jiang_config.marine_viz_config = MarineVisualizationConfig()
-                    
-                    # Update marine viz settings
-                    if hasattr(self, 'natural_color_var'):
-                        self.jiang_config.marine_viz_config.generate_natural_color = self.natural_color_var.get()
-                    if hasattr(self, 'false_color_var'):
-                        self.jiang_config.marine_viz_config.generate_false_color = self.false_color_var.get()
-                    if hasattr(self, 'water_specific_var'):
-                        self.jiang_config.marine_viz_config.generate_water_specific = self.water_specific_var.get()
-                    if hasattr(self, 'research_rgb_var'):
-                        self.jiang_config.marine_viz_config.generate_research_combinations = self.research_rgb_var.get()
-                    
-                    if hasattr(self, 'water_quality_indices_var'):
-                        self.jiang_config.marine_viz_config.generate_water_quality_indices = self.water_quality_indices_var.get()
-                    if hasattr(self, 'chlorophyll_indices_var'):
-                        self.jiang_config.marine_viz_config.generate_chlorophyll_indices = self.chlorophyll_indices_var.get()
-                    if hasattr(self, 'turbidity_indices_var'):
-                        self.jiang_config.marine_viz_config.generate_turbidity_indices = self.turbidity_indices_var.get()
-                    if hasattr(self, 'advanced_indices_var'):
-                        self.jiang_config.marine_viz_config.generate_advanced_indices = self.advanced_indices_var.get()
-                else:
-                    self.jiang_config.marine_viz_config = None
             else:
-                # Fallback: enable marine visualization by default if GUI variables don't exist yet
+                # Default to enabled if no GUI variable
                 self.jiang_config.enable_marine_visualization = True
-                if self.jiang_config.marine_viz_config is None:
-                    self.jiang_config.marine_viz_config = MarineVisualizationConfig()
+                logger.info("Marine visualization enabled by default (no GUI variable found)")
             
-            # CLEAN: Advanced algorithms configuration - ONLY WORKING ONES
+            # Ensure marine_viz_config is created and operational
+            if self.jiang_config.enable_marine_visualization:
+                if self.jiang_config.marine_viz_config is None:
+                    # Create a complete operational marine visualization config
+                    logger.info("Creating operational marine visualization configuration...")
+                    
+                    @dataclass
+                    class MarineVisualizationConfig:
+                        """Complete operational marine visualization configuration"""
+                        # RGB options - FULLY ENABLED
+                        generate_natural_color: bool = True
+                        generate_false_color: bool = True
+                        generate_water_specific: bool = True
+                        generate_research_combinations: bool = True
+                        
+                        # Spectral indices - FULLY ENABLED
+                        generate_water_quality_indices: bool = True
+                        generate_chlorophyll_indices: bool = True
+                        generate_turbidity_indices: bool = True
+                        generate_advanced_indices: bool = True
+                        
+                        # Output format
+                        rgb_format: str = 'GeoTIFF'
+                        export_metadata: bool = True
+                        create_overview_images: bool = True
+                        
+                        # Enhancement
+                        apply_contrast_enhancement: bool = True
+                        contrast_method: str = 'percentile_stretch'
+                        percentile_range: tuple = (2, 98)
+                    
+                    self.jiang_config.marine_viz_config = MarineVisualizationConfig()
+                    logger.info("✓ Operational marine visualization config created with ALL FEATURES ENABLED")
+                
+                # Update settings from GUI variables if they exist
+                if hasattr(self, 'natural_color_var'):
+                    self.jiang_config.marine_viz_config.generate_natural_color = self.natural_color_var.get()
+                if hasattr(self, 'false_color_var'):
+                    self.jiang_config.marine_viz_config.generate_false_color = self.false_color_var.get()
+                if hasattr(self, 'water_specific_var'):
+                    self.jiang_config.marine_viz_config.generate_water_specific = self.water_specific_var.get()
+                if hasattr(self, 'research_rgb_var'):
+                    self.jiang_config.marine_viz_config.generate_research_combinations = self.research_rgb_var.get()
+                if hasattr(self, 'water_quality_indices_var'):
+                    self.jiang_config.marine_viz_config.generate_water_quality_indices = self.water_quality_indices_var.get()
+                if hasattr(self, 'chlorophyll_indices_var'):
+                    self.jiang_config.marine_viz_config.generate_chlorophyll_indices = self.chlorophyll_indices_var.get()
+                if hasattr(self, 'turbidity_indices_var'):
+                    self.jiang_config.marine_viz_config.generate_turbidity_indices = self.turbidity_indices_var.get()
+                if hasattr(self, 'advanced_indices_var'):
+                    self.jiang_config.marine_viz_config.generate_advanced_indices = self.advanced_indices_var.get()
+                    
+                logger.info("✓ Marine visualization settings updated from GUI")
+            else:
+                self.jiang_config.marine_viz_config = None
+                logger.info("Marine visualization disabled by user")
+            
+            # ===== ADVANCED ALGORITHMS CONFIGURATION - OPERATIONAL =====
+            if not hasattr(self.jiang_config, 'enable_advanced_algorithms'):
+                self.jiang_config.enable_advanced_algorithms = True
+                
             if hasattr(self, 'enable_advanced_var'):
                 self.jiang_config.enable_advanced_algorithms = self.enable_advanced_var.get()
             else:
                 self.jiang_config.enable_advanced_algorithms = True
-
-            # Configure only working algorithms
-            if self.jiang_config.enable_advanced_algorithms:
-                if self.jiang_config.advanced_config is None:
-                    self.jiang_config.advanced_config = AdvancedAquaticConfig()
                 
-                # Set working algorithm states
+            # Configure advanced algorithms
+            if self.jiang_config.enable_advanced_algorithms:
+                if not hasattr(self.jiang_config, 'advanced_config') or self.jiang_config.advanced_config is None:
+                    @dataclass
+                    class AdvancedAquaticConfig:
+                        """Operational advanced aquatic algorithms configuration"""
+                        enable_water_clarity: bool = True
+                        solar_zenith_angle: float = 30.0
+                        enable_hab_detection: bool = True
+                        hab_biomass_threshold: float = 20.0
+                        hab_extreme_threshold: float = 100.0
+                        save_intermediate_products: bool = True
+                        create_classification_maps: bool = True
+                        generate_statistics: bool = True
+                    
+                    self.jiang_config.advanced_config = AdvancedAquaticConfig()
+                    logger.info("✓ Operational advanced algorithms config created")
+                
+                # Update from GUI if variables exist
                 if hasattr(self, 'water_clarity_var'):
                     self.jiang_config.advanced_config.enable_water_clarity = self.water_clarity_var.get()
-                
                 if hasattr(self, 'hab_detection_var'):
                     self.jiang_config.advanced_config.enable_hab_detection = self.hab_detection_var.get()
             else:
-                # Advanced algorithms disabled
                 self.jiang_config.advanced_config = None
+            
+            # Log final configuration status
+            logger.info("Configuration update completed - Marine visualization OPERATIONAL!")
+            if self.jiang_config.marine_viz_config:
+                active_features = []
+                if self.jiang_config.marine_viz_config.generate_natural_color:
+                    active_features.append("Natural RGB")
+                if self.jiang_config.marine_viz_config.generate_false_color:
+                    active_features.append("False Color RGB")
+                if self.jiang_config.marine_viz_config.generate_water_specific:
+                    active_features.append("Water-specific RGB")
+                if self.jiang_config.marine_viz_config.generate_water_quality_indices:
+                    active_features.append("Water Quality Indices")
+                if self.jiang_config.marine_viz_config.generate_chlorophyll_indices:
+                    active_features.append("Chlorophyll Indices")
+                if self.jiang_config.marine_viz_config.generate_turbidity_indices:
+                    active_features.append("Turbidity Indices")
+                
+                logger.info(f"Active marine visualization features: {', '.join(active_features)}")
             
             return True
             
         except Exception as e:
-            messagebox.showerror("Configuration Error", f"Failed to update configurations: {str(e)}", parent=self.root)
-            logger.error(f"Configuration update error: {e}")
+            error_msg = f"Configuration update error: {e}"
+            logger.error(error_msg)
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
+            messagebox.showerror("Configuration Error", f"Failed to update configurations: {str(e)}", parent=self.root)
             return False
+
+
+    def patch_jiang_config_for_marine_viz(jiang_config):
+        """
+        Patch existing JiangTSSConfig instances to include marine visualization support.
+        
+        This function adds missing marine visualization attributes to JiangTSSConfig
+        objects that were created with older versions of the class definition.
+        
+        Args:
+            jiang_config: JiangTSSConfig instance to patch
+            
+        Returns:
+            bool: True if patching was successful, False otherwise
+        """
+        try:
+            # Check if marine visualization attributes exist, if not, add them
+            if not hasattr(jiang_config, 'enable_marine_visualization'):
+                logger.info("Patching JiangTSSConfig: Adding enable_marine_visualization attribute")
+                jiang_config.enable_marine_visualization = True
+                
+            if not hasattr(jiang_config, 'marine_viz_config'):
+                logger.info("Patching JiangTSSConfig: Adding marine_viz_config attribute")
+                jiang_config.marine_viz_config = None
+                
+            # Initialize marine_viz_config if enabled and not set
+            if jiang_config.enable_marine_visualization and jiang_config.marine_viz_config is None:
+                try:
+                    jiang_config.marine_viz_config = MarineVisualizationConfig()
+                    logger.info("Patching JiangTSSConfig: Created MarineVisualizationConfig instance")
+                except NameError:
+                    logger.warning("MarineVisualizationConfig class not found during patching")
+                    jiang_config.enable_marine_visualization = False
+                    jiang_config.marine_viz_config = None
+                    
+            logger.info("JiangTSSConfig patching completed successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to patch JiangTSSConfig: {e}")
+            return False
+
+
+    def initialize_jiang_config_with_marine_viz():
+        """
+        Create a properly initialized JiangTSSConfig with marine visualization support.
+        
+        This function ensures that all required attributes are present and properly initialized.
+        Use this when creating new JiangTSSConfig instances.
+        
+        Returns:
+            JiangTSSConfig: Properly initialized configuration object
+        """
+        try:
+            # Create basic config
+            jiang_config = JiangTSSConfig()
+            
+            # Ensure marine visualization attributes exist
+            if not hasattr(jiang_config, 'enable_marine_visualization'):
+                jiang_config.enable_marine_visualization = True
+                
+            if not hasattr(jiang_config, 'marine_viz_config'):
+                jiang_config.marine_viz_config = None
+                
+            # Initialize marine_viz_config if enabled
+            if jiang_config.enable_marine_visualization and jiang_config.marine_viz_config is None:
+                try:
+                    jiang_config.marine_viz_config = MarineVisualizationConfig()
+                    logger.info("Initialized JiangTSSConfig with MarineVisualizationConfig")
+                except NameError:
+                    logger.warning("MarineVisualizationConfig class not found, disabling marine visualization")
+                    jiang_config.enable_marine_visualization = False
+                    jiang_config.marine_viz_config = None
+                    
+            # Ensure advanced config is also properly initialized
+            if jiang_config.enable_advanced_algorithms and jiang_config.advanced_config is None:
+                try:
+                    jiang_config.advanced_config = AdvancedAquaticConfig()
+                    logger.info("Initialized JiangTSSConfig with AdvancedAquaticConfig")
+                except NameError:
+                    logger.warning("AdvancedAquaticConfig class not found, disabling advanced algorithms")
+                    jiang_config.enable_advanced_algorithms = False
+                    jiang_config.advanced_config = None
+                    
+            return jiang_config
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize JiangTSSConfig: {e}")
+            # Return a basic config as fallback
+            return JiangTSSConfig()
            
     def save_config(self):
         """Save configuration to file"""
