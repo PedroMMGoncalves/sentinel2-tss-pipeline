@@ -274,20 +274,14 @@ class SubsetConfig:
 
 @dataclass
 class C2RCCConfig:
-    """C2RCC configuration with EXACT SNAP parameter names - FIXED VERSION"""
+    """Enhanced C2RCC atmospheric correction configuration with SNAP defaults"""
     
     # Basic water parameters
     salinity: float = 35.0
     temperature: float = 15.0
     ozone: float = 330.0
-    pressure: float = 1000.0  # Maps to <press> in SNAP
+    pressure: float = 1000.0  # SNAP default
     elevation: float = 0.0
-    
-    # TSM/CHL calculation factors (SNAP defaults)
-    tsm_fac: float = 1.06
-    tsm_exp: float = 0.942
-    chl_fac: float = 21.0
-    chl_exp: float = 1.04
     
     # Neural network configuration
     net_set: str = "C2RCC-Nets"
@@ -295,20 +289,20 @@ class C2RCCConfig:
     # DEM configuration
     dem_name: str = "Copernicus 90m Global DEM"
     
-    # Auxiliary data - ECMWF enabled by default
-    use_ecmwf_aux_data: bool = True
+    # Auxiliary data - ECMWF enabled by default as requested
+    use_ecmwf_aux_data: bool = True  # Set to True by default
     atmospheric_aux_data_path: str = ""
     alternative_nn_path: str = ""
     
-    # CRITICAL: Essential output products for TSS processing
-    output_as_rrs: bool = True           # Enable Rrs for Jiang algorithm
-    output_rhown: bool = True            # EXACT SNAP parameter name (NOT output_rhow)
+    # Essential output products (SNAP defaults + uncertainties)
+    output_as_rrs: bool = False
+    output_rhow: bool = True          # Required for TSS
     output_kd: bool = True
-    output_uncertainties: bool = True    # Ensures unc_tsm.img and unc_chl.img
+    output_uncertainties: bool = True # Ensures unc_tsm.img and unc_chl.img
     output_ac_reflectance: bool = True
     output_rtoa: bool = True
     
-    # Advanced atmospheric products
+    # Advanced atmospheric products (SNAP defaults)
     output_rtosa_gc: bool = False
     output_rtosa_gc_aann: bool = False
     output_rpath: bool = False
@@ -324,22 +318,27 @@ class C2RCCConfig:
     threshold_rtosa_oos: float = 0.05
     threshold_ac_reflec_oos: float = 0.1
     threshold_cloud_tdown865: float = 0.955
-
+    
+    # TSM and CHL parameters (SNAP defaults)
+    tsm_fac: float = 1.06
+    tsm_exp: float = 0.942
+    chl_fac: float = 21.0
+    chl_exp: float = 1.04
 
 @dataclass
 class JiangTSSConfig:
-    """Jiang TSS methodology configuration with marine visualization"""
-    enable_jiang_tss: bool = True
+    """Jiang TSS methodology configuration - CLEAN VERSION"""
+    enable_jiang_tss: bool = True  # Enable by default
     output_intermediates: bool = True
     water_mask_threshold: float = 0.01
-    tss_valid_range: tuple = (0.01, 10000)
+    tss_valid_range: tuple = (0.01, 10000)  # g/m³
     output_comparison_stats: bool = True
     
     # Advanced algorithms configuration
     enable_advanced_algorithms: bool = True
     advanced_config: Optional['AdvancedAquaticConfig'] = None
     
-    # Marine visualization configuration
+    # NEW: Marine visualization configuration
     enable_marine_visualization: bool = True  # ENABLED BY DEFAULT
     marine_viz_config: Optional['MarineVisualizationConfig'] = None
     
@@ -367,7 +366,6 @@ class AdvancedAquaticConfig:
     save_intermediate_products: bool = True
     create_classification_maps: bool = True
     generate_statistics: bool = True
-    
 @dataclass
 class ProcessingConfig:
     """Complete processing configuration"""
@@ -402,184 +400,6 @@ class ProcessingStatus(NamedTuple):
     eta_minutes: float
     processing_speed: float
 
-class BandLoader:
-    """Comprehensive band loading system for C2RCC outputs"""
-    
-    def __init__(self, c2rcc_path: str):
-        self.c2rcc_path = c2rcc_path
-        if c2rcc_path.endswith('.dim'):
-            self.data_folder = c2rcc_path.replace('.dim', '.data')
-        else:
-            self.data_folder = f"{c2rcc_path}.data"
-    
-    def load_all_bands(self) -> Dict[str, Dict[int, str]]:
-        """Load all available band types for comprehensive processing"""
-        if not os.path.exists(self.data_folder):
-            logger.error(f"Data folder not found: {self.data_folder}")
-            return {}
-        
-        # Complete band mapping for all purposes
-        band_types = {
-            'rrs': self._load_rrs_bands(),           # For Jiang TSS processing
-            'rhow': self._load_rhow_bands(),         # For backup/validation
-            'rtoa': self._load_rtoa_bands(),         # For marine visualization
-            'ac_reflectance': self._load_ac_reflectance_bands()  # For marine visualization
-        }
-        
-        return band_types
-    
-    def _load_rrs_bands(self) -> Dict[int, str]:
-        """Load Remote Sensing Reflectance (Rrs) bands - PRIMARY for Jiang TSS"""
-        band_mapping = {
-            443: 'rrs_B1.img',      # Band 1
-            490: 'rrs_B2.img',      # Band 2  
-            560: 'rrs_B3.img',      # Band 3
-            665: 'rrs_B4.img',      # Band 4
-            705: 'rrs_B5.img',      # Band 5
-            740: 'rrs_B6.img',      # Band 6
-            783: 'rrs_B7.img',      # Band 7 - should exist with Rrs
-            842: 'rrs_B8.img',      # Band 8
-            865: 'rrs_B8A.img',     # Band 8A - should exist with Rrs
-            945: 'rrs_B9.img',      # Band 9
-            1610: 'rrs_B11.img',    # Band 11
-            2190: 'rrs_B12.img'     # Band 12
-        }
-        
-        return self._find_bands(band_mapping, "Rrs")
-    
-    def _load_rhow_bands(self, c2rcc_path: str) -> Dict[int, str]:
-        """Load spectral bands - prioritizing Rrs for Jiang algorithm"""
-        if c2rcc_path.endswith('.dim'):
-            data_folder = c2rcc_path.replace('.dim', '.data')
-        else:
-            data_folder = f"{c2rcc_path}.data"
-        
-        if not os.path.exists(data_folder):
-            logger.error(f"Data folder not found: {data_folder}")
-            return {}
-        
-        # CORRECTED: Prioritize Rrs bands (needed for Jiang), then rhow, then rtoa
-        band_mapping = {
-            443: ['rrs_B1.img', 'rhow_B1.img', 'rho_toa_B1.img', 'rtoa_B1.img'],
-            490: ['rrs_B2.img', 'rhow_B2.img', 'rho_toa_B2.img', 'rtoa_B2.img'],
-            560: ['rrs_B3.img', 'rhow_B3.img', 'rho_toa_B3.img', 'rtoa_B3.img'],
-            665: ['rrs_B4.img', 'rhow_B4.img', 'rho_toa_B4.img', 'rtoa_B4.img'],
-            705: ['rrs_B5.img', 'rhow_B5.img', 'rho_toa_B5.img', 'rtoa_B5.img'],
-            740: ['rrs_B6.img', 'rhow_B6.img', 'rho_toa_B6.img', 'rtoa_B6.img'],
-            783: ['rrs_B7.img', 'rhow_B7.img', 'rho_toa_B7.img', 'rtoa_B7.img'],
-            865: ['rrs_B8A.img', 'rhow_B8A.img', 'rho_toa_B8A.img', 'rtoa_B8A.img']
-        }
-        
-        found_bands = {}
-        band_types = {}
-        
-        for wavelength, possible_files in band_mapping.items():
-            for filename in possible_files:
-                band_path = os.path.join(data_folder, filename)
-                if os.path.exists(band_path) and os.path.getsize(band_path) > 1024:
-                    found_bands[wavelength] = band_path
-                    if 'rrs_' in filename:
-                        band_types[wavelength] = 'Rrs'
-                    elif 'rhow_' in filename:
-                        band_types[wavelength] = 'rhow'
-                    else:
-                        band_types[wavelength] = 'rtoa'
-                    break
-        
-        logger.info(f"Found {len(found_bands)}/8 bands for Jiang TSS:")
-        for wl, bt in band_types.items():
-            logger.info(f"  {wl}nm: {bt}")
-        
-        return found_bands
-    
-    def _load_rtoa_bands(self) -> Dict[int, str]:
-        """Load top-of-atmosphere reflectance bands - for marine visualization"""
-        band_mapping = {
-            443: 'rtoa_B1.img',     # Band 1
-            490: 'rtoa_B2.img',     # Band 2  
-            560: 'rtoa_B3.img',     # Band 3
-            665: 'rtoa_B4.img',     # Band 4
-            705: 'rtoa_B5.img',     # Band 5
-            740: 'rtoa_B6.img',     # Band 6
-            783: 'rtoa_B7.img',     # Band 7
-            842: 'rtoa_B8.img',     # Band 8
-            865: 'rtoa_B8A.img',    # Band 8A
-            945: 'rtoa_B9.img',     # Band 9
-            1610: 'rtoa_B11.img',   # Band 11
-            2190: 'rtoa_B12.img'    # Band 12
-        }
-        
-        return self._find_bands(band_mapping, "Rtoa")
-    
-    def _load_ac_reflectance_bands(self) -> Dict[int, str]:
-        """Load atmospherically corrected reflectance bands - for marine visualization"""
-        band_mapping = {
-            443: 'ac_reflec_B1.img',     # Band 1
-            490: 'ac_reflec_B2.img',     # Band 2  
-            560: 'ac_reflec_B3.img',     # Band 3
-            665: 'ac_reflec_B4.img',     # Band 4
-            705: 'ac_reflec_B5.img',     # Band 5
-            740: 'ac_reflec_B6.img',     # Band 6
-            783: 'ac_reflec_B7.img',     # Band 7
-            842: 'ac_reflec_B8.img',     # Band 8
-            865: 'ac_reflec_B8A.img',    # Band 8A
-            945: 'ac_reflec_B9.img',     # Band 9
-            1610: 'ac_reflec_B11.img',   # Band 11
-            2190: 'ac_reflec_B12.img'    # Band 12
-        }
-        
-        return self._find_bands(band_mapping, "AC_Reflectance")
-    
-    def _find_bands(self, band_mapping: Dict[int, str], band_type: str) -> Dict[int, str]:
-        """Find available bands of specified type"""
-        available_bands = {}
-        found_bands = []
-        missing_bands = []
-        
-        for wavelength, filename in band_mapping.items():
-            band_path = os.path.join(self.data_folder, filename)
-            if os.path.exists(band_path) and os.path.getsize(band_path) > 1024:
-                available_bands[wavelength] = band_path
-                found_bands.append(wavelength)
-            else:
-                missing_bands.append(wavelength)
-        
-        logger.info(f"{band_type} bands found: {len(found_bands)} - {found_bands}")
-        if missing_bands:
-            logger.warning(f"{band_type} bands missing: {missing_bands}")
-        
-        return available_bands
-    
-    def get_best_bands_for_jiang(self) -> Dict[int, str]:
-        """Get the best available bands for Jiang TSS processing"""
-        all_bands = self.load_all_bands()
-        
-        # Priority order: rrs > rhow > rtoa (for fallback)
-        if all_bands['rrs'] and len(all_bands['rrs']) >= 6:
-            logger.info("Using Rrs bands for Jiang TSS processing")
-            return all_bands['rrs']
-        elif all_bands['rhow'] and len(all_bands['rhow']) >= 4:
-            logger.info("Falling back to Rhow bands for Jiang TSS processing")
-            return all_bands['rhow']
-        else:
-            logger.warning("Insufficient bands for Jiang processing, using Rtoa as last resort")
-            return all_bands['rtoa']
-    
-    def get_best_bands_for_visualization(self) -> Dict[int, str]:
-        """Get the best available bands for marine visualization"""
-        all_bands = self.load_all_bands()
-        
-        # Priority order: ac_reflectance > rrs > rtoa
-        if all_bands['ac_reflectance'] and len(all_bands['ac_reflectance']) >= 8:
-            logger.info("Using AC reflectance bands for marine visualization")
-            return all_bands['ac_reflectance']
-        elif all_bands['rrs'] and len(all_bands['rrs']) >= 8:
-            logger.info("Using Rrs bands for marine visualization")
-            return all_bands['rrs']
-        else:
-            logger.info("Using Rtoa bands for marine visualization")
-            return all_bands['rtoa']
-        
 # ===== UTILITY CLASSES =====
 
 class MemoryManager:
@@ -1170,28 +990,21 @@ class JiangTSSConstants:
 
 @dataclass
 class JiangTSSConfig:
-    """Jiang TSS methodology configuration with marine visualization"""
-    enable_jiang_tss: bool = True
+    """Jiang TSS methodology configuration - CLEAN VERSION"""
+    enable_jiang_tss: bool = True  # ENABLED BY DEFAULT
     output_intermediates: bool = True
     water_mask_threshold: float = 0.01
-    tss_valid_range: tuple = (0.01, 10000)
+    tss_valid_range: tuple = (0.01, 10000)  # g/m³
     output_comparison_stats: bool = True
     
-    # Advanced algorithms configuration
+    # Advanced algorithms configuration - SIMPLIFIED
     enable_advanced_algorithms: bool = True
     advanced_config: Optional['AdvancedAquaticConfig'] = None
     
-    # Marine visualization configuration - NEW
-    enable_marine_visualization: bool = True  # ENABLED BY DEFAULT
-    marine_viz_config: Optional['MarineVisualizationConfig'] = None
-    
     def __post_init__(self):
-        """Initialize advanced and marine visualization configs"""
+        """Initialize advanced config with only working algorithms"""
         if self.enable_advanced_algorithms and self.advanced_config is None:
             self.advanced_config = AdvancedAquaticConfig()
-            
-        if self.enable_marine_visualization and self.marine_viz_config is None:
-            self.marine_viz_config = MarineVisualizationConfig()
             
 class JiangTSSProcessor:
     """Complete implementation of Jiang et al. 2023 TSS methodology - FULL VERSION"""
@@ -1252,14 +1065,55 @@ class JiangTSSProcessor:
         logger.info("Jiang TSS Processor initialization completed successfully")
     
     def _load_rhow_bands(self, c2rcc_path: str) -> Dict[int, str]:
-        """Load bands for Jiang TSS processing using new comprehensive system"""
-        band_loader = BandLoader(c2rcc_path)
-        bands = band_loader.get_best_bands_for_jiang()
+        """Load bands from SNAP C2RCC output - CORRECTED VERSION using rho_toa files"""
+        # Determine data folder
+        if c2rcc_path.endswith('.dim'):
+            data_folder = c2rcc_path.replace('.dim', '.data')
+        elif c2rcc_path.endswith('.data'):
+            data_folder = c2rcc_path
+        else:
+            data_folder = f"{c2rcc_path}.data"
         
-        # CRITICAL: Store band paths for later conversion detection
-        self.last_used_bands = bands
+        if not os.path.exists(data_folder):
+            logger.error(f"Data folder not found: {data_folder}")
+            return {}
         
-        return bands
+        # CORRECTED: Use rho_toa files that actually exist in your C2RCC output
+        band_mapping = {
+            443: ['rho_toa_B1.img', 'rtoa_B1.img'],      # Band 1
+            490: ['rho_toa_B2.img', 'rtoa_B2.img'],      # Band 2  
+            560: ['rho_toa_B3.img', 'rtoa_B3.img'],      # Band 3
+            665: ['rho_toa_B4.img', 'rtoa_B4.img'],      # Band 4
+            705: ['rho_toa_B5.img', 'rtoa_B5.img'],      # Band 5
+            740: ['rho_toa_B6.img', 'rtoa_B6.img'],      # Band 6
+            783: ['rho_toa_B7.img', 'rtoa_B7.img'],      # Band 7
+            842: ['rho_toa_B8.img', 'rtoa_B8.img'],      # Band 8
+            865: ['rho_toa_B8A.img', 'rtoa_B8A.img'],    # Band 8A
+            945: ['rho_toa_B9.img', 'rtoa_B9.img'],      # Band 9
+            1610: ['rho_toa_B11.img', 'rtoa_B11.img'],   # Band 11
+            2190: ['rho_toa_B12.img', 'rtoa_B12.img']    # Band 12
+        }
+        
+        rhow_bands = {}
+        missing_bands = []
+        
+        for wavelength, possible_files in band_mapping.items():
+            band_found = False
+            for filename in possible_files:
+                band_path = os.path.join(data_folder, filename)
+                if os.path.exists(band_path) and os.path.getsize(band_path) > 1024:
+                    rhow_bands[wavelength] = band_path
+                    band_found = True
+                    break
+            
+            if not band_found:
+                missing_bands.append(f"{wavelength}nm")
+        
+        if missing_bands:
+            logger.warning(f"Missing bands for Jiang processing: {missing_bands}")
+        
+        logger.info(f"Successfully found {len(rhow_bands)} spectral bands for Jiang TSS")
+        return rhow_bands
     
     def _load_bands_data(self, rhow_bands: Dict[int, str]) -> Tuple[Optional[Dict], Optional[Dict]]:
         """Load band data arrays"""
@@ -1458,41 +1312,33 @@ class JiangTSSProcessor:
         
     def _apply_full_jiang_methodology(self, bands_data: Dict[int, np.ndarray]) -> Dict[str, np.ndarray]:
         """
-        Complete Jiang methodology implementation with comprehensive band support
-        Handles Rrs, Rhow, and RTOA data automatically with proper conversions
+        Complete Jiang methodology implementation with water type classification output
         """
-        logger.info("Applying Jiang methodology (comprehensive band support)")
+        logger.info("Applying Jiang methodology (exact R translation)")
         
-        # Get array shape from any available band
-        shape = next(iter(bands_data.values())).shape
+        # Get array shape
+        shape = bands_data[443].shape
         
         # Initialize output arrays
         absorption = np.full(shape, np.nan, dtype=np.float32)
         backscattering = np.full(shape, np.nan, dtype=np.float32)
         reference_band = np.full(shape, np.nan, dtype=np.float32)
         tss_concentration = np.full(shape, np.nan, dtype=np.float32)
+        
+        # NEW: Add water type classification array
         water_type_classification = np.full(shape, 0, dtype=np.uint8)  # 0 = Invalid/Land
         
-        # Determine data type and convert to Rrs if needed
-        rrs_data = self._convert_to_rrs(bands_data)
-        
-        if not rrs_data:
-            logger.error("Failed to convert bands to Rrs format")
-            return {
-                'absorption': absorption,
-                'backscattering': backscattering,
-                'reference_band': reference_band,
-                'tss': tss_concentration,
-                'valid_mask': np.zeros(shape, dtype=bool),
-                'water_type_classification': water_type_classification
-            }
+        # Convert to Rrs (sr^-1) - water-leaving reflectance to remote sensing reflectance
+        rrs_data = {}
+        for wavelength, rhow in bands_data.items():
+            # Convert rhow to Rrs (approximation: Rrs ≈ rhow / π)
+            rrs_data[wavelength] = rhow / np.pi
         
         # Create valid pixel mask using corrected validation
         valid_mask = self._create_valid_pixel_mask(rrs_data)
         
         if np.any(valid_mask):
-            # Apply Jiang methodology to valid pixels
-            logger.info(f"Processing {np.sum(valid_mask)} valid pixels with Jiang algorithm")
+            # Apply corrected methodology to valid pixels
             pixel_results = self._process_valid_pixels(rrs_data, valid_mask)
             
             # Fill output arrays
@@ -1501,7 +1347,7 @@ class JiangTSSProcessor:
             reference_band[valid_mask] = pixel_results['reference_band']
             tss_concentration[valid_mask] = pixel_results['tss']
             
-            # Create water type classification map from reference bands
+            # NEW: Create water type classification map from reference bands
             ref_bands = pixel_results['reference_band']
             
             # Map wavelengths to water type codes
@@ -1515,241 +1361,22 @@ class JiangTSSProcessor:
                 [1, 2, 3, 4],  # Water type codes
                 default=0  # Invalid/Land
             )
-            
-            # Log water type distribution
-            self._log_water_type_distribution(valid_mask, reference_band)
         
         # Calculate statistics
         valid_pixels = np.sum(valid_mask)
         total_pixels = shape[0] * shape[1]
         coverage_percent = (valid_pixels / total_pixels) * 100
         
-        logger.info(f"Jiang processing completed:")
+        logger.info(f"CORRECTED Jiang processing completed:")
         logger.info(f"  Valid pixels: {valid_pixels}/{total_pixels} ({coverage_percent:.1f}%)")
         
+        # Log water type distribution
         if valid_pixels > 0:
-            tss_valid = tss_concentration[valid_mask]
-            tss_stats = {
-                'mean': np.nanmean(tss_valid),
-                'median': np.nanmedian(tss_valid),
-                'std': np.nanstd(tss_valid),
-                'min': np.nanmin(tss_valid),
-                'max': np.nanmax(tss_valid)
-            }
-            logger.info(f"  TSS statistics: mean={tss_stats['mean']:.3f}, median={tss_stats['median']:.3f} g/m³")
-        
-        return {
-            'absorption': absorption,
-            'backscattering': backscattering,
-            'reference_band': reference_band,
-            'tss': tss_concentration,
-            'valid_mask': valid_mask,
-            'water_type_classification': water_type_classification
-        }
-
-    def _convert_to_rrs(self, bands_data: Dict[int, np.ndarray]) -> Dict[int, np.ndarray]:
-        """
-        Convert band data to Remote Sensing Reflectance (Rrs) based on data type
-        Automatically detects the source data type and applies appropriate conversion
-        """
-        # FIXED: Check if last_used_bands exists and has data
-        if not hasattr(self, 'last_used_bands') or not self.last_used_bands:
-            logger.warning("No band file information available - attempting to infer from first available band")
-            # Try to infer from any available band file path
-            if hasattr(self, '_current_c2rcc_path'):
-                band_loader = BandLoader(self._current_c2rcc_path)
-                all_bands = band_loader.load_all_bands()
-                # Use the first available band type
-                for band_type, bands in all_bands.items():
-                    if bands:
-                        self.last_used_bands = bands
-                        break
-        if not hasattr(self, 'last_used_bands') or not self.last_used_bands:
-            logger.error("No band file information available for conversion")
-            return {}
-        
-        # Determine data type from file names
-        sample_file = list(self.last_used_bands.values())[0]
-        sample_filename = os.path.basename(sample_file)
-        
-        rrs_data = {}
-        
-        if sample_filename.startswith('rrs_'):
-            # Already Remote Sensing Reflectance - use directly
-            logger.info("Data detected as Rrs - using directly (no conversion needed)")
-            conversion_type = "RRS_DIRECT"
-            rrs_data = bands_data.copy()
-            
-        elif sample_filename.startswith('rhown_') or sample_filename.startswith('rhow_'):
-            # Water-leaving reflectance - convert to Rrs
-            logger.info("Data detected as water-leaving reflectance - converting to Rrs")
-            conversion_type = "RHOW_TO_RRS"
-            
-            for wavelength, rhow in bands_data.items():
-                # Convert rhow to Rrs using standard conversion: Rrs ≈ rhow / π
-                rrs_data[wavelength] = rhow / np.pi
-                
-        elif sample_filename.startswith('rtoa_'):
-            # Top-of-atmosphere reflectance - approximate conversion
-            logger.warning("Data detected as RTOA - using approximate conversion (results will be less accurate)")
-            conversion_type = "RTOA_APPROXIMATE"
-            
-            # For RTOA, we use a simple approximation
-            # This is not ideal but can work for relative comparisons
-            for wavelength, rtoa in bands_data.items():
-                # Simple approximation: assume moderate atmospheric effects
-                # This is a rough conversion and will reduce accuracy
-                rrs_data[wavelength] = rtoa * 0.7  # Approximate atmospheric correction factor
-                
-        elif sample_filename.startswith('ac_reflec_'):
-            # Atmospherically corrected reflectance - good approximation to Rrs
-            logger.info("Data detected as atmospherically corrected reflectance - using as Rrs approximation")
-            conversion_type = "AC_REFLEC_AS_RRS"
-            rrs_data = bands_data.copy()
-            
-        else:
-            logger.error(f"Unknown band data type: {sample_filename}")
-            return {}
-        
-        # Validate converted data
-        valid_bands = []
-        for wavelength, data in rrs_data.items():
-            if data is not None and np.any(np.isfinite(data)) and np.any(data > 0):
-                valid_bands.append(wavelength)
-        
-        logger.info(f"Conversion completed ({conversion_type}): {len(valid_bands)} valid bands")
-        logger.info(f"Available wavelengths: {sorted(valid_bands)} nm")
-        
-        # Check if we have minimum required bands for Jiang processing
-        required_bands = [490, 560, 665, 740]
-        available_required = [wl for wl in required_bands if wl in valid_bands]
-        
-        if len(available_required) < 4:
-            logger.error(f"Insufficient required bands for Jiang processing.")
-            logger.error(f"Required: {required_bands}, Available: {available_required}")
-            return {}
-        
-        logger.info(f"✓ All required bands available for Jiang processing: {available_required}")
-        
-        return rrs_data
-
-    def _create_valid_pixel_mask(self, rrs_data: Dict[int, np.ndarray]) -> np.ndarray:
-        """
-        Create valid pixel mask matching R algorithm requirements
-        Validates that required bands have positive, finite values
-        """
-        # Required bands for processing (from R validation)
-        required_bands = [490, 560, 665, 740]
-        
-        # Get shape from any band
-        shape = next(iter(rrs_data.values())).shape
-        
-        # Initialize valid mask as all True
-        valid_mask = np.ones(shape, dtype=bool)
-        
-        # Check for valid data in required bands
-        for band in required_bands:
-            if band in rrs_data:
-                # Must be positive, finite, and non-zero
-                band_valid = (
-                    np.isfinite(rrs_data[band]) & 
-                    (rrs_data[band] > 0) & 
-                    (rrs_data[band] < 1.0)  # Reasonable upper limit for Rrs
-                )
-                valid_mask &= band_valid
-            else:
-                # If required band is missing, mark all as invalid
-                logger.error(f"Required band {band}nm is missing")
-                valid_mask[:] = False
-                break
-        
-        # Additional validation: check if all values are zero for a pixel
-        for wavelength, data in rrs_data.items():
-            if wavelength in required_bands:
-                all_zero = (data == 0)
-                valid_mask &= ~all_zero
-        
-        valid_count = np.sum(valid_mask)
-        total_count = valid_mask.size
-        valid_percent = (valid_count / total_count) * 100
-        
-        logger.info(f"Valid pixel mask created: {valid_count}/{total_count} ({valid_percent:.1f}%) pixels valid")
-        
-        return valid_mask
-
-    def _process_valid_pixels(self, rrs_data: Dict[int, np.ndarray], 
-                            valid_mask: np.ndarray) -> Dict[str, np.ndarray]:
-        """
-        Process valid pixels with enhanced error handling and exact R algorithm translation
-        """
-        # Extract valid pixel data
-        valid_pixels = {}
-        for wavelength, data in rrs_data.items():
-            valid_pixels[wavelength] = data[valid_mask]
-        
-        n_pixels = len(valid_pixels[490])  # Use 490nm as reference
-        logger.info(f"Processing {n_pixels} valid pixels with Jiang algorithm")
-        
-        # Initialize output arrays for valid pixels
-        absorption_out = np.full(n_pixels, np.nan, dtype=np.float32)
-        backscattering_out = np.full(n_pixels, np.nan, dtype=np.float32)
-        reference_band_out = np.full(n_pixels, np.nan, dtype=np.float32)
-        tss_out = np.full(n_pixels, np.nan, dtype=np.float32)
-        
-        # Process each valid pixel with enhanced error handling
-        processed_count = 0
-        error_count = 0
-        
-        with warnings.catch_warnings():
-            warnings.filterwarnings('ignore', category=RuntimeWarning)
-            
-            for i in range(n_pixels):
-                try:
-                    # Extract Rrs values for this pixel
-                    pixel_rrs = {wl: valid_pixels[wl][i] for wl in valid_pixels.keys()}
-                    
-                    # Additional validation for this pixel
-                    if any(np.isnan(v) or np.isinf(v) or v <= 0 for v in pixel_rrs.values()):
-                        continue
-                    
-                    # Apply Jiang methodology to this pixel
-                    result = self._estimate_tss_single_pixel(pixel_rrs)
-                    
-                    if result is not None:
-                        absorption_out[i] = result['a']
-                        backscattering_out[i] = result['bbp']
-                        reference_band_out[i] = result['band']
-                        tss_out[i] = result['tss']
-                        processed_count += 1
-                    else:
-                        error_count += 1
-                        
-                except Exception as e:
-                    error_count += 1
-                    if error_count < 10:  # Log first few errors
-                        logger.debug(f"Error processing pixel {i}: {e}")
-        
-        success_rate = (processed_count / n_pixels) * 100 if n_pixels > 0 else 0
-        logger.info(f"Pixel processing completed: {processed_count}/{n_pixels} ({success_rate:.1f}%) successful")
-        
-        if error_count > 0:
-            logger.warning(f"Processing errors: {error_count} pixels failed")
-        
-        return {
-            'absorption': absorption_out,
-            'backscattering': backscattering_out,
-            'reference_band': reference_band_out,
-            'tss': tss_out
-        }
-
-    def _log_water_type_distribution(self, valid_mask: np.ndarray, reference_band: np.ndarray):
-        """Log the distribution of water types based on reference bands"""
-        if np.any(valid_mask):
             ref_bands_valid = reference_band[valid_mask]
             ref_bands_valid = ref_bands_valid[~np.isnan(ref_bands_valid)]
             
             if len(ref_bands_valid) > 0:
-                logger.info("Water type distribution:")
+                logger.info("Water type distribution (corrected algorithm):")
                 for band in [560, 665, 740, 865]:
                     count = np.sum(ref_bands_valid == band)
                     if count > 0:
@@ -1761,7 +1388,79 @@ class JiangTSSProcessor:
                             865: "Type IV (Extremely turbid)"
                         }[band]
                         logger.info(f"  {band}nm ({water_type}): {count} pixels ({percentage:.1f}%)")
-                    
+        
+        return {
+            'absorption': absorption,
+            'backscattering': backscattering, 
+            'reference_band': reference_band,
+            'tss': tss_concentration,
+            'valid_mask': valid_mask,
+            'water_type_classification': water_type_classification  # NEW OUTPUT
+        }
+    
+    def _create_valid_pixel_mask(self, rrs_data: Dict[int, np.ndarray]) -> np.ndarray:
+        """
+        Validation matching R algorithm requirements
+        """
+        # Required bands for processing (from R validation)
+        required_bands = [490, 560, 665, 740]
+        
+        # Initialize valid mask
+        valid_mask = np.ones(rrs_data[443].shape, dtype=bool)
+        
+        # Check for valid data in required bands
+        for band in required_bands:
+            if band in rrs_data:
+                # Not zero, not NaN, and positive values
+                band_valid = (~np.isnan(rrs_data[band])) & (rrs_data[band] > 0)
+                valid_mask &= band_valid
+            else:
+                # If required band is missing, mark all as invalid
+                valid_mask[:] = False
+                break
+        
+        return valid_mask
+    
+    def _process_valid_pixels(self, rrs_data: Dict[int, np.ndarray], 
+                                      valid_mask: np.ndarray) -> Dict[str, np.ndarray]:
+        """
+        CORRECTED pixel processing using exact R algorithm
+        """
+        # Extract valid pixel data
+        valid_pixels = {}
+        for wavelength, data in rrs_data.items():
+            valid_pixels[wavelength] = data[valid_mask]
+        
+        n_pixels = len(valid_pixels[443])
+        logger.info(f"Processing {n_pixels} valid pixels with corrected Jiang algorithm")
+        
+        # Initialize output arrays for valid pixels
+        absorption_out = np.full(n_pixels, np.nan, dtype=np.float32)
+        backscattering_out = np.full(n_pixels, np.nan, dtype=np.float32)
+        reference_band_out = np.full(n_pixels, np.nan, dtype=np.float32)
+        tss_out = np.full(n_pixels, np.nan, dtype=np.float32)
+        
+        # Process each valid pixel using corrected algorithm
+        for i in range(n_pixels):
+            # Extract Rrs values for this pixel
+            pixel_rrs = {wl: valid_pixels[wl][i] for wl in valid_pixels.keys()}
+            
+            # Apply corrected Jiang methodology to this pixel
+            result = self._estimate_tss_single_pixel(pixel_rrs)
+            
+            if result is not None:
+                absorption_out[i] = result['a']
+                backscattering_out[i] = result['bbp']
+                reference_band_out[i] = result['band']
+                tss_out[i] = result['tss']
+        
+        return {
+            'absorption': absorption_out,
+            'backscattering': backscattering_out,
+            'reference_band': reference_band_out,
+            'tss': tss_out
+        }
+    
     def _estimate_tss_single_pixel(self, pixel_rrs: Dict[int, float]) -> Optional[Dict]:
         """
         EXACT R implementation: Estimate_TSS_Jiang_MSI <- function(site_Rrs)
@@ -3216,10 +2915,9 @@ class S2MarineVisualizationProcessor:
         return available_bands
     
     def _load_bands_data_from_paths(self, band_paths: Dict[int, str]) -> Tuple[Optional[Dict], Optional[Dict]]:
-        """Load band data from file paths with enhanced error handling"""
+        """Load band data from file paths"""
         bands_data = {}
         reference_metadata = None
-        failed_bands = []
         
         for wavelength, file_path in band_paths.items():
             try:
@@ -3228,21 +2926,13 @@ class S2MarineVisualizationProcessor:
                 
                 if reference_metadata is None:
                     reference_metadata = metadata
-                    
-                logger.debug(f"Loaded band {wavelength}nm: {data.shape}, type: {data.dtype}")
+                
+                self.logger.debug(f"Loaded band {wavelength}nm: shape={data.shape}, range=[{np.nanmin(data):.6f}, {np.nanmax(data):.6f}]")
                 
             except Exception as e:
-                logger.error(f"Failed to load band {wavelength}nm from {file_path}: {e}")
-                failed_bands.append(wavelength)
+                self.logger.error(f"Failed to load band {wavelength}nm from {file_path}: {e}")
+                return None, None
         
-        if failed_bands:
-            logger.warning(f"Failed to load bands: {failed_bands}")
-        
-        if not bands_data:
-            logger.error("No bands could be loaded")
-            return None, None
-        
-        logger.info(f"Successfully loaded {len(bands_data)} bands")
         return bands_data, reference_metadata
     
     def _generate_rgb_composites(self, bands_data: Dict, metadata: Dict, 
@@ -3575,7 +3265,7 @@ class S2MarineVisualizationProcessor:
 # ===== S2 PROCESSOR =====
 
 class S2Processor:
-    """Clean S2 processor - handles ONLY S2 processing (L1C → C2RCC)"""
+    """Enhanced S2 processor with complete pipeline"""
     
     def __init__(self, config: ProcessingConfig):
         self.config = config
@@ -3593,7 +3283,7 @@ class S2Processor:
         self.setup_processing_graphs()
     
     def validate_snap_installation(self):
-        """Validate SNAP installation"""
+        """Enhanced SNAP validation"""
         snap_home = os.environ.get('SNAP_HOME')
         if not snap_home:
             logger.error("SNAP_HOME environment variable not set!")
@@ -3614,6 +3304,9 @@ class S2Processor:
             else:
                 logger.error(f"GPT validation failed: {result.stderr}")
                 raise RuntimeError("GPT validation failed")
+        except subprocess.TimeoutExpired:
+            logger.error("GPT validation timeout")
+            raise RuntimeError("GPT validation timeout")
         except Exception as e:
             logger.error(f"GPT validation error: {e}")
             raise RuntimeError(f"GPT validation error: {e}")
@@ -3628,12 +3321,15 @@ class S2Processor:
     
     def setup_processing_graphs(self):
         """Create processing graphs based on configuration"""
-        if self.config.subset_config.geometry_wkt or self.config.subset_config.pixel_start_x is not None:
-            self.main_graph_file = self.create_s2_graph_with_subset()
-        else:
-            self.main_graph_file = self.create_s2_graph_no_subset()
+        mode = self.config.processing_mode
         
-        logger.info(f"✓ S2 processing graph created")
+        if mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.S2_PROCESSING_ONLY]:
+            if self.config.subset_config.geometry_wkt or self.config.subset_config.pixel_start_x is not None:
+                self.main_graph_file = self.create_s2_graph_with_subset()
+            else:
+                self.main_graph_file = self.create_s2_graph_no_subset()
+        
+        logger.info(f"✓ Processing graph created for mode: {mode.value}")
     
     def create_s2_graph_with_subset(self) -> str:
         """Create S2 processing graph with spatial subset"""
@@ -3643,6 +3339,7 @@ class S2Processor:
 <graph id="S2_Complete_Processing_WithSubset">
   <version>1.0</version>
   
+  <!-- Step 1: Read Input Product -->
   <node id="Read">
     <operator>Read</operator>
     <sources/>
@@ -3651,6 +3348,7 @@ class S2Processor:
     </parameters>
   </node>
   
+  <!-- Step 2: S2 Resampling -->
   <node id="S2Resampling">
     <operator>S2Resampling</operator>
     <sources>
@@ -3665,6 +3363,7 @@ class S2Processor:
     </parameters>
   </node>
   
+  <!-- Step 3: Spatial Subset -->
   <node id="Subset">
     <operator>Subset</operator>
     <sources>
@@ -3679,6 +3378,7 @@ class S2Processor:
     </parameters>
   </node>
   
+  <!-- Step 4: C2RCC Atmospheric Correction -->
   <node id="c2rcc_msi">
     <operator>c2rcc.msi</operator>
     <sources>
@@ -3689,6 +3389,7 @@ class S2Processor:
     </parameters>
   </node>
   
+  <!-- Step 5: Write Output -->
   <node id="Write">
     <operator>Write</operator>
     <sources>
@@ -3706,7 +3407,7 @@ class S2Processor:
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
         
-        logger.info(f"S2 processing graph with subset saved: {graph_file}")
+        logger.info(f"Complete processing graph saved: {graph_file}")
         return graph_file
     
     def create_s2_graph_no_subset(self) -> str:
@@ -3715,6 +3416,7 @@ class S2Processor:
 <graph id="S2_Complete_Processing_NoSubset">
   <version>1.0</version>
   
+  <!-- Step 1: Read Input Product -->
   <node id="Read">
     <operator>Read</operator>
     <sources/>
@@ -3723,6 +3425,7 @@ class S2Processor:
     </parameters>
   </node>
   
+  <!-- Step 2: S2 Resampling -->
   <node id="S2Resampling">
     <operator>S2Resampling</operator>
     <sources>
@@ -3737,6 +3440,7 @@ class S2Processor:
     </parameters>
   </node>
   
+  <!-- Step 3: C2RCC Atmospheric Correction -->
   <node id="c2rcc_msi">
     <operator>c2rcc.msi</operator>
     <sources>
@@ -3747,6 +3451,7 @@ class S2Processor:
     </parameters>
   </node>
   
+  <!-- Step 4: Write Output -->
   <node id="Write">
     <operator>Write</operator>
     <sources>
@@ -3764,11 +3469,11 @@ class S2Processor:
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
         
-        logger.info(f"S2 processing graph without subset saved: {graph_file}")
+        logger.info(f"Complete processing graph saved: {graph_file}")
         return graph_file
     
     def _get_subset_parameters(self) -> str:
-        """Generate subset parameters for XML"""
+        """Generate subset parameters for XML with proper escaping"""
         subset_config = self.config.subset_config
         
         if subset_config.geometry_wkt:
@@ -3780,20 +3485,23 @@ class S2Processor:
             return ""
     
     def _get_c2rcc_parameters(self) -> str:
-        """Generate C2RCC parameters with EXACT SNAP parameter names"""
+        """Generate complete C2RCC parameters with correct SNAP parameter names"""
         c2rcc = self.config.c2rcc_config
         
-        # Build complete parameter set using exact SNAP parameter names
-        params = f'''<validPixelExpression>{c2rcc.valid_pixel_expression}</validPixelExpression>
+        # Escape XML special characters
+        valid_pixel_expr = c2rcc.valid_pixel_expression.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        
+        # Build complete parameter set using exact SNAP parameter names (CORRECT ORDER)
+        params = f'''<validPixelExpression>{valid_pixel_expr}</validPixelExpression>
         <salinity>{c2rcc.salinity}</salinity>
         <temperature>{c2rcc.temperature}</temperature>
         <ozone>{c2rcc.ozone}</ozone>
         <press>{c2rcc.pressure}</press>
         <elevation>{c2rcc.elevation}</elevation>
-        <TSMfac>{getattr(c2rcc, 'tsm_fac', 1.06)}</TSMfac>
-        <TSMexp>{getattr(c2rcc, 'tsm_exp', 0.942)}</TSMexp>
-        <CHLexp>{getattr(c2rcc, 'chl_exp', 1.04)}</CHLexp>
-        <CHLfac>{getattr(c2rcc, 'chl_fac', 21.0)}</CHLfac>
+        <TSMfac>{c2rcc.tsm_fac}</TSMfac>
+        <TSMexp>{c2rcc.tsm_exp}</TSMexp>
+        <CHLexp>{c2rcc.chl_exp}</CHLexp>
+        <CHLfac>{c2rcc.chl_fac}</CHLfac>
         <thresholdRtosaOOS>{c2rcc.threshold_rtosa_oos}</thresholdRtosaOOS>
         <thresholdAcReflecOos>{c2rcc.threshold_ac_reflec_oos}</thresholdAcReflecOos>
         <thresholdCloudTDown865>{c2rcc.threshold_cloud_tdown865}</thresholdCloudTDown865>
@@ -3809,302 +3517,511 @@ class S2Processor:
         <outputTdown>{str(c2rcc.output_tdown).lower()}</outputTdown>
         <outputTup>{str(c2rcc.output_tup).lower()}</outputTup>
         <outputAcReflectance>{str(c2rcc.output_ac_reflectance).lower()}</outputAcReflectance>
-        <outputRhown>{str(getattr(c2rcc, 'output_rhown', c2rcc.output_rhow)).lower()}</outputRhown>
+        <outputRhown>{str(c2rcc.output_rhow).lower()}</outputRhown>
         <outputOos>{str(c2rcc.output_oos).lower()}</outputOos>
         <outputKd>{str(c2rcc.output_kd).lower()}</outputKd>
         <outputUncertainties>{str(c2rcc.output_uncertainties).lower()}</outputUncertainties>'''
         
         # Add optional paths if specified
-        if hasattr(c2rcc, 'atmospheric_aux_data_path') and c2rcc.atmospheric_aux_data_path:
+        if c2rcc.atmospheric_aux_data_path:
             params += f'\n      <atmosphericAuxDataPath>{c2rcc.atmospheric_aux_data_path}</atmosphericAuxDataPath>'
         
-        if hasattr(c2rcc, 'alternative_nn_path') and c2rcc.alternative_nn_path:
+        if c2rcc.alternative_nn_path:
             params += f'\n      <alternativeNNPath>{c2rcc.alternative_nn_path}</alternativeNNPath>'
         
         return params
     
-    def process_single_product(self, product_path: str, output_folder: str) -> Dict[str, ProcessingResult]:
-        """Process single S2 product - CLEAN VERSION"""
-        try:
-            product_name = self._extract_product_name(product_path)
-            self.current_product = product_name
-            processing_start = time.time()
+    def get_output_filename(self, input_path: str, output_dir: str, stage: str) -> str:
+        """Generate output filename based on processing stage"""
+        basename = os.path.basename(input_path)
+        
+        # Extract base product name
+        if basename.endswith('.zip'):
+            product_name = basename.replace('.zip', '')
+        elif basename.endswith('.SAFE'):
+            product_name = basename.replace('.SAFE', '')
+        elif basename.endswith('.dim'):
+            product_name = basename.replace('.dim', '')
+        else:
+            product_name = basename
             
-            logger.info(f"S2 Processing: {os.path.basename(product_path)}")
+        # Remove MSIL1C prefix for cleaner naming
+        if 'MSIL1C' in product_name:
+            # Extract key parts: S2A_MSIL1C_20230615T113321_N0509_R080_T29TNE_20230615T134426
+            parts = product_name.split('_')
+            if len(parts) >= 6:
+                # Create cleaner name: S2A_20230615T113321_T29TNE
+                clean_name = f"{parts[0]}_{parts[2]}_{parts[5]}"
+            else:
+                clean_name = product_name.replace('MSIL1C_', '')
+        else:
+            clean_name = product_name
+            
+        # Stage-specific naming
+        if stage == "geometric":
+            output_name = f"Resampled_{clean_name}_Subset.dim"
+            return os.path.join(output_dir, "Geometric_Products", output_name)
+        elif stage == "c2rcc":
+            output_name = f"Resampled_{clean_name}_Subset_C2RCC.dim"
+            return os.path.join(output_dir, "C2RCC_Products", output_name)
+        else:
+            return os.path.join(output_dir, f"{clean_name}_{stage}.dim")
+    
+    def process_single_product(self, input_path: str, output_folder: str) -> Dict[str, ProcessingResult]:
+        """Process single product through complete S2 pipeline"""
+        processing_start = time.time()
+        results = {}
+        
+        try:
+            product_name = os.path.basename(input_path)
+            self.current_product = product_name
+            
+            logger.info(f"Processing: {product_name}")
             logger.info(f"  Mode: {self.config.processing_mode.value}")
             logger.info(f"  Resolution: {self.config.resampling_config.target_resolution}m")
             logger.info(f"  ECMWF: {self.config.c2rcc_config.use_ecmwf_aux_data}")
             
-            # Check if outputs already exist
-            if self.config.skip_existing and self._check_outputs_exist(product_name, output_folder):
-                logger.info(f"S2 outputs exist, skipping: {product_name}")
-                self.skipped_count += 1
-                return {'skipped': ProcessingResult(True, "", {"reason": "exists"}, None)}
+            # Ensure output directories exist
+            os.makedirs(os.path.join(output_folder, "Geometric_Products"), exist_ok=True)
+            os.makedirs(os.path.join(output_folder, "C2RCC_Products"), exist_ok=True)
+            os.makedirs(os.path.join(output_folder, "TSS_Products"), exist_ok=True)
+            os.makedirs(os.path.join(output_folder, "Logs"), exist_ok=True)
             
-            # S2 Processing with C2RCC atmospheric correction
-            logger.info("Starting S2 processing with C2RCC...")
-            s2_result = self._process_s2_with_c2rcc(product_path, output_folder, product_name)
+            # Check system health before processing
+            if hasattr(self, 'system_monitor'):
+                healthy, warnings = self.system_monitor.check_system_health()
+                if not healthy:
+                    logger.warning("System health issues detected:")
+                    for warning in warnings:
+                        logger.warning(f"  - {warning}")
             
-            if not s2_result.success:
-                logger.error(f"S2 processing failed: {s2_result.error_message}")
-                self.failed_count += 1
-                return {'s2_error': s2_result}
+            # Step 1: S2 Processing (Resampling + Subset + C2RCC)
+            self.current_stage = "S2 Processing (Complete)"
+            c2rcc_output_path = self.get_output_filename(input_path, output_folder, "c2rcc")
             
-            c2rcc_path = s2_result.output_path
+            # Check if output already exists and is valid
+            if self.config.skip_existing and os.path.exists(c2rcc_output_path):
+                file_size = os.path.getsize(c2rcc_output_path)
+                if file_size > 1024 * 1024:  # > 1MB
+                    logger.info(f"C2RCC output exists ({file_size/1024/1024:.1f}MB), skipping S2 processing")
+                    self.skipped_count += 1
+                    
+                    # Verify required bands exist for TSS processing
+                    data_folder = c2rcc_output_path.replace('.dim', '.data')
+                    required_bands = ['conc_tsm.img', 'conc_chl.img', 'unc_tsm.img', 'unc_chl.img']
+                    if self.config.jiang_config.enable_jiang_tss:
+                        required_bands.extend(['rhow_B1.img', 'rhow_B2.img', 'rhow_B3.img', 'rhow_B4.img',
+                                             'rhow_B5.img', 'rhow_B6.img', 'rhow_B7.img', 'rhow_B8A.img'])
+                    
+                    missing_bands = []
+                    for band in required_bands:
+                        if not os.path.exists(os.path.join(data_folder, band)):
+                            missing_bands.append(band)
+                    
+                    if missing_bands:
+                        logger.warning(f"Missing bands for TSS processing: {missing_bands}")
+                        logger.warning("Will reprocess to ensure all required bands are available")
+                    else:
+                        results['s2_processing'] = ProcessingResult(True, c2rcc_output_path, 
+                                                                  {'file_size_mb': file_size/1024/1024, 'status': 'skipped'}, None)
+                        
+                        # Continue to TSS processing if enabled
+                        if self.config.processing_mode == ProcessingMode.COMPLETE_PIPELINE and self.config.jiang_config.enable_jiang_tss:
+                            tss_results = self._process_tss_stage(c2rcc_output_path, output_folder, product_name)
+                            results.update(tss_results)
+                        
+                        return results
+                else:
+                    logger.warning(f"Removing incomplete C2RCC output file ({file_size} bytes)")
+                    os.remove(c2rcc_output_path)
+            
+            # Run S2 processing
+            s2_success = self._run_s2_processing(input_path, c2rcc_output_path)
+            
             processing_time = time.time() - processing_start
             
-            logger.info(f"✅ S2 processing SUCCESS: {os.path.basename(product_path)}")
-            logger.info(f"   Output: {os.path.basename(c2rcc_path)} ({s2_result.statistics.get('file_size_mb', 0):.1f}MB)")
-            logger.info(f"   Processing time: {processing_time/60:.1f} minutes")
+            if s2_success:
+                # Verify C2RCC output and extract SNAP TSM/CHL info
+                c2rcc_stats = self._verify_c2rcc_output(c2rcc_output_path)
+                
+                if c2rcc_stats:
+                    # Initial S2 processing success
+                    logger.info(f"✅ S2 processing SUCCESS: {product_name}")
+                    logger.info(f"   Output: {os.path.basename(c2rcc_output_path)} ({c2rcc_stats['file_size_mb']:.1f}MB)")
+                    logger.info(f"   Processing time: {processing_time/60:.1f} minutes")
+                    
+                    self.processed_count += 1
+                    results['s2_processing'] = ProcessingResult(True, c2rcc_output_path, c2rcc_stats, None)
+                    
+                    # Calculate SNAP TSM/CHL from IOPs if missing
+                    if not c2rcc_stats['has_tsm'] or not c2rcc_stats['has_chl']:
+                        logger.info("Calculating missing SNAP TSM/CHL concentrations from IOP products...")
+                        snap_calculator = SNAPTSMCHLCalculator(
+                            tsm_fac=self.config.c2rcc_config.tsm_fac,
+                            tsm_exp=self.config.c2rcc_config.tsm_exp,
+                            chl_fac=self.config.c2rcc_config.chl_fac,
+                            chl_exp=self.config.c2rcc_config.chl_exp
+                        )
+                        
+                        snap_tsm_chl_results = snap_calculator.calculate_snap_tsm_chl(c2rcc_output_path)
+                        results.update(snap_tsm_chl_results)
+                        
+                        # Log SNAP TSM/CHL results
+                        if 'snap_tsm' in snap_tsm_chl_results and snap_tsm_chl_results['snap_tsm'].success:
+                            logger.info("✅ SNAP TSM calculation successful!")
+                        
+                        if 'snap_chl' in snap_tsm_chl_results and snap_tsm_chl_results['snap_chl'].success:
+                            logger.info("✅ SNAP CHL calculation successful!")
+                        
+                        # RE-VERIFY after calculation to get updated status
+                        c2rcc_stats_updated = self._verify_c2rcc_output(c2rcc_output_path)
+                        if c2rcc_stats_updated:
+                            logger.info("📊 UPDATED SNAP PRODUCTS STATUS:")
+                            logger.info(f"   TSM={c2rcc_stats_updated['has_tsm']}, CHL={c2rcc_stats_updated['has_chl']}, Uncertainties={c2rcc_stats_updated['has_uncertainties']}")
+                            # Update the stats in results
+                            results['s2_processing'] = ProcessingResult(True, c2rcc_output_path, c2rcc_stats_updated, None)
+                    else:
+                        logger.info("✅ SNAP TSM/CHL products already available")
+                        logger.info(f"   TSM={c2rcc_stats['has_tsm']}, CHL={c2rcc_stats['has_chl']}, Uncertainties={c2rcc_stats['has_uncertainties']}")
+                    
+                    # Continue with TSS Processing (if enabled and complete pipeline)
+                    if self.config.processing_mode == ProcessingMode.COMPLETE_PIPELINE and self.config.jiang_config.enable_jiang_tss:
+                        tss_results = self._process_tss_stage(c2rcc_output_path, output_folder, product_name)
+                        results.update(tss_results)
+                    
+                else:
+                    logger.error(f"❌ C2RCC output verification failed: {product_name}")
+                    self.failed_count += 1
+                    results['s2_processing'] = ProcessingResult(False, c2rcc_output_path, None, "C2RCC output verification failed")
+            else:
+                logger.error(f"❌ S2 processing FAILED: {product_name}")
+                self.failed_count += 1
+                results['s2_processing'] = ProcessingResult(False, c2rcc_output_path, None, "S2 processing failed")
             
-            # Ensure SNAP products exist and verify output
-            self._ensure_snap_products(c2rcc_path)
-            verification_stats = self._verify_c2rcc_output(c2rcc_path)
-            
-            if verification_stats:
-                logger.info("📊 C2RCC OUTPUT VERIFICATION:")
-                logger.info(f"   TSM: {'✅' if verification_stats.get('has_snap_tsm') else '❌'}")
-                logger.info(f"   CHL: {'✅' if verification_stats.get('has_snap_chl') else '❌'}")
-                logger.info(f"   Ready for Jiang: {'✅' if verification_stats.get('ready_for_jiang_tss') else '❌'}")
-            
-            self.processed_count += 1
-            return {'s2_processing': s2_result}
-            
+            return results
+                
         except Exception as e:
-            error_msg = f"S2 processing error: {str(e)}"
+            processing_time = time.time() - processing_start
+            error_msg = f"Unexpected error processing {product_name}: {str(e)}"
             logger.error(error_msg)
-            import traceback
-            traceback.print_exc()
             self.failed_count += 1
-            return {'s2_error': ProcessingResult(False, "", None, error_msg)}
+            return {'error': ProcessingResult(False, "", None, error_msg)}
     
-    def _extract_product_name(self, product_path: str) -> str:
-        """Extract clean product name from file path"""
-        filename = os.path.basename(product_path)
-        
-        if filename.endswith('.zip'):
-            filename = filename[:-4]
-        elif filename.endswith('.SAFE'):
-            filename = filename[:-5]
-        
-        return filename
-    
-    def _check_outputs_exist(self, product_name: str, output_folder: str) -> bool:
-        """Check if S2 outputs already exist"""
+    def _run_s2_processing(self, input_path: str, output_path: str) -> bool:
+        """Run S2 processing using GPT"""
         try:
-            expected_s2_output = os.path.join(
-                output_folder, 
-                f"Resampled_{product_name}_Subset_C2RCC.dim"
-            )
-            return os.path.exists(expected_s2_output) and os.path.getsize(expected_s2_output) > 1024*1024  # > 1MB
-        except Exception as e:
-            logger.warning(f"Error checking existing S2 outputs: {e}")
-            return False
-    
-    def _process_s2_with_c2rcc(self, input_path: str, output_folder: str, product_name: str) -> ProcessingResult:
-        """Process S2 with C2RCC atmospheric correction"""
-        try:
-            self.current_stage = "S2 Processing (Resampling + C2RCC)"
-            
-            output_file = os.path.join(output_folder, f"Resampled_{product_name}_Subset_C2RCC.dim")
-            
-            # Build GPT command
+            # Prepare GPT command
             gpt_cmd = self.get_gpt_command()
+            
             cmd = [
                 gpt_cmd,
                 self.main_graph_file,
                 f'-PsourceProduct={input_path}',
-                f'-PtargetProduct={output_file}',
+                f'-PtargetProduct={output_path}',
                 f'-c', f'{self.config.memory_limit_gb}G',
                 f'-q', str(self.config.thread_count)
             ]
             
-            logger.info(f"Running S2 processing: {' '.join(cmd)}")
+            logger.debug(f"GPT command: {' '.join(cmd)}")
             
-            # Execute SNAP processing
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+            # Run GPT processing with timeout
+            logger.info(f"Starting S2 processing with C2RCC...")
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=3600  # 1 hour timeout
+            )
             
+            # Check processing results
             if result.returncode == 0:
-                if os.path.exists(output_file):
-                    file_size_mb = os.path.getsize(output_file) / (1024 * 1024)
-                    
-                    if file_size_mb > 1:  # Valid output
-                        logger.info(f"S2 processing completed successfully: {file_size_mb:.1f}MB")
-                        
-                        statistics = {
-                            'file_size_mb': file_size_mb,
-                            'processing_mode': 's2_processing',
-                            'resolution': self.config.resampling_config.target_resolution
-                        }
-                        
-                        return ProcessingResult(True, output_file, statistics, None)
+                if os.path.exists(output_path):
+                    file_size = os.path.getsize(output_path)
+                    if file_size > 1024 * 1024:  # > 1MB
+                        return True
                     else:
-                        error_msg = f"S2 output file too small: {file_size_mb:.1f}MB"
-                        logger.error(error_msg)
-                        return ProcessingResult(False, "", None, error_msg)
+                        logger.error(f"❌ Output file too small ({file_size} bytes)")
+                        return False
                 else:
-                    error_msg = "S2 output file not found"
-                    logger.error(error_msg)
-                    return ProcessingResult(False, "", None, error_msg)
+                    logger.error(f"❌ Output file not created")
+                    return False
             else:
-                error_msg = f"S2 processing failed: {result.stderr}"
-                logger.error(error_msg)
-                return ProcessingResult(False, "", None, error_msg)
+                logger.error(f"❌ GPT processing failed")
+                logger.error(f"Return code: {result.returncode}")
+                if result.stderr:
+                    logger.error(f"GPT stderr: {result.stderr[:1000]}...")
+                return False
                 
         except subprocess.TimeoutExpired:
-            error_msg = "S2 processing timeout (1 hour)"
-            logger.error(error_msg)
-            return ProcessingResult(False, "", None, error_msg)
+            logger.error(f"❌ GPT processing timeout")
+            return False
         except Exception as e:
-            error_msg = f"S2 processing error: {str(e)}"
-            logger.error(error_msg)
-            return ProcessingResult(False, "", None, error_msg)
-    
-    def _ensure_snap_products(self, c2rcc_path: str):
-        """Ensure SNAP TSM/CHL products exist, calculate if missing"""
-        try:
-            data_folder = c2rcc_path.replace('.dim', '.data')
-            
-            tsm_path = os.path.join(data_folder, 'conc_tsm.img')
-            chl_path = os.path.join(data_folder, 'conc_chl.img')
-            
-            missing_products = []
-            if not os.path.exists(tsm_path) or os.path.getsize(tsm_path) < 1024:
-                missing_products.append('TSM')
-            if not os.path.exists(chl_path) or os.path.getsize(chl_path) < 1024:
-                missing_products.append('CHL')
-            
-            if missing_products:
-                logger.info(f"Calculating missing SNAP products: {missing_products}")
-                
-                # Initialize calculator with C2RCC parameters
-                snap_calculator = SNAPTSMCHLCalculator(
-                    tsm_fac=getattr(self.config.c2rcc_config, 'tsm_fac', 1.06),
-                    tsm_exp=getattr(self.config.c2rcc_config, 'tsm_exp', 0.942),
-                    chl_fac=getattr(self.config.c2rcc_config, 'chl_fac', 21.0),
-                    chl_exp=getattr(self.config.c2rcc_config, 'chl_exp', 1.04)
-                )
-                
-                results = snap_calculator.calculate_snap_tsm_chl(c2rcc_path)
-                
-                for product in missing_products:
-                    if f'snap_{product.lower()}' in results and results[f'snap_{product.lower()}'].success:
-                        logger.info(f"✅ SNAP {product} calculation successful!")
-                    else:
-                        logger.warning(f"⚠️  SNAP {product} calculation failed")
-            else:
-                logger.info("✅ All SNAP products already exist")
-                
-        except Exception as e:
-            logger.warning(f"Error ensuring SNAP products: {e}")
+            logger.error(f"❌ GPT processing error: {str(e)}")
+            return False
     
     def _verify_c2rcc_output(self, c2rcc_path: str) -> Optional[Dict]:
-        """Verify C2RCC output and log comprehensive report"""
+        """Enhanced C2RCC verification that checks for both original and calculated TSM/CHL"""
         try:
-            data_folder = c2rcc_path.replace('.dim', '.data')
-            
-            if not os.path.exists(data_folder):
-                logger.error(f"C2RCC data folder not found: {data_folder}")
+            # Safe file existence check
+            if not os.path.exists(c2rcc_path) or not os.path.isfile(c2rcc_path):
+                logger.error(f"C2RCC file does not exist or is not a file: {c2rcc_path}")
+                return None
+
+            # Safe file size check
+            try:
+                file_size = os.path.getsize(c2rcc_path)
+            except (OSError, IOError, PermissionError) as e:
+                logger.error(f"Cannot access C2RCC file {c2rcc_path}: {e}")
                 return None
             
-            # Check file size
-            file_size_mb = os.path.getsize(c2rcc_path) / (1024 * 1024) if os.path.exists(c2rcc_path) else 0
+            if file_size < 1024 * 1024:  # Less than 1MB is suspicious
+                logger.warning(f"C2RCC file suspiciously small: {file_size} bytes")
+                return None
+
+            # Safe data folder check
+            data_folder = c2rcc_path.replace('.dim', '.data')
+            if not os.path.exists(data_folder) or not os.path.isdir(data_folder):
+                logger.error(f"C2RCC data folder missing or invalid: {data_folder}")
+                return None
+
+            # UPDATED: Check for SNAP TSM/CHL products (both original and calculated)
+            critical_products = {
+                'conc_tsm.img': False,      # TSM concentration (CRITICAL)
+                'conc_chl.img': False,      # CHL concentration (CRITICAL)  
+            }
             
+            uncertainty_products = {
+                'unc_tsm.img': False,       # TSM uncertainty
+                'unc_chl.img': False,       # CHL uncertainty
+            }
+            
+            snap_products = {
+                'iop_apig.img': False,      # Pigment absorption (for CHL calculation)
+                'iop_adet.img': False,      # Detritus absorption
+                'iop_agelb.img': False,     # CDOM absorption
+                'iop_bpart.img': False,     # Particle backscattering (for TSM)
+                'iop_bwit.img': False,      # White particle backscattering
+                'iop_btot.img': False       # Total backscattering
+            }
+            
+            # Check critical products (TSM/CHL)
+            for product in critical_products.keys():
+                product_path = os.path.join(data_folder, product)
+                if os.path.exists(product_path) and os.path.getsize(product_path) > 1024:
+                    critical_products[product] = True
+            
+            # Check uncertainty products
+            for product in uncertainty_products.keys():
+                product_path = os.path.join(data_folder, product)
+                if os.path.exists(product_path) and os.path.getsize(product_path) > 1024:
+                    uncertainty_products[product] = True
+            
+            # Check SNAP IOP products
+            snap_file_sizes = {}
+            for product in snap_products.keys():
+                product_path = os.path.join(data_folder, product)
+                try:
+                    if os.path.exists(product_path) and os.path.isfile(product_path):
+                        product_size = os.path.getsize(product_path)
+                        snap_file_sizes[product] = product_size
+                        if product_size > 1024:  # At least 1KB
+                            snap_products[product] = True
+                        else:
+                            logger.warning(f"SNAP product {product} exists but is too small ({product_size} bytes)")
+                    else:
+                        snap_file_sizes[product] = 0
+                except (OSError, PermissionError) as e:
+                    logger.warning(f"Cannot access SNAP product file {product}: {e}")
+                    snap_products[product] = False
+                    snap_file_sizes[product] = -1
+
+            # Check for rhow bands (needed for Jiang TSS)
+            rhow_bands = [f'rhow_B{i}.img' for i in ['1', '2', '3', '4', '5', '6', '7', '8A']]
+            rhow_count = 0
+            missing_bands = []
+            
+            for band in rhow_bands:
+                band_path = os.path.join(data_folder, band)
+                try:
+                    if os.path.exists(band_path) and os.path.isfile(band_path):
+                        band_size = os.path.getsize(band_path)
+                        if band_size > 1024:  # At least 1KB
+                            rhow_count += 1
+                        else:
+                            missing_bands.append(f"{band} ({band_size} bytes)")
+                    else:
+                        missing_bands.append(band)
+                except (OSError, PermissionError):
+                    missing_bands.append(f"{band} (access error)")
+
+            # Count successful SNAP products
+            snap_product_count = sum(snap_products.values())
+            critical_products_count = sum(critical_products.values())
+            
+            # Comprehensive statistics
+            stats = {
+                # File information
+                'file_size_mb': file_size / 1024 / 1024,
+                'data_folder_valid': True,
+                
+                # SNAP TSM/CHL products (MAIN FOCUS)
+                'has_tsm': critical_products['conc_tsm.img'],
+                'has_chl': critical_products['conc_chl.img'],
+                'has_uncertainties': uncertainty_products['unc_tsm.img'] and uncertainty_products['unc_chl.img'],
+                'critical_products_available': critical_products_count,
+                
+                # SNAP IOP products (additional info)
+                'has_iop_apig': snap_products['iop_apig.img'],
+                'has_iop_bpart': snap_products['iop_bpart.img'],
+                'has_iop_btot': snap_products['iop_btot.img'],
+                'snap_product_count': snap_product_count,
+                'total_snap_products': len(snap_products),
+                
+                # Jiang TSS readiness
+                'rhow_bands_count': rhow_count,
+                'rhow_bands_total': len(rhow_bands),
+                'ready_for_jiang_tss': rhow_count == 8,
+                
+                # File size details (for debugging)
+                'snap_file_sizes': snap_file_sizes,
+            }
+
+            # UPDATED LOGGING with intelligent detection
             logger.info("=" * 60)
             logger.info("C2RCC OUTPUT VERIFICATION REPORT")
             logger.info("=" * 60)
-            logger.info(f"C2RCC file: {os.path.basename(c2rcc_path)} ({file_size_mb:.1f} MB)")
+            
+            # File info
+            logger.info(f"C2RCC file: {os.path.basename(c2rcc_path)} ({stats['file_size_mb']:.1f} MB)")
             logger.info(f"Data folder: {os.path.basename(data_folder)}")
             
-            # Check SNAP TSM/CHL products
-            tsm_path = os.path.join(data_folder, 'conc_tsm.img')
-            chl_path = os.path.join(data_folder, 'conc_chl.img')
-            
-            has_snap_tsm = os.path.exists(tsm_path) and os.path.getsize(tsm_path) > 1024
-            has_snap_chl = os.path.exists(chl_path) and os.path.getsize(chl_path) > 1024
-            
-            logger.info("\n🧪 SNAP TSM/CHL PRODUCTS:")
-            if has_snap_tsm and has_snap_chl:
+            # SNAP TSM/CHL status (UPDATED LOGIC)
+            logger.info("\n🧪 SNAP TSM/CHL PRODUCTS (Critical for Analysis):")
+            if stats['has_tsm'] and stats['has_chl']:
                 logger.info("✅ SUCCESS: Both TSM and CHL products available!")
-                logger.info(f"   ✓ TSM: conc_tsm.img ({os.path.getsize(tsm_path)/1024:.1f} KB)")
-                logger.info(f"   ✓ CHL: conc_chl.img ({os.path.getsize(chl_path)/1024:.1f} KB)")
+                logger.info(f"   ✓ TSM: conc_tsm.img ({snap_file_sizes.get('conc_tsm.img', 0)/1024:.1f} KB)")
+                logger.info(f"   ✓ CHL: conc_chl.img ({snap_file_sizes.get('conc_chl.img', 0)/1024:.1f} KB)")
+                
+                if stats['has_uncertainties']:
+                    logger.info("   ✓ Uncertainties: Available")
+                else:
+                    logger.info("   ⚠ Uncertainties: Not available (calculated products)")
             else:
+                # This will only show if our calculator hasn't run yet
                 logger.info("ℹ️  TSM/CHL products will be calculated from IOP products")
+                logger.info("   Using SNAP formulas:")
+                logger.info("   • TSM = TSMfac * (bpart + bwit)^TSMexp")
+                logger.info("   • CHL = apig^CHLexp * CHLfac")
             
-            # Check spectral bands for Jiang TSS
-            rrs_bands = self._check_spectral_bands(data_folder, 'rrs')
-            rhow_bands = self._check_spectral_bands(data_folder, 'rhow') 
-            rtoa_bands = self._check_spectral_bands(data_folder, 'rtoa')
+            # SNAP IOP products status
+            logger.info(f"\n🔬 SNAP IOP PRODUCTS ({snap_product_count}/{len(snap_products)} available):")
+            for product in ['iop_apig.img', 'iop_adet.img', 'iop_agelb.img', 'iop_bpart.img', 'iop_bwit.img', 'iop_btot.img']:
+                if product in snap_products:
+                    status = "✓" if snap_products[product] else "✗"
+                    size_info = f"({snap_file_sizes.get(product, 0)/1024:.1f} KB)" if snap_products[product] else "(missing/empty)"
+                    logger.info(f"   {status} {product} {size_info}")
             
-            logger.info(f"\n🌊 JIANG TSS READINESS:")
-            total_bands_available = len(rrs_bands) + len(rhow_bands)
-            if total_bands_available >= 8:
-                logger.info("✅ EXCELLENT: Sufficient bands for Jiang TSS")
-                logger.info(f"   Rrs bands: {len(rrs_bands)}, Rhow bands: {len(rhow_bands)}")
-            elif total_bands_available >= 4:
-                logger.warning("⚠ PARTIAL: Some bands available for Jiang TSS")
-                logger.warning(f"   Rrs bands: {len(rrs_bands)}, Rhow bands: {len(rhow_bands)}")
+            # Jiang TSS readiness
+            logger.info(f"\n🌊 JIANG TSS READINESS ({rhow_count}/{len(rhow_bands)} bands):")
+            if stats['ready_for_jiang_tss']:
+                logger.info("✅ READY: All rhow bands available for Jiang TSS processing")
             else:
-                logger.warning("❌ INSUFFICIENT: Too few bands for reliable Jiang TSS")
+                logger.warning(f"⚠ PARTIAL: Only {rhow_count}/8 rhow bands available")
+                if missing_bands:
+                    logger.warning(f"   Missing bands: {missing_bands}")
             
-            logger.info("\n📊 OVERALL ASSESSMENT:")
-            if has_snap_tsm and has_snap_chl and total_bands_available >= 4:
-                logger.info("✅ EXCELLENT: Ready for all analysis types")
-            elif has_snap_tsm and has_snap_chl:
-                logger.info("✅ GOOD: SNAP products available")
+            # UPDATED Overall assessment
+            logger.info(f"\n📊 OVERALL ASSESSMENT:")
+            if stats['has_tsm'] and stats['has_chl'] and stats['ready_for_jiang_tss']:
+                logger.info("🎯 EXCELLENT: Complete TSS analysis pipeline ready!")
+                logger.info("   - SNAP TSM/CHL: Available")
+                logger.info("   - Jiang TSS: Ready")
+                logger.info("   - Advanced algorithms: Can proceed")
+            elif stats['ready_for_jiang_tss']:
+                logger.info("👍 GOOD: Jiang TSS ready, SNAP products will be calculated")
             else:
-                logger.warning("⚠ LIMITED: Missing some critical components")
+                logger.warning("⚠ LIMITED: Missing critical components")
             
             logger.info("=" * 60)
-            
-            return {
-                'file_size_mb': file_size_mb,
-                'has_snap_tsm': has_snap_tsm,
-                'has_snap_chl': has_snap_chl,
-                'rrs_bands_count': len(rrs_bands),
-                'rhow_bands_count': len(rhow_bands),
-                'rtoa_bands_count': len(rtoa_bands),
-                'ready_for_jiang_tss': total_bands_available >= 4
-            }
-            
+
+            return stats
+
         except Exception as e:
-            logger.error(f"Error verifying C2RCC output: {e}")
+            logger.error(f"Unexpected error verifying C2RCC output {c2rcc_path}: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
-    def _check_spectral_bands(self, data_folder: str, band_type: str) -> List[int]:
-        """Check for spectral bands of given type"""
-        band_mapping = {
-            443: f'{band_type}_B1.img',
-            490: f'{band_type}_B2.img', 
-            560: f'{band_type}_B3.img',
-            665: f'{band_type}_B4.img',
-            705: f'{band_type}_B5.img',
-            740: f'{band_type}_B6.img',
-            783: f'{band_type}_B7.img',
-            865: f'{band_type}_B8A.img'
-        }
+    def _process_tss_stage(self, c2rcc_path: str, output_folder: str, product_name: str) -> Dict[str, ProcessingResult]:
+        """Process TSS stage using Jiang methodology"""
+        try:
+            self.current_stage = "TSS Processing (Jiang)"
+            logger.info(f"Starting TSS processing for {product_name}")
+            
+            # Initialize Jiang processor
+            jiang_processor = JiangTSSProcessor(self.config.jiang_config)
+            
+            # Process Jiang TSS
+            tss_output_folder = os.path.join(output_folder, "TSS_Products")
+            os.makedirs(tss_output_folder, exist_ok=True)
+            
+            tss_results = jiang_processor.process_jiang_tss(c2rcc_path, tss_output_folder, product_name)
+            
+            return tss_results
+            
+        except Exception as e:
+            error_msg = f"TSS processing error: {str(e)}"
+            logger.error(error_msg)
+            return {'tss_error': ProcessingResult(False, "", None, error_msg)}
+    
+    def get_processing_status(self) -> ProcessingStatus:
+        """Get current processing status with division by zero protection"""
+        total = self.processed_count + self.failed_count + self.skipped_count
+        if total == 0:
+            return ProcessingStatus(0, 0, 0, 0, "", "", 0.0, 0.0, 0.0)
         
-        found_bands = []
-        for wavelength, filename in band_mapping.items():
-            band_path = os.path.join(data_folder, filename)
-            if os.path.exists(band_path) and os.path.getsize(band_path) > 1024:
-                found_bands.append(wavelength)
+        elapsed_time = time.time() - self.start_time
         
-        return found_bands
+        # Calculate ETA with protection against division by zero
+        if self.processed_count > 0 and elapsed_time > 0:
+            avg_time_per_product = elapsed_time / self.processed_count
+            # Estimate based on a typical batch size
+            eta_minutes = avg_time_per_product / 60
+            processing_speed = (self.processed_count / elapsed_time) * 60  # products per minute
+        else:
+            eta_minutes = 0.0
+            processing_speed = 0.0
+        
+        # Fix: Ensure no division by zero in progress calculation
+        progress_percent = (total / max(total, 1)) * 100 if total > 0 else 0.0
+        
+        return ProcessingStatus(
+            total_products=total,
+            processed=self.processed_count,
+            failed=self.failed_count,
+            skipped=self.skipped_count,
+            current_product=self.current_product,
+            current_stage=self.current_stage,
+            progress_percent=progress_percent,
+            eta_minutes=eta_minutes,
+            processing_speed=processing_speed
+        )
     
     def cleanup(self):
         """Cleanup resources"""
-        if hasattr(self, 'main_graph_file') and os.path.exists(self.main_graph_file):
-            try:
-                os.remove(self.main_graph_file)
-                logger.debug(f"Cleaned up graph file: {self.main_graph_file}")
-            except:
-                pass
+        # Clean up graph files
+        graph_files = [getattr(self, 'main_graph_file', None)]
+        for graph_file in graph_files:
+            if graph_file and os.path.exists(graph_file):
+                try:
+                    os.remove(graph_file)
+                except:
+                    pass
 
 # ===== MAIN UNIFIED PROCESSOR =====
 
 class UnifiedS2TSSProcessor:
-    """Main processor that coordinates S2 processing and TSS estimation"""
+    """Main processor that coordinates complete S2 processing and TSS estimation"""
     
     def __init__(self, config: ProcessingConfig):
         self.config = config
@@ -4116,8 +4033,6 @@ class UnifiedS2TSSProcessor:
         self.failed_count = 0
         self.skipped_count = 0
         self.start_time = time.time()
-        self.current_product = ""
-        self.current_stage = ""
         
         # System monitoring
         self.system_monitor = SystemMonitor()
@@ -4132,60 +4047,40 @@ class UnifiedS2TSSProcessor:
         """Initialize processors based on processing mode"""
         mode = self.config.processing_mode
         
-        # Initialize S2 processor for S2 processing modes
         if mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.S2_PROCESSING_ONLY]:
-            logger.info("Initializing S2 processor...")
             self.s2_processor = S2Processor(self.config)
             self.s2_processor.system_monitor = self.system_monitor
         
-        # Initialize Jiang processor for TSS processing modes
         if mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.TSS_PROCESSING_ONLY]:
-            if self.config.jiang_config.enable_jiang_tss:
-                logger.info("Initializing Jiang TSS processor...")
-                self.jiang_processor = JiangTSSProcessor(self.config.jiang_config)
-            else:
-                logger.info("Jiang TSS disabled in configuration")
+            self.jiang_processor = JiangTSSProcessor(self.config.jiang_config)
     
     def process_batch(self) -> Dict[str, int]:
-        """Process batch of products"""
+        """
+        Process all products in the input folder based on selected mode
+        
+        Returns:
+            Processing statistics
+        """
         try:
-            products = self._get_input_products()
+            logger.info("="*80)
+            logger.info("STARTING UNIFIED S2-TSS PROCESSING")
+            logger.info("="*80)
             
+            # Find and validate products
+            products = self._find_products()
             if not products:
-                logger.error("No valid products found for processing")
-                return {'processed': 0, 'failed': 0, 'skipped': 0}
-            
-            total_products = len(products)
-            if self.config.test_mode:
-                products = products[:2]
-                logger.info(f"🧪 Test mode: Processing only first {len(products)} products")
+                logger.error("No compatible products found")
+                return {'processed': 0, 'failed': 1, 'skipped': 0}
             
             logger.info(f"Found {len(products)} products to process")
+            logger.info(f"Processing mode: {self.config.processing_mode.value}")
             
             # Process each product
-            for current, product_path in enumerate(products, 1):
-                try:
-                    self._process_single_product(product_path, current, len(products))
-                except KeyboardInterrupt:
-                    logger.info("Processing interrupted by user")
-                    break
-                except Exception as e:
-                    logger.error(f"Unexpected error processing {product_path}: {e}")
-                    self.failed_count += 1
+            for i, product_path in enumerate(products, 1):
+                self._process_single_product(product_path, i, len(products))
             
-            # Final statistics
-            total_time = time.time() - self.start_time
-            logger.info(f"\n{'='*80}")
-            logger.info("BATCH PROCESSING COMPLETED")
-            logger.info(f"{'='*80}")
-            logger.info(f"Total time: {total_time/60:.1f} minutes")
-            logger.info(f"Successfully processed: {self.processed_count}")
-            logger.info(f"Skipped (existing): {self.skipped_count}")
-            logger.info(f"Failed: {self.failed_count}")
-            
-            if self.processed_count > 0:
-                avg_time = total_time / self.processed_count
-                logger.info(f"Average time per product: {avg_time/60:.1f} minutes")
+            # Final summary
+            self._print_final_summary()
             
             return {
                 'processed': self.processed_count,
@@ -4194,42 +4089,27 @@ class UnifiedS2TSSProcessor:
             }
             
         except Exception as e:
-            logger.error(f"Batch processing error: {e}")
-            import traceback
-            traceback.print_exc()
-            return {'processed': 0, 'failed': 1, 'skipped': 0}
+            error_msg = f"Batch processing error: {str(e)}"
+            logger.error(error_msg)
+            return {'processed': self.processed_count, 'failed': self.failed_count + 1, 'skipped': self.skipped_count}
     
-    def _get_input_products(self) -> List[str]:
-        """Get list of input products"""
-        products = []
-        input_folder = self.config.input_folder
+    def _find_products(self) -> List[str]:
+        """Find products based on processing mode"""
+        products = ProductDetector.scan_input_folder(self.config.input_folder)
+        mode = self.config.processing_mode
         
-        if not os.path.exists(input_folder):
-            logger.error(f"Input folder does not exist: {input_folder}")
-            return products
+        # Validate products for current mode
+        valid, message, product_list = ProductDetector.validate_processing_mode(products, mode)
         
-        # Search for Sentinel-2 products
-        for item in os.listdir(input_folder):
-            item_path = os.path.join(input_folder, item)
-            
-            # Check for .zip files (L1C products)
-            if item.endswith('.zip') and 'MSIL1C' in item:
-                products.append(item_path)
-            # Check for .SAFE folders (L1C products)
-            elif item.endswith('.SAFE') and 'MSIL1C' in item and os.path.isdir(item_path):
-                products.append(item_path)
-            # Check for .dim files (processed products for TSS-only mode)
-            elif (item.endswith('.dim') and 
-                  self.config.processing_mode == ProcessingMode.TSS_PROCESSING_ONLY):
-                products.append(item_path)
+        if not valid:
+            logger.error(f"Product validation failed: {message}")
+            return []
         
-        products.sort()  # Ensure consistent processing order
-        logger.info(f"Found {len(products)} input products in {input_folder}")
-        
-        return products
+        logger.info(message)
+        return sorted(product_list)
     
     def _process_single_product(self, product_path: str, current: int, total: int):
-        """Process single product based on mode - YOUR ACTUAL METHOD"""
+        """Process single product based on mode"""
         processing_start = time.time()
         
         try:
@@ -4250,36 +4130,8 @@ class UnifiedS2TSSProcessor:
             results = {}
             
             if self.config.processing_mode == ProcessingMode.COMPLETE_PIPELINE:
-                # FIXED: Complete pipeline with proper TSS coordination
-                # Step 1: S2 Processing
-                logger.info("Step 1: S2 Processing (L1C → C2RCC)")
-                s2_results = self.s2_processor.process_single_product(product_path, self.config.output_folder)
-                results.update(s2_results)
-                
-                # Check if S2 processing succeeded
-                if 's2_error' in s2_results:
-                    logger.error(f"S2 processing failed, skipping TSS: {s2_results['s2_error'].error_message}")
-                    self.failed_count += 1
-                    return
-                
-                # Step 2: TSS Processing (if enabled)
-                if self.config.jiang_config.enable_jiang_tss:
-                    logger.info("Step 2: TSS Processing (Jiang)")
-                    
-                    # Get C2RCC output path from S2 results
-                    c2rcc_output_path = s2_results['s2_processing'].output_path
-                    
-                    # Process TSS using your actual method
-                    tss_results = self._process_tss_stage(c2rcc_output_path, self.config.output_folder, product_name)
-                    results.update(tss_results)
-                    
-                    if 'error' in tss_results:
-                        logger.error(f"TSS processing failed: {tss_results['error'].error_message}")
-                        # Don't mark as completely failed if S2 succeeded
-                    else:
-                        logger.info("✅ TSS processing completed successfully")
-                else:
-                    logger.info("ℹ️  Jiang TSS disabled - using SNAP TSM/CHL products only")
+                # Complete pipeline: L1C → S2 Processing → TSS
+                results = self.s2_processor.process_single_product(product_path, self.config.output_folder)
                 
             elif self.config.processing_mode == ProcessingMode.S2_PROCESSING_ONLY:
                 # S2 processing only: L1C → C2RCC (with SNAP TSM/CHL)
@@ -4294,8 +4146,8 @@ class UnifiedS2TSSProcessor:
             processing_time = time.time() - processing_start
             
             # Check results
-            if any('error' in key for key in results.keys()):
-                logger.error(f"Processing failed with errors")
+            if 'error' in results:
+                logger.error(f"Processing failed: {results['error'].error_message}")
                 self.failed_count += 1
             else:
                 success_count = sum(1 for r in results.values() if r.success)
@@ -4354,157 +4206,119 @@ class UnifiedS2TSSProcessor:
             processing_time = time.time() - processing_start
             error_msg = f"Unexpected error: {str(e)}"
             logger.error(error_msg)
-            import traceback
-            traceback.print_exc()
             self.failed_count += 1
     
-    def _process_tss_stage(self, c2rcc_output_path: str, output_folder: str, 
-                        product_name: str) -> Dict[str, ProcessingResult]:
-        """Enhanced TSS processing stage with comprehensive band support - YOUR ACTUAL METHOD"""
-        try:
-            # FIXED: Ensure jiang_processor exists before using it
-            if not hasattr(self, 'jiang_processor') or self.jiang_processor is None:
-                if self.config.jiang_config.enable_jiang_tss:
-                    logger.info("Initializing Jiang processor for TSS processing...")
-                    self.jiang_processor = JiangTSSProcessor(self.config.jiang_config)
-                else:
-                    logger.warning("Jiang TSS is disabled - skipping TSS processing")
-                    return {'tss_skipped': ProcessingResult(True, "", {"reason": "disabled"}, None)}
-            
-            # Initialize comprehensive band loading
-            band_loader = BandLoader(c2rcc_output_path)
-            all_available_bands = band_loader.load_all_bands()
-            
-            logger.info("=== COMPREHENSIVE BAND AVAILABILITY ===")
-            for band_type, bands in all_available_bands.items():
-                logger.info(f"{band_type.upper()}: {len(bands)} bands - {sorted(bands.keys())}")
-            
-            results = {}
-            
-            # 1. Jiang TSS Processing (if enabled)
-            if self.config.jiang_config.enable_jiang_tss:
-                logger.info("Starting Jiang TSS processing...")
-                jiang_results = self.jiang_processor.process_jiang_tss(
-                    c2rcc_output_path, output_folder, product_name
-                )
-                results.update(jiang_results)
-            
-            # 2. Marine Visualization Processing (if enabled)
-            if (hasattr(self.config.jiang_config, 'enable_marine_visualization') and 
-                self.config.jiang_config.enable_marine_visualization and 
-                hasattr(self.jiang_processor, 'marine_viz_processor')):
-                
-                logger.info("Starting marine visualization processing...")
-                viz_results = self.jiang_processor.marine_viz_processor.process_marine_visualizations(
-                    c2rcc_output_path, output_folder, product_name
-                )
-                results.update(viz_results)
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error in TSS processing stage: {e}")
-            import traceback
-            traceback.print_exc()
-            return {'error': ProcessingResult(False, "", None, str(e))}
-    
     def _extract_product_name(self, product_path: str) -> str:
-        """Extract clean product name from file path"""
-        filename = os.path.basename(product_path)
+        """Extract clean product name from path"""
+        basename = os.path.basename(product_path)
         
-        if filename.endswith('.zip'):
-            filename = filename[:-4]
-        elif filename.endswith('.SAFE'):
-            filename = filename[:-5]
-        elif filename.endswith('.dim'):
-            filename = filename[:-4]
+        if basename.endswith('.dim'):
+            product_name = basename.replace('.dim', '')
+        elif basename.endswith('.zip'):
+            product_name = basename.replace('.zip', '')
+        elif basename.endswith('.SAFE'):
+            product_name = basename.replace('.SAFE', '')
+        else:
+            product_name = basename
         
-        return filename
+        # Clean up common prefixes/suffixes
+        if product_name.startswith('Resampled_'):
+            product_name = product_name.replace('Resampled_', '')
+        if '_Subset_C2RCC' in product_name:
+            product_name = product_name.replace('_Subset_C2RCC', '')
+        if '_C2RCC' in product_name:
+            product_name = product_name.replace('_C2RCC', '')
+        
+        return product_name
     
     def _check_outputs_exist(self, product_name: str) -> bool:
-        """Check if outputs exist for skip_existing functionality"""
+        """Check if outputs already exist for this product"""
         try:
-            # Check based on processing mode
-            if self.config.processing_mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.S2_PROCESSING_ONLY]:
-                # Check for S2 C2RCC output
-                expected_s2_output = os.path.join(
-                    self.config.output_folder, 
-                    f"Resampled_{product_name}_Subset_C2RCC.dim"
-                )
-                if not os.path.exists(expected_s2_output):
+            mode = self.config.processing_mode
+            
+            if mode == ProcessingMode.COMPLETE_PIPELINE:
+                # Check for C2RCC output
+                c2rcc_path = os.path.join(self.config.output_folder, "C2RCC_Products", f"Resampled_{product_name}_Subset_C2RCC.dim")
+                if not os.path.exists(c2rcc_path):
                     return False
-            
-            if self.config.processing_mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.TSS_PROCESSING_ONLY]:
-                # Check for TSS outputs if Jiang is enabled
+                
+                # Check for TSS output if Jiang is enabled
                 if self.config.jiang_config.enable_jiang_tss:
-                    tss_folder = os.path.join(self.config.output_folder, "TSS_Products")
-                    expected_tss_output = os.path.join(tss_folder, f"{product_name}_jiang_tss.tif")
-                    if not os.path.exists(expected_tss_output):
+                    tss_path = os.path.join(self.config.output_folder, "TSS_Products", f"{product_name}_Jiang_TSS.tif")
+                    if not os.path.exists(tss_path):
                         return False
+                
+                return True
+                
+            elif mode == ProcessingMode.S2_PROCESSING_ONLY:
+                # Check for C2RCC output
+                c2rcc_path = os.path.join(self.config.output_folder, "C2RCC_Products", f"Resampled_{product_name}_Subset_C2RCC.dim")
+                return os.path.exists(c2rcc_path)
+                
+            elif mode == ProcessingMode.TSS_PROCESSING_ONLY:
+                # Check for TSS output
+                tss_path = os.path.join(self.config.output_folder, "TSS_Products", f"{product_name}_Jiang_TSS.tif")
+                return os.path.exists(tss_path)
             
-            return True
+            return False
             
         except Exception as e:
-            logger.warning(f"Error checking existing outputs: {e}")
+            logger.debug(f"Error checking existing outputs: {e}")
             return False
     
+    def _print_final_summary(self):
+        """Print final processing summary"""
+        total_time = (time.time() - self.start_time) / 60
+        
+        logger.info(f"\n{'='*80}")
+        logger.info("UNIFIED S2-TSS PROCESSING SUMMARY")
+        logger.info(f"{'='*80}")
+        logger.info(f"Products processed successfully: {self.processed_count}")
+        logger.info(f"Products skipped (existing): {self.skipped_count}")
+        logger.info(f"Products with errors: {self.failed_count}")
+        logger.info(f"Total processing time: {total_time:.2f} minutes")
+        
+        if self.processed_count > 0:
+            avg_time = total_time / self.processed_count
+            logger.info(f"Average time per product: {avg_time:.2f} minutes")
+        
+        # Output summary
+        logger.info(f"\nOutput Structure:")
+        logger.info(f"├── {self.config.output_folder}/")
+        if self.config.processing_mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.S2_PROCESSING_ONLY]:
+            logger.info(f"    ├── Geometric_Products/")
+            logger.info(f"    ├── C2RCC_Products/ (with SNAP TSM/CHL + uncertainties)")
+        if self.config.processing_mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.TSS_PROCESSING_ONLY]:
+            if self.config.jiang_config.enable_jiang_tss:
+                logger.info(f"    ├── TSS_Products/ (Jiang methodology)")
+        logger.info(f"    └── Logs/")
+    
     def get_processing_status(self) -> ProcessingStatus:
-        """Get current processing status with division by zero protection"""
-        total = self.processed_count + self.failed_count + self.skipped_count
-        if total == 0:
-            return ProcessingStatus(0, 0, 0, 0, "", "", 0.0, 0.0, 0.0)
-        
-        elapsed_time = time.time() - self.start_time
-        
-        # Calculate ETA with protection against division by zero
-        if self.processed_count > 0 and elapsed_time > 0:
-            avg_time_per_product = elapsed_time / self.processed_count
-            eta_minutes = avg_time_per_product / 60
-            processing_speed = (self.processed_count / elapsed_time) * 60  # products per minute
+        """Get current processing status"""
+        if self.s2_processor:
+            return self.s2_processor.get_processing_status()
         else:
-            eta_minutes = 0.0
-            processing_speed = 0.0
-        
-        # Fix: Ensure no division by zero in progress calculation
-        progress_percent = (total / max(total, 1)) * 100 if total > 0 else 0.0
-        
-        return ProcessingStatus(
-            total_products=total,
-            processed=self.processed_count,
-            failed=self.failed_count,
-            skipped=self.skipped_count,
-            current_product=self.current_product,
-            current_stage=self.current_stage,
-            progress_percent=progress_percent,
-            eta_minutes=eta_minutes,
-            processing_speed=processing_speed
-        )
+            total = self.processed_count + self.failed_count + self.skipped_count
+            elapsed_time = time.time() - self.start_time
+            
+            return ProcessingStatus(
+                total_products=total,
+                processed=self.processed_count,
+                failed=self.failed_count,
+                skipped=self.skipped_count,
+                current_product="",
+                current_stage="",
+                progress_percent=(total / max(total, 1)) * 100,
+                eta_minutes=0.0,
+                processing_speed=(self.processed_count / elapsed_time) * 60 if elapsed_time > 0 else 0.0
+            )
     
     def cleanup(self):
         """Cleanup resources"""
-        try:
-            # Stop system monitoring
-            if hasattr(self, 'system_monitor'):
-                self.system_monitor.stop_monitoring()
-            
-            # Cleanup processors
-            if hasattr(self, 's2_processor') and self.s2_processor:
-                self.s2_processor.cleanup()
-            
-            # Clean up any remaining graph files
-            for graph_file in ['s2_complete_processing_with_subset.xml', 's2_complete_processing_no_subset.xml']:
-                if os.path.exists(graph_file):
-                    try:
-                        os.remove(graph_file)
-                        logger.debug(f"Cleaned up graph file: {graph_file}")
-                    except:
-                        pass
-            
-            logger.info("✅ Processor cleanup completed")
-            
-        except Exception as e:
-            logger.warning(f"Error during cleanup: {e}")
-
+        self.system_monitor.stop_monitoring()
+        
+        if self.s2_processor:
+            self.s2_processor.cleanup()
 
 # ===== GEOMETRY UTILITIES =====
 
@@ -6536,13 +6350,12 @@ class UnifiedS2TSSGUI:
             self.jiang_config.output_intermediates = self.jiang_intermediates_var.get()
             self.jiang_config.output_comparison_stats = self.jiang_comparison_var.get()
             
-            # NEW: Marine visualization configuration - CORRECTED
+            # NEW: Marine visualization configuration
             if hasattr(self, 'enable_marine_viz_var'):
                 self.jiang_config.enable_marine_visualization = self.enable_marine_viz_var.get()
                 
                 if self.jiang_config.enable_marine_visualization:
-                    # Ensure marine_viz_config exists
-                    if not hasattr(self.jiang_config, 'marine_viz_config') or self.jiang_config.marine_viz_config is None:
+                    if self.jiang_config.marine_viz_config is None:
                         self.jiang_config.marine_viz_config = MarineVisualizationConfig()
                     
                     # Update marine viz settings
@@ -6564,15 +6377,14 @@ class UnifiedS2TSSGUI:
                     if hasattr(self, 'advanced_indices_var'):
                         self.jiang_config.marine_viz_config.generate_advanced_indices = self.advanced_indices_var.get()
                 else:
-                    # Marine visualization disabled - set to None
                     self.jiang_config.marine_viz_config = None
             else:
                 # Fallback: enable marine visualization by default if GUI variables don't exist yet
                 self.jiang_config.enable_marine_visualization = True
-                if not hasattr(self.jiang_config, 'marine_viz_config') or self.jiang_config.marine_viz_config is None:
+                if self.jiang_config.marine_viz_config is None:
                     self.jiang_config.marine_viz_config = MarineVisualizationConfig()
             
-            # Advanced algorithms configuration - ONLY WORKING ONES
+            # CLEAN: Advanced algorithms configuration - ONLY WORKING ONES
             if hasattr(self, 'enable_advanced_var'):
                 self.jiang_config.enable_advanced_algorithms = self.enable_advanced_var.get()
             else:
@@ -6580,7 +6392,7 @@ class UnifiedS2TSSGUI:
 
             # Configure only working algorithms
             if self.jiang_config.enable_advanced_algorithms:
-                if not hasattr(self.jiang_config, 'advanced_config') or self.jiang_config.advanced_config is None:
+                if self.jiang_config.advanced_config is None:
                     self.jiang_config.advanced_config = AdvancedAquaticConfig()
                 
                 # Set working algorithm states
