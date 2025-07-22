@@ -287,7 +287,7 @@ class C2RCCConfig:
     net_set: str = "C2RCC-Nets"
     
     # DEM configuration
-    dem_name: str = "Copernicus 90m Global DEM"
+    dem_name: str = "Copernicus 30m Global DEM"
     
     # Auxiliary data - ECMWF enabled by default as requested
     use_ecmwf_aux_data: bool = True  # Set to True by default
@@ -295,8 +295,8 @@ class C2RCCConfig:
     alternative_nn_path: str = ""
     
     # Essential output products (SNAP defaults + uncertainties)
-    output_as_rrs: bool = False
-    output_rhow: bool = True          # Required for TSS
+    output_as_rrs: bool = True
+    output_rhown: bool = True          # Required for TSS
     output_kd: bool = True
     output_uncertainties: bool = True # Ensures unc_tsm.img and unc_chl.img
     output_ac_reflectance: bool = True
@@ -3517,7 +3517,7 @@ class S2Processor:
         <outputTdown>{str(c2rcc.output_tdown).lower()}</outputTdown>
         <outputTup>{str(c2rcc.output_tup).lower()}</outputTup>
         <outputAcReflectance>{str(c2rcc.output_ac_reflectance).lower()}</outputAcReflectance>
-        <outputRhown>{str(c2rcc.output_rhow).lower()}</outputRhown>
+        <outputRhown>{str(c2rcc.output_rhown).lower()}</outputRhown>
         <outputOos>{str(c2rcc.output_oos).lower()}</outputOos>
         <outputKd>{str(c2rcc.output_kd).lower()}</outputKd>
         <outputUncertainties>{str(c2rcc.output_uncertainties).lower()}</outputUncertainties>'''
@@ -3952,27 +3952,6 @@ class S2Processor:
             traceback.print_exc()
             return None
     
-    def _process_tss_stage(self, c2rcc_path: str, output_folder: str, product_name: str) -> Dict[str, ProcessingResult]:
-        """Process TSS stage using Jiang methodology"""
-        try:
-            self.current_stage = "TSS Processing (Jiang)"
-            logger.info(f"Starting TSS processing for {product_name}")
-            
-            # Initialize Jiang processor
-            jiang_processor = JiangTSSProcessor(self.config.jiang_config)
-            
-            # Process Jiang TSS
-            tss_output_folder = os.path.join(output_folder, "TSS_Products")
-            os.makedirs(tss_output_folder, exist_ok=True)
-            
-            tss_results = jiang_processor.process_jiang_tss(c2rcc_path, tss_output_folder, product_name)
-            
-            return tss_results
-            
-        except Exception as e:
-            error_msg = f"TSS processing error: {str(e)}"
-            logger.error(error_msg)
-            return {'tss_error': ProcessingResult(False, "", None, error_msg)}
     
     def get_processing_status(self) -> ProcessingStatus:
         """Get current processing status with division by zero protection"""
@@ -4109,7 +4088,7 @@ class UnifiedS2TSSProcessor:
         return sorted(product_list)
     
     def _process_single_product(self, product_path: str, current: int, total: int):
-        """Process single product based on mode"""
+        """Process single product based on mode - FIXED COMPLETE PIPELINE"""
         processing_start = time.time()
         
         try:
@@ -4130,8 +4109,57 @@ class UnifiedS2TSSProcessor:
             results = {}
             
             if self.config.processing_mode == ProcessingMode.COMPLETE_PIPELINE:
-                # Complete pipeline: L1C → S2 Processing → TSS
-                results = self.s2_processor.process_single_product(product_path, self.config.output_folder)
+                # FIXED: Complete pipeline with proper coordination
+                # Step 1: S2 Processing (L1C → C2RCC)
+                logger.info("Step 1: S2 Processing (L1C → C2RCC)")
+                s2_results = self.s2_processor.process_single_product(product_path, self.config.output_folder)
+                results.update(s2_results)
+                
+                # Check if S2 processing succeeded
+                if 'error' in s2_results or 's2_error' in s2_results:
+                    error_key = 'error' if 'error' in s2_results else 's2_error'
+                    logger.error(f"S2 processing failed, skipping TSS: {s2_results[error_key].error_message}")
+                    self.failed_count += 1
+                    return
+                
+                # Step 2: TSS Processing (if enabled and processor exists)
+                if (self.config.jiang_config.enable_jiang_tss and 
+                    hasattr(self, 'jiang_processor') and 
+                    self.jiang_processor is not None):
+                    
+                    logger.info("Step 2: TSS Processing (Jiang)")
+                    
+                    # Get C2RCC output path from S2 results
+                    if 's2_processing' in s2_results:
+                        c2rcc_output_path = s2_results['s2_processing'].output_path
+                    else:
+                        # Find the C2RCC output file
+                        c2rcc_output_path = os.path.join(self.config.output_folder, "C2RCC_Products", f"Resampled_{product_name}_Subset_C2RCC.dim")
+                    
+                    # Process TSS
+                    tss_output_folder = os.path.join(self.config.output_folder, "TSS_Products")
+                    os.makedirs(tss_output_folder, exist_ok=True)
+                    
+                    try:
+                        tss_results = self.jiang_processor.process_jiang_tss(
+                            c2rcc_output_path, tss_output_folder, product_name
+                        )
+                        results.update(tss_results)
+                        
+                        if 'error' in tss_results:
+                            logger.error(f"TSS processing failed: {tss_results['error'].error_message}")
+                            # Don't mark as completely failed if S2 succeeded
+                        else:
+                            logger.info("✅ TSS processing completed successfully")
+                            
+                    except Exception as tss_error:
+                        logger.error(f"TSS processing error: {str(tss_error)}")
+                        results['tss_error'] = ProcessingResult(False, "", None, str(tss_error))
+                
+                elif self.config.jiang_config.enable_jiang_tss:
+                    logger.warning("⚠️  Jiang TSS enabled but processor not initialized")
+                else:
+                    logger.info("ℹ️  Jiang TSS disabled - using SNAP TSM/CHL products only")
                 
             elif self.config.processing_mode == ProcessingMode.S2_PROCESSING_ONLY:
                 # S2 processing only: L1C → C2RCC (with SNAP TSM/CHL)
@@ -4139,15 +4167,19 @@ class UnifiedS2TSSProcessor:
                 
             elif self.config.processing_mode == ProcessingMode.TSS_PROCESSING_ONLY:
                 # TSS processing only: C2RCC → Jiang TSS
-                tss_output_folder = os.path.join(self.config.output_folder, "TSS_Products")
-                os.makedirs(tss_output_folder, exist_ok=True)
-                results = self.jiang_processor.process_jiang_tss(product_path, tss_output_folder, product_name)
+                if hasattr(self, 'jiang_processor') and self.jiang_processor is not None:
+                    tss_output_folder = os.path.join(self.config.output_folder, "TSS_Products")
+                    os.makedirs(tss_output_folder, exist_ok=True)
+                    results = self.jiang_processor.process_jiang_tss(product_path, tss_output_folder, product_name)
+                else:
+                    logger.error("Jiang processor not initialized for TSS_PROCESSING_ONLY mode")
+                    results = {'error': ProcessingResult(False, "", None, "Jiang processor not initialized")}
             
             processing_time = time.time() - processing_start
             
             # Check results
-            if 'error' in results:
-                logger.error(f"Processing failed: {results['error'].error_message}")
+            if any('error' in key for key in results.keys()):
+                logger.error(f"Processing failed with errors")
                 self.failed_count += 1
             else:
                 success_count = sum(1 for r in results.values() if r.success)
@@ -4206,6 +4238,8 @@ class UnifiedS2TSSProcessor:
             processing_time = time.time() - processing_start
             error_msg = f"Unexpected error: {str(e)}"
             logger.error(error_msg)
+            import traceback
+            traceback.print_exc()
             self.failed_count += 1
     
     def _extract_product_name(self, product_path: str) -> str:
@@ -6184,11 +6218,11 @@ class UnifiedS2TSSGUI:
         
         # Neural network and DEM
         self.net_set_var.set("C2RCC-Nets")
-        self.dem_name_var.set("Copernicus 90m Global DEM")
+        self.dem_name_var.set("Copernicus 30m Global DEM")
         self.use_ecmwf_var.set(True)  # Keep enabled by default as requested
         
         # Output products (SNAP defaults)
-        self.output_rrs_var.set(False)
+        self.output_rrs_var.set(True)
         self.output_rhow_var.set(True)
         self.output_kd_var.set(True)
         self.output_uncertainties_var.set(True)  # Keep enabled for TSM/CHL uncertainties
@@ -6221,6 +6255,7 @@ class UnifiedS2TSSGUI:
         self.reset_all_outputs()
         
         # Enable essential outputs
+        self.output_rrs_var.set(True)
         self.output_rhow_var.set(True)
         self.output_kd_var.set(True)
         self.output_uncertainties_var.set(True)  # Keep for TSM/CHL uncertainties
@@ -6234,6 +6269,7 @@ class UnifiedS2TSSGUI:
         self.reset_all_outputs()
         
         # Enable scientific outputs
+        self.output_rrs_var.set(True)
         self.output_rhow_var.set(True)
         self.output_kd_var.set(True)
         self.output_ac_reflectance_var.set(True)
@@ -6321,7 +6357,7 @@ class UnifiedS2TSSGUI:
             
             # Output products
             self.c2rcc_config.output_as_rrs = self.output_rrs_var.get()
-            self.c2rcc_config.output_rhow = self.output_rhow_var.get()
+            self.c2rcc_config.output_rhown = self.output_rhow_var.get()
             self.c2rcc_config.output_kd = self.output_kd_var.get()
             self.c2rcc_config.output_uncertainties = self.output_uncertainties_var.get()
             self.c2rcc_config.output_ac_reflectance = self.output_ac_reflectance_var.get()
