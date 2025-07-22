@@ -325,10 +325,11 @@ class C2RCCConfig:
     chl_fac: float = 21.0
     chl_exp: float = 1.04
 
+
 @dataclass
 class JiangTSSConfig:
-    """Jiang TSS methodology configuration - CLEAN VERSION"""
-    enable_jiang_tss: bool = True  # Enable by default
+    """Jiang TSS methodology configuration with marine visualization - FIXED VERSION"""
+    enable_jiang_tss: bool = True
     output_intermediates: bool = True
     water_mask_threshold: float = 0.01
     tss_valid_range: tuple = (0.01, 10000)  # g/m³
