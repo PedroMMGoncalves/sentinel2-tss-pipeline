@@ -2681,59 +2681,74 @@ class S2Processor:
         logger.info(f"Working graph with all bands saved: {graph_file}")
         return graph_file
 
+    def create_s2_graph_no_subset(self) -> str:
+        """Create processing graph without subset - complete method"""
+        
+        # COMPLETE: ALL S2 bands including B7 and B8A for Jiang TSS
+        essential_bands = "B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"
+        
+        graph_content = f'''<?xml version="1.0" encoding="UTF-8"?>
+    <graph id="S2_Complete_No_Subset_Processing">
+    <version>1.0</version>
 
-    def _run_s2_processing(self, input_path: str, output_path: str) -> bool:
-        """REVERT to original working _run_s2_processing method - don't break what works"""
-        try:
-            # Prepare GPT command - EXACT SAME AS WORKING VERSION
-            gpt_cmd = self.get_gpt_command()
-            
-            cmd = [
-                gpt_cmd,
-                self.main_graph_file,
-                f'-PsourceProduct={input_path}',
-                f'-PtargetProduct={output_path}',
-                f'-c', f'{self.config.memory_limit_gb}G',
-                f'-q', str(self.config.thread_count)
-            ]
-            
-            logger.debug(f"GPT command: {' '.join(cmd)}")
-            
-            # Run GPT processing with timeout - EXACT SAME AS WORKING VERSION
-            logger.info(f"Starting COMPLETE S2 processing (all bands for current + future modules)...")
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=3600  # 1 hour timeout
-            )
-            
-            # Check processing results - EXACT SAME AS WORKING VERSION
-            if result.returncode == 0:
-                if os.path.exists(output_path):
-                    file_size = os.path.getsize(output_path)
-                    if file_size > 1024 * 1024:  # > 1MB
-                        logger.info(f"✅ COMPLETE C2RCC output created: {os.path.basename(output_path)} ({file_size/1024/1024:.1f}MB)")
-                        return True
-                    else:
-                        logger.error(f"❌ Output file too small ({file_size} bytes)")
-                        return False
-                else:
-                    logger.error(f"❌ Output file not created")
-                    return False
-            else:
-                logger.error(f"❌ GPT processing failed")
-                logger.error(f"Return code: {result.returncode}")
-                if result.stderr:
-                    logger.error(f"GPT stderr: {result.stderr[:1000]}...")
-                return False
-                        
-        except subprocess.TimeoutExpired:
-            logger.error(f"❌ GPT processing timeout")
-            return False
-        except Exception as e:
-            logger.error(f"❌ GPT processing error: {str(e)}")
-            return False
+    <!-- Step 1: Read Input Product - Full scene -->
+    <node id="Read">
+        <operator>Read</operator>
+        <sources/>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        <file>${{sourceProduct}}</file>
+        <sourceBands>{essential_bands}</sourceBands>
+        <copyMetadata>true</copyMetadata>
+        </parameters>
+    </node>
+
+    <!-- Step 2: S2 Resampling - Full scene processing -->
+    <node id="S2Resampling">
+        <operator>S2Resampling</operator>
+        <sources>
+        <sourceProduct refid="Read"/>
+        </sources>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        <resolution>{self.config.resampling_config.target_resolution}</resolution>
+        <upsampling>{self.config.resampling_config.upsampling_method}</upsampling>
+        <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
+        <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
+        <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
+        <bands>{essential_bands}</bands>
+        </parameters>
+    </node>
+
+    <!-- Step 3: C2RCC Atmospheric Correction -->
+    <node id="c2rcc_msi">
+        <operator>c2rcc.msi</operator>
+        <sources>
+        <sourceProduct refid="S2Resampling"/>
+        </sources>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        {self._get_c2rcc_parameters()}
+        </parameters>
+    </node>
+
+    <!-- Step 4: Write Output -->
+    <node id="Write">
+        <operator>Write</operator>
+        <sources>
+        <sourceProduct refid="c2rcc_msi"/>
+        </sources>
+        <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+        <file>${{targetProduct}}</file>
+        <formatName>BEAM-DIMAP</formatName>
+        </parameters>
+    </node>
+
+    </graph>'''
+        
+        graph_file = 's2_complete_processing_no_subset.xml'
+        with open(graph_file, 'w', encoding='utf-8') as f:
+            f.write(graph_content)
+        
+        logger.info(f"No-subset processing graph saved: {graph_file}")
+        return graph_file
     
     def _get_subset_parameters(self) -> str:
         """Generate subset parameters for XML with proper escaping"""
@@ -2787,10 +2802,10 @@ class S2Processor:
         
         # Add optional paths if specified
         if c2rcc.atmospheric_aux_data_path:
-            params += f'\n      <atmosphericAuxDataPath>{c2rcc.atmospheric_aux_data_path}</atmosphericAuxDataPath>'
+            params += f'\n    <atmosphericAuxDataPath>{c2rcc.atmospheric_aux_data_path}</atmosphericAuxDataPath>'
         
         if c2rcc.alternative_nn_path:
-            params += f'\n      <alternativeNNPath>{c2rcc.alternative_nn_path}</alternativeNNPath>'
+            params += f'\n    <alternativeNNPath>{c2rcc.alternative_nn_path}</alternativeNNPath>'
         
         return params
     

@@ -80,3 +80,4 @@ org.esa.snap.core.gpf.graph...
 2025-07-22 10:55:26,914 - ERROR - [sentinel2_tss_pipeline.py:2910] - ❌ S2 processing FAILED: S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip
 2025-07-22 10:55:26,915 - INFO - [sentinel2_tss_pipeline.py:3555] - ✓ Processing completed: 0 products generated
 2025-07-22 10:55:27,075 - INFO - [sentinel2_tss_pipeline.py:3604] - → Progress: 2/2 (100.0%), ETA: 0.0 minutes
+2025-07-22 10:59:42,567 - INFO - [sentinel2_tss_pipeline.py:6328] - Application finished successfully
