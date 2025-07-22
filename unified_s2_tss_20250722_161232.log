@@ -1,0 +1,17 @@
+2025-07-22 16:12:32,077 - INFO - [sentinel2_tss_pipeline.py:231] - Logging configured - File: unified_s2_tss_20250722_161232.log
+2025-07-22 16:12:32,087 - INFO - [sentinel2_tss_pipeline.py:7055] - ================================================================================
+2025-07-22 16:12:32,088 - INFO - [sentinel2_tss_pipeline.py:7056] - UNIFIED S2 PROCESSING & TSS ESTIMATION PIPELINE v1.0
+2025-07-22 16:12:32,088 - INFO - [sentinel2_tss_pipeline.py:7057] - ================================================================================
+2025-07-22 16:12:32,089 - INFO - [sentinel2_tss_pipeline.py:7058] - SNAP_HOME: C:\Program Files\esa-snap
+2025-07-22 16:12:32,090 - INFO - [sentinel2_tss_pipeline.py:7059] - GPT: C:\Program Files\esa-snap\bin\gpt.exe
+2025-07-22 16:12:32,091 - INFO - [sentinel2_tss_pipeline.py:7060] - Python: 3.9.22 | packaged by conda-forge | (main, Apr 10 2025, 22:07:06) [MSC v.1929 64 bit (AMD64)]
+2025-07-22 16:12:32,091 - INFO - [sentinel2_tss_pipeline.py:7061] - Platform: win32
+2025-07-22 16:12:32,092 - INFO - [sentinel2_tss_pipeline.py:7062] - Working Directory: C:\Users\pedro.goncalves\OneDrive - LNEG - Laboratorio Nacional de Energia e Geologia\GitHub\sentinel2-tss-pipeline
+2025-07-22 16:12:32,093 - INFO - [sentinel2_tss_pipeline.py:7063] - ================================================================================
+2025-07-22 16:12:32,093 - INFO - [sentinel2_tss_pipeline.py:7072] - Starting GUI application...
+2025-07-22 16:13:14,797 - ERROR - [sentinel2_tss_pipeline.py:6413] - Configuration update error: 'JiangTSSConfig' object has no attribute 'marine_viz_config'
+2025-07-22 16:13:14,798 - ERROR - [sentinel2_tss_pipeline.py:6415] - Full traceback: Traceback (most recent call last):
+  File "c:\users\pedro.goncalves\onedrive - lneg - laboratorio nacional de energia e geologia\github\sentinel2-tss-pipeline\sentinel2_tss_pipeline.py", line 6359, in update_configurations
+    if self.jiang_config.marine_viz_config is None:
+AttributeError: 'JiangTSSConfig' object has no attribute 'marine_viz_config'
+

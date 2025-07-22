@@ -16,3 +16,4 @@
     if self.jiang_config.marine_viz_config is None:
 AttributeError: 'JiangTSSConfig' object has no attribute 'marine_viz_config'
 
+2025-07-22 16:12:26,851 - INFO - [sentinel2_tss_pipeline.py:7075] - Application finished successfully

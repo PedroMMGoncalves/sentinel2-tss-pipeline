@@ -328,18 +328,18 @@ class C2RCCConfig:
 
 @dataclass
 class JiangTSSConfig:
-    """Jiang TSS methodology configuration with marine visualization - FIXED VERSION"""
+    """Jiang TSS methodology configuration with marine visualization"""
     enable_jiang_tss: bool = True
     output_intermediates: bool = True
     water_mask_threshold: float = 0.01
-    tss_valid_range: tuple = (0.01, 10000)  # g/m³
+    tss_valid_range: tuple = (0.01, 10000)
     output_comparison_stats: bool = True
     
     # Advanced algorithms configuration
     enable_advanced_algorithms: bool = True
     advanced_config: Optional['AdvancedAquaticConfig'] = None
     
-    # NEW: Marine visualization configuration
+    # Marine visualization configuration
     enable_marine_visualization: bool = True  # ENABLED BY DEFAULT
     marine_viz_config: Optional['MarineVisualizationConfig'] = None
     
