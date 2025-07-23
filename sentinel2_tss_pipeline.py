@@ -4424,15 +4424,18 @@ class S2Processor:
         product_name = os.path.basename(input_path)
         clean_name = self._extract_clean_product_name(product_name)
         
-        # Check if subset was applied
-        if self.config.roi_config.use_roi and self.config.roi_config.roi_wkt:
-            # Subset output
-            output_name = f"Resampled_{clean_name}_Subset.dim"
+        # Check both possible geometric output names
+        subset_path = os.path.join(output_folder, "Geometric_Products", f"Resampled_{clean_name}_Subset.dim")
+        resample_path = os.path.join(output_folder, "Geometric_Products", f"Resampled_{clean_name}.dim")
+        
+        # Return the one that exists, or default to subset version
+        if os.path.exists(subset_path):
+            return subset_path
+        elif os.path.exists(resample_path):
+            return resample_path
         else:
-            # Resample output only
-            output_name = f"Resampled_{clean_name}.dim"
-            
-        return os.path.join(output_folder, "Geometric_Products", output_name)
+            # Default assumption: subset is applied
+            return subset_path
 
     def _extract_clean_product_name(self, product_name: str) -> str:
         """Extract clean product name from input path"""
