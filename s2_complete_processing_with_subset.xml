@@ -64,7 +64,7 @@
         <netSet>C2RCC-Nets</netSet>
         <useEcmwfAuxData>true</useEcmwfAuxData>
         <demName>Copernicus 90m Global DEM</demName>
-        <outputAsRrs>false</outputAsRrs>
+        <outputAsRrs>true</outputAsRrs>
         <deriveRwFromPathAndTransmittance>false</deriveRwFromPathAndTransmittance>
         <outputRtoa>true</outputRtoa>
         <outputRtosaGc>false</outputRtosaGc>

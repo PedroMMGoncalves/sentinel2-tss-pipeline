@@ -1189,63 +1189,23 @@ class JiangTSSProcessor:
         
         logger.info("Jiang TSS Processor initialization completed successfully")
     
-    def _load_rhow_bands(self, c2rcc_path: str) -> Dict[int, str]:
-        """Load bands from SNAP C2RCC output - CORRECTED VERSION using rho_toa files"""
-        # Determine data folder
-        if c2rcc_path.endswith('.dim'):
-            data_folder = c2rcc_path.replace('.dim', '.data')
-        elif c2rcc_path.endswith('.data'):
-            data_folder = c2rcc_path
-        else:
-            data_folder = f"{c2rcc_path}.data"
-        
-        if not os.path.exists(data_folder):
-            logger.error(f"Data folder not found: {data_folder}")
-            return {}
-        
-        # CORRECTED: Use rho_toa files that actually exist in your C2RCC output
-        band_mapping = {
-            443: ['rho_toa_B1.img', 'rtoa_B1.img'],      # Band 1
-            490: ['rho_toa_B2.img', 'rtoa_B2.img'],      # Band 2  
-            560: ['rho_toa_B3.img', 'rtoa_B3.img'],      # Band 3
-            665: ['rho_toa_B4.img', 'rtoa_B4.img'],      # Band 4
-            705: ['rho_toa_B5.img', 'rtoa_B5.img'],      # Band 5
-            740: ['rho_toa_B6.img', 'rtoa_B6.img'],      # Band 6
-            783: ['rho_toa_B7.img', 'rtoa_B7.img'],      # Band 7
-            842: ['rho_toa_B8.img', 'rtoa_B8.img'],      # Band 8
-            865: ['rho_toa_B8A.img', 'rtoa_B8A.img'],    # Band 8A
-            945: ['rho_toa_B9.img', 'rtoa_B9.img'],      # Band 9
-            1610: ['rho_toa_B11.img', 'rtoa_B11.img'],   # Band 11
-            2190: ['rho_toa_B12.img', 'rtoa_B12.img']    # Band 12
-        }
-        
-        rhow_bands = {}
-        missing_bands = []
-        
-        for wavelength, possible_files in band_mapping.items():
-            band_found = False
-            for filename in possible_files:
-                band_path = os.path.join(data_folder, filename)
-                if os.path.exists(band_path) and os.path.getsize(band_path) > 1024:
-                    rhow_bands[wavelength] = band_path
-                    band_found = True
-                    break
-            
-            if not band_found:
-                missing_bands.append(f"{wavelength}nm")
-        
-        if missing_bands:
-            logger.warning(f"Missing bands for Jiang processing: {missing_bands}")
-        
-        logger.info(f"Successfully found {len(rhow_bands)} spectral bands for Jiang TSS")
-        return rhow_bands
     
-    def _load_bands_data(self, rhow_bands: Dict[int, str]) -> Tuple[Optional[Dict], Optional[Dict]]:
-        """Load band data arrays"""
+    def _load_bands_data(self, band_paths: Dict[int, str]) -> Tuple[Optional[Dict], Optional[Dict]]:
+        """
+        Load band data arrays from file paths
+        
+        Args:
+            band_paths: Dictionary mapping wavelength -> file path
+            
+        Returns:
+            Tuple of (bands_data, reference_metadata) or (None, None) on failure
+        """
         bands_data = {}
         reference_metadata = None
         
-        for wavelength, file_path in rhow_bands.items():
+        logger.info(f"Loading {len(band_paths)} spectral bands into memory")
+        
+        for wavelength, file_path in band_paths.items():
             try:
                 data, metadata = RasterIO.read_raster(file_path)
                 bands_data[wavelength] = data
@@ -1253,34 +1213,241 @@ class JiangTSSProcessor:
                 if reference_metadata is None:
                     reference_metadata = metadata
                 
+                # Log loading progress
+                file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+                logger.debug(f"✓ Loaded {wavelength}nm: {file_size_mb:.1f}MB")
+                
             except Exception as e:
-                logger.error(f"Failed to load band {wavelength}nm: {e}")
+                logger.error(f"❌ Failed to load band {wavelength}nm from {file_path}: {e}")
                 return None, None
         
+        logger.info(f"✅ Successfully loaded {len(bands_data)} bands into memory")
         return bands_data, reference_metadata
     
-    def process_jiang_tss(self, c2rcc_path: str, output_folder: str, 
-                      product_name: str) -> Dict[str, ProcessingResult]:
+    def _apply_simple_unit_conversion(self, bands_data: Dict[int, np.ndarray], 
+                                    band_paths: Dict[int, str]) -> Dict[int, np.ndarray]:
         """
-        Enhanced TSS processing with marine visualization capabilities
+        SIMPLE: Apply unit conversions based on detected band types
+        Works with your _update_band_mapping_for_mixed_types method
+        """
+        converted_data = {}
+        conversion_log = []
+        
+        # Analyze what band types we have
+        band_types = set()
+        for file_path in band_paths.values():
+            filename = os.path.basename(file_path)
+            if filename.startswith('rhow_'):
+                band_types.add('rhow')
+            elif filename.startswith('rrs_'):
+                band_types.add('rrs')
+        
+        # Log detected types
+        logger.info(f"🔧 Detected band types: {list(band_types)}")
+        
+        # Apply conversions
+        for wavelength, data in bands_data.items():
+            file_path = band_paths[wavelength]
+            filename = os.path.basename(file_path)
+            
+            if filename.startswith('rhow_'):
+                # Convert rhow to Rrs: Rrs = rhow / π
+                converted_data[wavelength] = data / np.pi
+                conversion_log.append(f"{wavelength}nm: rhow → Rrs (÷π)")
+                
+            elif filename.startswith('rrs_'):
+                # Already in Rrs units, no conversion needed
+                converted_data[wavelength] = data.copy()
+                conversion_log.append(f"{wavelength}nm: rrs (no conversion)")
+            
+            else:
+                # This shouldn't happen with your current band mapping
+                logger.warning(f"Unexpected band type for {wavelength}nm: {filename}")
+                converted_data[wavelength] = data.copy()
+                conversion_log.append(f"{wavelength}nm: unknown (no conversion)")
+        
+        # Log all conversions applied
+        if len(band_types) > 1:
+            logger.info("🔄 Mixed band types - individual conversions:")
+        else:
+            band_type = list(band_types)[0]
+            if band_type == 'rhow':
+                logger.info("🔄 All rhow bands - converting to Rrs:")
+            else:
+                logger.info("✅ All rrs bands - no conversion needed:")
+        
+        for log_entry in conversion_log:
+            logger.info(f"  {log_entry}")
+        
+        # Validate converted data ranges
+        self._validate_rrs_ranges(converted_data)
+        
+        return converted_data
+    
+    def _validate_rrs_ranges(self, rrs_data: Dict[int, np.ndarray]):
+        """
+        Validate that Rrs values are in reasonable ranges after conversion
+        """
+        for wavelength, data in rrs_data.items():
+            # Remove NaN values for statistics
+            valid_data = data[~np.isnan(data)]
+            
+            if len(valid_data) == 0:
+                logger.warning(f"Band {wavelength}nm: All values are NaN")
+                continue
+                
+            min_val = np.min(valid_data)
+            max_val = np.max(valid_data)
+            mean_val = np.mean(valid_data)
+            
+            # Typical Rrs ranges for water (sr^-1)
+            # Blue/Green: 0.001-0.05, Red: 0.0001-0.02, NIR: 0.00001-0.01
+            if wavelength < 600:  # Blue/Green
+                expected_max = 0.08
+            elif wavelength < 700:  # Red
+                expected_max = 0.04
+            else:  # NIR
+                expected_max = 0.02
+            
+            # Check for unreasonable values
+            if max_val > expected_max:
+                logger.warning(f"Band {wavelength}nm: High Rrs values detected (max={max_val:.6f})")
+                logger.warning("  This may indicate incorrect unit conversion or data issues")
+            
+            if min_val < -0.01:  # Allow small negative values (sensor noise)
+                negative_count = np.sum(valid_data < -0.01)
+                logger.warning(f"Band {wavelength}nm: {negative_count} significantly negative values detected")
+            
+            logger.debug(f"Band {wavelength}nm Rrs stats: min={min_val:.6f}, max={max_val:.6f}, mean={mean_val:.6f}")
+
+    
+    def _update_band_mapping_for_mixed_types(self, c2rcc_path: str) -> Dict[int, str]:
+        """
+        JIANG-FOCUSED: Load bands that can actually be used for Jiang TSS algorithm
+        Priority: rhow > rrs (ONLY - these are the only complete 8-band datasets)
+        
+        Removed rhown: Only has 6 bands, missing B7 and B8A needed for Jiang algorithm
+        Removed TOA: Not atmospherically corrected, unsuitable for water analysis
+        """
+        if c2rcc_path.endswith('.dim'):
+            data_folder = c2rcc_path.replace('.dim', '.data')
+        else:
+            data_folder = f"{c2rcc_path}.data"
+        
+        if not os.path.exists(data_folder):
+            logger.error(f"Data folder not found: {data_folder}")
+            return {}
+        
+        # CLEAN: Only complete 8-band water reflectance products
+        band_mapping = {
+            443: ['rhow_B1.img', 'rrs_B1.img'],      # Blue
+            490: ['rhow_B2.img', 'rrs_B2.img'],      # Blue
+            560: ['rhow_B3.img', 'rrs_B3.img'],      # Green (Type I reference)
+            665: ['rhow_B4.img', 'rrs_B4.img'],      # Red (Type II reference)
+            705: ['rhow_B5.img', 'rrs_B5.img'],      # Red Edge
+            740: ['rhow_B6.img', 'rrs_B6.img'],      # Red Edge (Type III reference)
+            783: ['rhow_B7.img', 'rrs_B7.img'],      # NIR (needed for calculations)
+            865: ['rhow_B8A.img', 'rrs_B8A.img']     # NIR (Type IV reference)
+        }
+        
+        found_bands = {}
+        band_type_summary = {}
+        
+        logger.info(f"🎯 Searching for COMPLETE 8-band datasets in: {data_folder}")
+        
+        for wavelength, possible_names in band_mapping.items():
+            for name in possible_names:
+                file_path = os.path.join(data_folder, name)
+                if os.path.exists(file_path) and os.path.getsize(file_path) > 1024:  # >1KB
+                    found_bands[wavelength] = file_path
+                    
+                    # Track band type for summary
+                    if name.startswith('rhow_'):
+                        band_type = 'rhow'
+                    elif name.startswith('rrs_'):
+                        band_type = 'rrs'
+                    
+                    band_type_summary[band_type] = band_type_summary.get(band_type, 0) + 1
+                    logger.info(f"✓ Found {wavelength}nm: {name} ({band_type})")
+                    break
+            else:
+                logger.warning(f"✗ Missing {wavelength}nm - CRITICAL for Jiang algorithm")
+        
+        # Detailed analysis for Jiang requirements
+        logger.info(f"📊 Band type summary: {band_type_summary}")
+        
+        total_found = len(found_bands)
+        required_bands = [443, 490, 560, 665, 705, 740, 783, 865]
+        missing_critical = [wl for wl in required_bands if wl not in found_bands]
+        
+        # Jiang algorithm readiness assessment
+        if total_found == 8 and not missing_critical:
+            logger.info("🎉 PERFECT: Complete 8-band dataset found - Jiang algorithm ready")
+        elif total_found >= 6 and 783 in found_bands and 865 in found_bands:
+            logger.info(f"✅ USABLE: {total_found}/8 bands found including critical NIR bands")
+            if missing_critical:
+                logger.warning(f"   Missing non-critical: {missing_critical}nm")
+        else:
+            logger.error(f"❌ INSUFFICIENT: {total_found}/8 bands found")
+            if missing_critical:
+                logger.error(f"   Missing CRITICAL bands: {missing_critical}nm")
+            
+            # Specific warnings for missing critical bands
+            if 783 not in found_bands:
+                logger.error("   ⚠️  Missing 783nm (B7) - needed for QAA calculations")
+            if 865 not in found_bands:
+                logger.error("   ⚠️  Missing 865nm (B8A) - needed for extremely turbid waters")
+            
+            logger.error("   🚫 Jiang TSS algorithm cannot proceed reliably")
+        
+        # Unit conversion info
+        if len(band_type_summary) > 1:
+            logger.info("🔧 Mixed band types detected - automatic unit conversions will be applied")
+        elif 'rrs' in band_type_summary:
+            logger.info("🔧 RRS bands detected - no unit conversion needed (already in sr⁻¹)")
+        elif 'rhow' in band_type_summary:
+            logger.info("🔧 RHOW bands detected - will convert to Rrs (÷π)")
+        
+        return found_bands
+ 
+    
+    def process_jiang_tss(self, c2rcc_path: str, output_folder: str, 
+                        product_name: str) -> Dict[str, ProcessingResult]:
+        """
+        Complete TSS processing with automatic unit conversions
+        Works with your current _update_band_mapping_for_mixed_types method
         """
         try:
             logger.info(f"Starting comprehensive TSS processing for {product_name}")
             
-            # Step 1: Load spectral bands (unchanged)
-            rhow_bands = self._load_rhow_bands(c2rcc_path)
-            if not rhow_bands:
-                return {'error': ProcessingResult(False, "", None, "Failed to load required bands")}
+            # Step 1: Load spectral bands using your current method
+            logger.info("🔍 Step 1: Loading water reflectance bands")
+            band_paths = self._update_band_mapping_for_mixed_types(c2rcc_path)
             
-            # Step 2: Load and validate bands data (unchanged)
-            bands_data, reference_metadata = self._load_bands_data(rhow_bands)
+            if not band_paths:
+                return {'error': ProcessingResult(False, "", None, "No suitable water reflectance bands found")}
+            
+            # Check if we have enough bands (your method already logs detailed info)
+            if len(band_paths) < 8:
+                error_msg = f"Insufficient bands for Jiang algorithm: {len(band_paths)}/8 found"
+                logger.error(f"❌ {error_msg}")
+                return {'error': ProcessingResult(False, "", None, error_msg)}
+            
+            # Step 2: Load band data arrays
+            logger.info("📊 Step 2: Loading band data into memory")
+            bands_data, reference_metadata = self._load_bands_data(band_paths)
             if bands_data is None:
-                return {'error': ProcessingResult(False, "", None, "Failed to load bands data")}
+                return {'error': ProcessingResult(False, "", None, "Failed to load band data arrays")}
             
-            # Step 3: Apply Jiang methodology (unchanged)
-            jiang_results = self._apply_full_jiang_methodology(bands_data)
+            # Step 3: Apply unit conversions
+            logger.info("🔧 Step 3: Applying unit conversions")
+            converted_bands_data = self._apply_simple_unit_conversion(bands_data, band_paths)
             
-            # Step 4: Advanced algorithms processing (unchanged)
+            # Step 4: Apply Jiang methodology with converted data
+            logger.info("🧮 Step 4: Applying Jiang TSS methodology")
+            jiang_results = self._apply_full_jiang_methodology(converted_bands_data)
+            
+            # Step 5: Advanced algorithms processing
             all_results = jiang_results.copy()
             
             if (hasattr(self.config, 'enable_advanced_algorithms') and 
@@ -1288,20 +1455,20 @@ class JiangTSSProcessor:
                 hasattr(self, 'advanced_processor') and 
                 self.advanced_processor is not None):
                 
-                logger.info("Processing advanced algorithms")
+                logger.info("🔬 Step 5: Processing advanced algorithms")
                 advanced_results = self._process_advanced_algorithms(
-                    c2rcc_path, jiang_results, bands_data, product_name
+                    c2rcc_path, jiang_results, converted_bands_data, product_name
                 )
                 all_results.update(advanced_results)
                 logger.info(f"Advanced algorithms completed: {len(advanced_results)} additional products")
             
-            # Step 5: NEW - Marine visualization processing
+            # Step 6: Marine visualization processing
             if (hasattr(self.config, 'enable_marine_visualization') and 
                 self.config.enable_marine_visualization and 
                 hasattr(self, 'marine_viz_processor') and 
                 self.marine_viz_processor is not None):
                 
-                logger.info("Processing marine visualizations (RGB + indices)")
+                logger.info("🌊 Step 6: Processing marine visualizations")
                 viz_results = self.marine_viz_processor.process_marine_visualizations(
                     c2rcc_path, output_folder, product_name
                 )
@@ -1311,39 +1478,44 @@ class JiangTSSProcessor:
                 rgb_count = len([k for k in viz_results.keys() if k.startswith('rgb_')])
                 index_count = len([k for k in viz_results.keys() if k.startswith('index_')])
                 if 'error' not in viz_results:
-                    logger.info(f"Marine visualization completed: {rgb_count} RGB composites + {index_count} spectral indices")
+                    logger.info(f"Marine visualization completed: {rgb_count} RGB composites + {index_count} indices")
                 else:
                     logger.warning(f"Marine visualization had errors: {viz_results['error'].error_message}")
             
-            # Step 6: Save ALL results (unchanged)
+            # Step 7: Save all results
+            logger.info("💾 Step 7: Saving all results")
             output_results = self._save_complete_results(
                 all_results, output_folder, product_name, reference_metadata
             )
             
-            # Final summary with visualization info
+            # Final summary
             total_products = len(output_results)
             jiang_products = len(jiang_results)
             advanced_products = len([k for k in all_results.keys() if k.startswith(('clarity_', 'hab_'))])
             viz_products = len([k for k in all_results.keys() if k.startswith(('rgb_', 'index_'))])
             
-            logger.info(f"Complete TSS processing summary:")
+            logger.info(f"✅ Complete TSS processing summary:")
             logger.info(f"  Jiang products: {jiang_products}")
             logger.info(f"  Advanced products: {advanced_products}")
             logger.info(f"  Visualization products: {viz_products}")
             logger.info(f"  Total products: {total_products}")
+            logger.info(f"  🎯 Processing completed with automatic unit conversions")
             
             return output_results
             
         except Exception as e:
             error_msg = f"Complete TSS processing failed: {str(e)}"
             logger.error(error_msg)
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return {'error': ProcessingResult(False, "", None, error_msg)}
+
         
     def _process_advanced_algorithms(self, c2rcc_path: str, jiang_results: Dict, 
-                                bands_data: Dict, product_name: str) -> Dict:
-        """Process only working advanced aquatic algorithms"""
+                                rrs_bands_data: Dict, product_name: str) -> Dict:
+        """Process advanced algorithms with properly converted Rrs data"""
         try:
-            logger.info("Processing working advanced aquatic algorithms")
+            logger.info("Processing advanced algorithms with unit-converted data")
             
             advanced_results = {}
             config = self.config.advanced_config
@@ -1353,7 +1525,7 @@ class JiangTSSProcessor:
                 config = AdvancedAquaticConfig()
             
             # =======================================================================
-            # 1. WATER CLARITY CALCULATION (Works with Jiang absorption + backscattering)
+            # 1. WATER CLARITY CALCULATION
             # =======================================================================
             if config.enable_water_clarity and 'absorption' in jiang_results and 'backscattering' in jiang_results:
                 logger.info("Calculating water clarity indices")
@@ -1376,24 +1548,19 @@ class JiangTSSProcessor:
                     logger.error(f"Water clarity calculation failed: {e}")
             
             # =======================================================================
-            # 2. HAB DETECTION (Uses Sentinel-2 spectral bands only)
+            # 2. HAB DETECTION (Uses properly converted Rrs data)
             # =======================================================================
             if config.enable_hab_detection:
-                logger.info("Detecting harmful algal blooms using Sentinel-2 spectral analysis")
+                logger.info("Detecting harmful algal blooms using converted Rrs data")
                 
                 try:
-                    # Convert water-leaving reflectance to remote sensing reflectance
-                    rrs_bands = {}
-                    for wl, rhow_data in bands_data.items():
-                        if rhow_data is not None:
-                            rrs_bands[wl] = rhow_data / np.pi  # Convert rhow to Rrs
-                    
-                    if rrs_bands:
-                        # Call HAB detection with Sentinel-2 bands
+                    # Data is already in Rrs units from unit conversion step!
+                    if rrs_bands_data:
+                        # Call HAB detection with properly converted Sentinel-2 bands
                         hab_results = self.advanced_processor.detect_harmful_algal_blooms(
                             chlorophyll=None,  # Not needed - calculated from spectral data
                             phycocyanin=None,  # Not available from S2
-                            rrs_bands=rrs_bands
+                            rrs_bands=rrs_bands_data  # Already in correct Rrs units
                         )
                         
                         # Add HAB results with prefix
@@ -1402,12 +1569,12 @@ class JiangTSSProcessor:
                         
                         logger.info(f"HAB detection completed: {len(hab_results)} products")
                     else:
-                        logger.warning("No suitable spectral bands available for HAB detection")
+                        logger.warning("No suitable converted spectral bands available for HAB detection")
                         
                 except Exception as e:
                     logger.error(f"HAB detection failed: {e}")
                     
-            logger.info(f"Working advanced algorithms completed: {len(advanced_results)} products generated")
+            logger.info(f"✅ Advanced algorithms completed: {len(advanced_results)} products generated")
             
             return advanced_results
             
@@ -1416,6 +1583,7 @@ class JiangTSSProcessor:
             import traceback
             traceback.print_exc()
             return {}
+            
     # This method enables to extract SNAP chlorophyll
     def _extract_snap_chlorophyll(self, c2rcc_path: str) -> Optional[np.ndarray]:
         """Extract chlorophyll from SNAP C2RCC output"""
@@ -1435,14 +1603,14 @@ class JiangTSSProcessor:
             logger.error(f"Error extracting SNAP chlorophyll: {e}")
             return None
         
-    def _apply_full_jiang_methodology(self, bands_data: Dict[int, np.ndarray]) -> Dict[str, np.ndarray]:
+    def _apply_full_jiang_methodology(self, rrs_data: Dict[int, np.ndarray]) -> Dict[str, np.ndarray]:
         """
-        Complete Jiang methodology implementation with water type classification output
+        Complete Jiang methodology implementation - UPDATED to work with pre-converted Rrs data
         """
-        logger.info("Applying Jiang methodology (exact R translation)")
+        logger.info("Applying Jiang methodology to pre-converted Rrs data")
         
         # Get array shape
-        shape = bands_data[443].shape
+        shape = rrs_data[443].shape
         
         # Initialize output arrays
         absorption = np.full(shape, np.nan, dtype=np.float32)
@@ -1450,20 +1618,17 @@ class JiangTSSProcessor:
         reference_band = np.full(shape, np.nan, dtype=np.float32)
         tss_concentration = np.full(shape, np.nan, dtype=np.float32)
         
-        # NEW: Add water type classification array
+        # Add water type classification array
         water_type_classification = np.full(shape, 0, dtype=np.uint8)  # 0 = Invalid/Land
         
-        # Convert to Rrs (sr^-1) - water-leaving reflectance to remote sensing reflectance
-        rrs_data = {}
-        for wavelength, rhow in bands_data.items():
-            # Convert rhow to Rrs (approximation: Rrs ≈ rhow / π)
-            rrs_data[wavelength] = rhow / np.pi
+        # NOTE: Data is already in Rrs units from unit conversion step
+        logger.info("ℹ️  Using pre-converted Rrs data (no additional π division)")
         
-        # Create valid pixel mask using corrected validation
+        # Create valid pixel mask
         valid_mask = self._create_valid_pixel_mask(rrs_data)
         
         if np.any(valid_mask):
-            # Apply corrected methodology to valid pixels
+            # Apply methodology to valid pixels
             pixel_results = self._process_valid_pixels(rrs_data, valid_mask)
             
             # Fill output arrays
@@ -1472,7 +1637,7 @@ class JiangTSSProcessor:
             reference_band[valid_mask] = pixel_results['reference_band']
             tss_concentration[valid_mask] = pixel_results['tss']
             
-            # NEW: Create water type classification map from reference bands
+            # Create water type classification map
             ref_bands = pixel_results['reference_band']
             
             # Map wavelengths to water type codes
@@ -1492,7 +1657,7 @@ class JiangTSSProcessor:
         total_pixels = shape[0] * shape[1]
         coverage_percent = (valid_pixels / total_pixels) * 100
         
-        logger.info(f"CORRECTED Jiang processing completed:")
+        logger.info(f"✅ Jiang processing completed:")
         logger.info(f"  Valid pixels: {valid_pixels}/{total_pixels} ({coverage_percent:.1f}%)")
         
         # Log water type distribution
@@ -1501,7 +1666,7 @@ class JiangTSSProcessor:
             ref_bands_valid = ref_bands_valid[~np.isnan(ref_bands_valid)]
             
             if len(ref_bands_valid) > 0:
-                logger.info("Water type distribution (corrected algorithm):")
+                logger.info("Water type distribution:")
                 for band in [560, 665, 740, 865]:
                     count = np.sum(ref_bands_valid == band)
                     if count > 0:
@@ -1520,7 +1685,7 @@ class JiangTSSProcessor:
             'reference_band': reference_band,
             'tss': tss_concentration,
             'valid_mask': valid_mask,
-            'water_type_classification': water_type_classification  # NEW OUTPUT
+            'water_type_classification': water_type_classification
         }
     
     def _create_valid_pixel_mask(self, rrs_data: Dict[int, np.ndarray]) -> np.ndarray:
@@ -4218,7 +4383,7 @@ class S2Processor:
             return 0.0
 
     def _check_rhow_bands_availability(self, c2rcc_path: str) -> Dict[int, str]:
-        """Load rhow bands from SNAP C2RCC output - CORRECTED VERSION"""
+        """Load water reflectance bands from SNAP C2RCC output - UPDATED to include RRS"""
         if c2rcc_path.endswith('.dim'):
             data_folder = c2rcc_path.replace('.dim', '.data')
         else:
@@ -4228,32 +4393,59 @@ class S2Processor:
             logger.error(f"Data folder not found: {data_folder}")
             return {}
         
-        # Check multiple possible band naming conventions
+        # UPDATED: Include rrs_ bands as first priority since both rhow and rrs are equally valid
+        # for the Jiang algorithm (both are water-leaving reflectance, just different units)
         band_mapping = {
-            443: ['rhow_B1.img', 'rho_toa_B1.img', 'rtoa_B1.img'],
-            490: ['rhow_B2.img', 'rho_toa_B2.img', 'rtoa_B2.img'],
-            560: ['rhow_B3.img', 'rho_toa_B3.img', 'rtoa_B3.img'],
-            665: ['rhow_B4.img', 'rho_toa_B4.img', 'rtoa_B4.img'],
-            705: ['rhow_B5.img', 'rho_toa_B5.img', 'rtoa_B5.img'],
-            740: ['rhow_B6.img', 'rho_toa_B6.img', 'rtoa_B6.img'],
-            783: ['rhow_B7.img', 'rho_toa_B7.img', 'rtoa_B7.img'],
-            865: ['rhow_B8A.img', 'rho_toa_B8A.img', 'rtoa_B8A.img']
+            443: ['rhow_B1.img', 'rrs_B1.img', 'rhown_B1.img', 'rho_toa_B1.img', 'rtoa_B1.img'],
+            490: ['rhow_B2.img', 'rrs_B2.img', 'rhown_B2.img', 'rho_toa_B2.img', 'rtoa_B2.img'],
+            560: ['rhow_B3.img', 'rrs_B3.img', 'rhown_B3.img', 'rho_toa_B3.img', 'rtoa_B3.img'],
+            665: ['rhow_B4.img', 'rrs_B4.img', 'rhown_B4.img', 'rho_toa_B4.img', 'rtoa_B4.img'],
+            705: ['rhow_B5.img', 'rrs_B5.img', 'rhown_B5.img', 'rho_toa_B5.img', 'rtoa_B5.img'],
+            740: ['rhow_B6.img', 'rrs_B6.img', 'rhown_B6.img', 'rho_toa_B6.img', 'rtoa_B6.img'],
+            783: ['rhow_B7.img', 'rrs_B7.img', 'rho_toa_B7.img', 'rtoa_B7.img'],  # No rhown_B7
+            865: ['rhow_B8A.img', 'rrs_B8A.img', 'rho_toa_B8A.img', 'rtoa_B8A.img']  # No rhown_B8A
         }
         
         rhow_bands = {}
-        logger.info(f"🔍 Checking for rhow bands in: {data_folder}")
+        logger.info(f"🔍 Checking for water reflectance bands in: {data_folder}")
+        
+        found_band_types = {}  # Track which type of bands we're finding
         
         for wavelength, possible_names in band_mapping.items():
             for name in possible_names:
                 file_path = os.path.join(data_folder, name)
                 if os.path.exists(file_path) and os.path.getsize(file_path) > 1024:  # >1KB
                     rhow_bands[wavelength] = file_path
-                    logger.info(f"✓ Found band {wavelength}nm: {name}")
+                    
+                    # Track band type for logging
+                    if name.startswith('rhow_'):
+                        band_type = 'rhow'
+                    elif name.startswith('rrs_'):
+                        band_type = 'rrs'
+                    elif name.startswith('rhown_'):
+                        band_type = 'rhown'
+                    else:
+                        band_type = 'toa'
+                    
+                    found_band_types[wavelength] = band_type
+                    logger.info(f"✓ Found band {wavelength}nm: {name} ({band_type})")
                     break
             else:
                 logger.warning(f"✗ Missing band {wavelength}nm")
         
-        logger.info(f"📊 Loaded {len(rhow_bands)}/8 required rhow bands")
+        # Summary of band types found
+        type_counts = {}
+        for band_type in found_band_types.values():
+            type_counts[band_type] = type_counts.get(band_type, 0) + 1
+        
+        logger.info(f"📊 Band type summary: {type_counts}")
+        
+        # Check if we have mixed band types (which might need unit conversion)
+        unique_types = set(found_band_types.values())
+        if len(unique_types) > 1:
+            logger.warning(f"⚠️  Mixed band types detected: {unique_types}")
+            logger.warning("   This may require unit conversions in processing")
+        
         return rhow_bands
     
     def get_processing_status(self) -> ProcessingStatus:
@@ -5621,7 +5813,7 @@ class UnifiedS2TSSGUI:
         self.use_ecmwf_var = tk.BooleanVar(value=True)  # ENABLED BY DEFAULT as requested
         
         # Essential output products (SNAP defaults + uncertainties enabled)
-        self.output_rrs_var = tk.BooleanVar(value=False)
+        self.output_rrs_var = tk.BooleanVar(value=True)
         self.output_rhow_var = tk.BooleanVar(value=True)
         self.output_kd_var = tk.BooleanVar(value=True)
         self.output_uncertainties_var = tk.BooleanVar(value=True)  # Ensures unc_tsm.img and unc_chl.img
