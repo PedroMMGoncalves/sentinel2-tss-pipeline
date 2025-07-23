@@ -4418,6 +4418,38 @@ class S2Processor:
             import traceback
             traceback.print_exc()
             return None
+        
+    def _get_geometric_output_path(self, input_path: str, output_folder: str) -> str:
+        """Get the geometric processing output path"""
+        product_name = os.path.basename(input_path)
+        clean_name = self._extract_clean_product_name(product_name)
+        
+        # Check if subset was applied
+        if self.config.roi_config.use_roi and self.config.roi_config.roi_wkt:
+            # Subset output
+            output_name = f"Resampled_{clean_name}_Subset.dim"
+        else:
+            # Resample output only
+            output_name = f"Resampled_{clean_name}.dim"
+            
+        return os.path.join(output_folder, "Geometric_Products", output_name)
+
+    def _extract_clean_product_name(self, product_name: str) -> str:
+        """Extract clean product name from input path"""
+        clean_name = os.path.basename(product_name)
+        clean_name = clean_name.replace('.zip', '').replace('.SAFE', '')
+        
+        # Create cleaner name from Sentinel-2 product name
+        if 'MSIL1C' in clean_name:
+            parts = clean_name.split('_')
+            if len(parts) >= 6:
+                # S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753
+                # becomes: S2A_20190105T112441_T29TNF
+                clean_name = f"{parts[0]}_{parts[2]}_{parts[5]}"
+            else:
+                clean_name = clean_name.replace('MSIL1C_', '')
+        
+        return clean_name
     
     def _verify_file_integrity(self, file_path: str, min_size_kb: int = 1) -> tuple:
         """Verify file exists and has reasonable size"""
