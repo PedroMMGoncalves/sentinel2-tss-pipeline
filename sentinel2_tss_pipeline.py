@@ -4223,7 +4223,7 @@ class S2Processor:
             logger.debug(f"GPT command: {' '.join(cmd)}")
             
             # Run GPT processing with timeout
-            logger.info(f"Starting S2 processing with C2RCC...")
+            logger.info("Executing GPT processing...")
             result = subprocess.run(
                 cmd,
                 capture_output=True,

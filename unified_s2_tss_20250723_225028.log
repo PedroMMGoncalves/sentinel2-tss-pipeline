@@ -1,0 +1,102 @@
+2025-07-23 22:50:28,162 - INFO - [sentinel2_tss_pipeline.py:231] - Logging configured - File: unified_s2_tss_20250723_225028.log
+2025-07-23 22:50:28,170 - INFO - [sentinel2_tss_pipeline.py:7965] - Auto-detected SNAP_HOME: C:\Program Files\esa-snap
+2025-07-23 22:50:28,171 - INFO - [sentinel2_tss_pipeline.py:8006] - ================================================================================
+2025-07-23 22:50:28,172 - INFO - [sentinel2_tss_pipeline.py:8007] - UNIFIED S2 PROCESSING & TSS ESTIMATION PIPELINE v1.0
+2025-07-23 22:50:28,172 - INFO - [sentinel2_tss_pipeline.py:8008] - ================================================================================
+2025-07-23 22:50:28,173 - INFO - [sentinel2_tss_pipeline.py:8009] - SNAP_HOME: C:\Program Files\esa-snap
+2025-07-23 22:50:28,174 - INFO - [sentinel2_tss_pipeline.py:8010] - GPT: C:\Program Files\esa-snap\bin\gpt.exe
+2025-07-23 22:50:28,175 - INFO - [sentinel2_tss_pipeline.py:8011] - Python: 3.9.22 | packaged by conda-forge | (main, Apr 10 2025, 22:07:06) [MSC v.1929 64 bit (AMD64)]
+2025-07-23 22:50:28,175 - INFO - [sentinel2_tss_pipeline.py:8012] - Platform: win32
+2025-07-23 22:50:28,176 - INFO - [sentinel2_tss_pipeline.py:8013] - Working Directory: C:\Users\pedro.goncalves\OneDrive - LNEG - Laboratorio Nacional de Energia e Geologia\GitHub\sentinel2-tss-pipeline
+2025-07-23 22:50:28,177 - INFO - [sentinel2_tss_pipeline.py:8014] - ================================================================================
+2025-07-23 22:50:28,177 - INFO - [sentinel2_tss_pipeline.py:8023] - Starting GUI application...
+2025-07-23 22:50:28,322 - INFO - [sentinel2_tss_pipeline.py:5785] - Added enable_marine_visualization attribute (ENABLED)
+2025-07-23 22:50:28,322 - INFO - [sentinel2_tss_pipeline.py:5789] - Added marine_viz_config attribute
+2025-07-23 22:50:28,323 - INFO - [sentinel2_tss_pipeline.py:5799] - Creating MarineVisualizationConfig class for full functionality...
+2025-07-23 22:50:28,325 - INFO - [sentinel2_tss_pipeline.py:5829] - ✓ Created complete MarineVisualizationConfig - ALL FEATURES ENABLED
+2025-07-23 22:50:28,326 - INFO - [sentinel2_tss_pipeline.py:5867] - ============================================================
+2025-07-23 22:50:28,326 - INFO - [sentinel2_tss_pipeline.py:5868] - MARINE VISUALIZATION SYSTEM STATUS:
+2025-07-23 22:50:28,327 - INFO - [sentinel2_tss_pipeline.py:5869] - ✓ Marine visualization enabled: True
+2025-07-23 22:50:28,328 - INFO - [sentinel2_tss_pipeline.py:5870] - ✓ Marine config created: True
+2025-07-23 22:50:28,328 - INFO - [sentinel2_tss_pipeline.py:5873] - ENABLED MARINE VISUALIZATION FEATURES:
+2025-07-23 22:50:28,329 - INFO - [sentinel2_tss_pipeline.py:5874] -   ✓ Natural color RGB: True
+2025-07-23 22:50:28,329 - INFO - [sentinel2_tss_pipeline.py:5875] -   ✓ False color RGB: True
+2025-07-23 22:50:28,330 - INFO - [sentinel2_tss_pipeline.py:5876] -   ✓ Water-specific RGB: True
+2025-07-23 22:50:28,330 - INFO - [sentinel2_tss_pipeline.py:5877] -   ✓ Research RGB combinations: True
+2025-07-23 22:50:28,331 - INFO - [sentinel2_tss_pipeline.py:5878] -   ✓ Water quality indices: True
+2025-07-23 22:50:28,331 - INFO - [sentinel2_tss_pipeline.py:5879] -   ✓ Chlorophyll indices: True
+2025-07-23 22:50:28,332 - INFO - [sentinel2_tss_pipeline.py:5880] -   ✓ Turbidity indices: True
+2025-07-23 22:50:28,332 - INFO - [sentinel2_tss_pipeline.py:5881] -   ✓ Advanced indices: True
+2025-07-23 22:50:28,333 - INFO - [sentinel2_tss_pipeline.py:5882] -   ✓ Contrast enhancement: True
+2025-07-23 22:50:28,333 - INFO - [sentinel2_tss_pipeline.py:5884] - ✓ Advanced algorithms enabled: True
+2025-07-23 22:50:28,334 - INFO - [sentinel2_tss_pipeline.py:5885] - ✓ Advanced config created: True
+2025-07-23 22:50:28,334 - INFO - [sentinel2_tss_pipeline.py:5886] - ============================================================
+2025-07-23 22:50:28,335 - INFO - [sentinel2_tss_pipeline.py:5887] - 🎨 MARINE VISUALIZATION SYSTEM READY FOR PRODUCTION! 🎨
+2025-07-23 22:50:28,335 - INFO - [sentinel2_tss_pipeline.py:5888] - Expected outputs per product:
+2025-07-23 22:50:28,336 - INFO - [sentinel2_tss_pipeline.py:5889] -   • Multiple RGB composites (natural, false color, water-specific)
+2025-07-23 22:50:28,336 - INFO - [sentinel2_tss_pipeline.py:5890] -   • Water quality spectral indices (NDWI, NDCI, NDTI, etc.)
+2025-07-23 22:50:28,337 - INFO - [sentinel2_tss_pipeline.py:5891] -   • Chlorophyll indices (CIG, etc.)
+2025-07-23 22:50:28,337 - INFO - [sentinel2_tss_pipeline.py:5892] -   • Turbidity indices (TSI, etc.)
+2025-07-23 22:50:28,338 - INFO - [sentinel2_tss_pipeline.py:5893] -   • Advanced marine indices (FUI, SDD, CDOM, etc.)
+2025-07-23 22:50:28,338 - INFO - [sentinel2_tss_pipeline.py:5894] -   • All outputs in GeoTIFF format with metadata
+2025-07-23 22:50:28,339 - INFO - [sentinel2_tss_pipeline.py:5895] - ============================================================
+2025-07-23 22:51:26,052 - INFO - [sentinel2_tss_pipeline.py:7210] - ✓ Marine visualization settings updated from GUI
+2025-07-23 22:51:26,052 - INFO - [sentinel2_tss_pipeline.py:7251] - Configuration update completed - Marine visualization OPERATIONAL!
+2025-07-23 22:51:26,052 - INFO - [sentinel2_tss_pipeline.py:7267] - Active marine visualization features: Natural RGB, False Color RGB, Water-specific RGB, Water Quality Indices, Chlorophyll Indices, Turbidity Indices
+2025-07-23 22:51:27,755 - INFO - [sentinel2_tss_pipeline.py:3754] - SNAP_HOME: C:\Program Files\esa-snap
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3765] - ✓ GPT validated: C:\Program Files\esa-snap\bin\gpt.exe
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3872] - Complete processing graph saved: s2_complete_processing_with_subset.xml
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3794] - ✓ Processing graph created for mode: complete_pipeline
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3231] - Initialized S2 Marine Visualization Processor
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3232] - Configuration settings:
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3233] -   Natural color RGB: True
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3234] -   False color RGB: True
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3235] -   Water-specific RGB: True
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3236] -   Research RGB: True
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3237] -   Water quality indices: True
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3238] -   Chlorophyll indices: True
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3239] -   Turbidity indices: True
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3240] -   Advanced indices: True
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3241] -   Output format: GeoTIFF
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3242] -   Contrast enhancement: True
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3243] -   Contrast method: percentile_stretch
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3244] -   Export metadata: True
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3245] -   Create overview images: True
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3260] - Expected products: ~11 RGB composites + ~13 spectral indices
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:3261] - Marine visualization processor ready for processing
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:1148] - Marine visualization processor initialized
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:2590] - Initialized Advanced Aquatic Processor with scientific algorithms
+2025-07-23 22:51:32,223 - INFO - [sentinel2_tss_pipeline.py:1161] - Initialized Jiang TSS Processor with enhanced methodology
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1164] - Jiang TSS enabled: True
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1165] - Advanced algorithms enabled: True
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1166] - Marine visualization enabled: True
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1169] - Working algorithms available:
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1170] -   ✓ Water Clarity: True
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1171] -   ✓ HAB Detection: True
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1172] - Note: Only Sentinel-2 compatible algorithms included
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1178] - Marine visualization configuration:
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1179] -   ✓ Natural color RGB: True
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1180] -   ✓ False color RGB: True
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1181] -   ✓ Water-specific RGB: True
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1182] -   ✓ Research RGB: True
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1183] -   ✓ Water quality indices: True
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1184] -   ✓ Chlorophyll indices: True
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1185] -   ✓ Turbidity indices: True
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1186] -   ✓ Advanced indices: True
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1187] -   Output format: GeoTIFF
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1188] -   Contrast enhancement: True
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:1192] - Jiang TSS Processor initialization completed successfully
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:4655] - Initialized Unified S2-TSS Processor - Mode: complete_pipeline
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:7527] - TEST MODE: Processing only 2 products
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:4729] - 
+--------------------------------------------------------------------------------
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:4730] - Processing 1/2: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:4731] - Mode: complete_pipeline
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:4732] - --------------------------------------------------------------------------------
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:4746] - Step 1: S2 Processing (L1C → C2RCC)
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:4048] - Processing: S2A_MSIL1C_20190105T112441_N0500_R037_T29TNF_20221215T164753.zip
+2025-07-23 22:51:32,239 - INFO - [sentinel2_tss_pipeline.py:4049] -   Mode: complete_pipeline
+2025-07-23 22:51:32,255 - INFO - [sentinel2_tss_pipeline.py:4050] -   Resolution: 10m
+2025-07-23 22:51:32,255 - INFO - [sentinel2_tss_pipeline.py:4051] -   ECMWF: True
+2025-07-23 22:51:32,255 - INFO - [sentinel2_tss_pipeline.py:4110] - Starting S2 processing with C2RCC...
+2025-07-23 22:51:32,255 - INFO - [sentinel2_tss_pipeline.py:4226] - Starting S2 processing with C2RCC...
