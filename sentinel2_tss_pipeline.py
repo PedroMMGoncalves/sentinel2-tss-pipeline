@@ -111,7 +111,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, NamedTuple
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from enum import Enum
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
