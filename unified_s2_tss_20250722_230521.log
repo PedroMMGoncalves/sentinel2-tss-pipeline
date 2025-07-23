@@ -269,3 +269,4 @@
 2025-07-22 23:54:50,104 - INFO - [sentinel2_tss_pipeline.py:3680] -    TSM=True, CHL=True, Uncertainties=False
 2025-07-22 23:54:50,105 - ERROR - [sentinel2_tss_pipeline.py:3706] - Unexpected error processing S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip: 'S2Processor' object has no attribute '_process_tss_stage'
 2025-07-22 23:54:50,105 - ERROR - [sentinel2_tss_pipeline.py:4121] - S2 processing failed, skipping TSS: Unexpected error processing S2A_MSIL1C_20190108T113441_N0500_R080_T29TNF_20221217T102306.zip: 'S2Processor' object has no attribute '_process_tss_stage'
+2025-07-23 09:04:09,486 - INFO - [sentinel2_tss_pipeline.py:7394] - Application finished successfully

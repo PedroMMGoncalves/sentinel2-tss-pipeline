@@ -301,7 +301,7 @@ class C2RCCConfig:
     output_uncertainties: bool = True # Ensures unc_tsm.img and unc_chl.img
     output_ac_reflectance: bool = True
     output_rtoa: bool = True
-    
+       
     # Advanced atmospheric products (SNAP defaults)
     output_rtosa_gc: bool = False
     output_rtosa_gc_aann: bool = False
@@ -539,22 +539,44 @@ class RasterIO:
     @staticmethod
     def write_raster(data: np.ndarray, output_path: str, metadata: dict, 
                     description: str = "", nodata: float = -9999) -> bool:
-        """Write numpy array to raster file"""
+        """Write numpy array to raster file - FIXED VERSION"""
+        dataset = None
         try:
+            # CRITICAL FIX: Validate input types
+            if not isinstance(data, np.ndarray):
+                logger.error(f"write_raster received invalid data type: {type(data)}")
+                logger.error(f"Expected np.ndarray, got: {data}")
+                return False
+            
+            if not isinstance(metadata, dict):
+                logger.error(f"write_raster received invalid metadata type: {type(metadata)}")
+                return False
+            
+            # FIXED: Ensure we can copy the data
+            try:
+                output_data = np.array(data, copy=True, dtype=np.float32)
+            except Exception as copy_error:
+                logger.error(f"Failed to copy data array: {copy_error}")
+                return False
+            
             # Replace NaN with nodata value
-            output_data = data.copy()
-            output_data[np.isnan(output_data)] = nodata
+            nan_mask = np.isnan(output_data)
+            output_data[nan_mask] = nodata
             
             # Create output raster
             driver = gdal.GetDriverByName('GTiff')
             dataset = driver.Create(
                 output_path, 
-                metadata['width'], 
-                metadata['height'], 
+                int(metadata['width']), 
+                int(metadata['height']), 
                 1, 
                 gdal.GDT_Float32,
                 ['COMPRESS=LZW', 'PREDICTOR=2', 'TILED=YES']
             )
+            
+            if dataset is None:
+                logger.error(f"Failed to create GDAL dataset: {output_path}")
+                return False
             
             # Set georeference information
             dataset.SetGeoTransform(metadata['geotransform'])
@@ -562,13 +584,23 @@ class RasterIO:
             
             # Write data
             band = dataset.GetRasterBand(1)
-            band.WriteArray(output_data)
+            write_result = band.WriteArray(output_data)
+            
+            if write_result != 0:  # GDAL returns 0 for success
+                logger.error(f"GDAL WriteArray failed with code: {write_result}")
+                return False
+            
             band.SetNoDataValue(nodata)
             if description:
                 band.SetDescription(description)
             
             # Calculate statistics
-            band.ComputeStatistics(False)
+            try:
+                band.ComputeStatistics(False)
+                band.FlushCache()
+                dataset.FlushCache()
+            except Exception as stats_error:
+                logger.warning(f"Could not compute statistics: {stats_error}")
             
             dataset = None  # Close dataset
             
@@ -577,7 +609,12 @@ class RasterIO:
             
         except Exception as e:
             logger.error(f"Error writing raster {output_path}: {e}")
+            logger.error(f"Data type: {type(data)}, shape: {getattr(data, 'shape', 'no shape')}")
             return False
+        finally:
+            if dataset is not None:
+                dataset = None
+
     
     @staticmethod
     def calculate_statistics(data: np.ndarray, nodata: float = -9999) -> Dict:
@@ -1636,7 +1673,17 @@ class JiangTSSProcessor:
         # R code: u <- (-0.089+sqrt((0.089^2)+4*0.125*rrs))/(2*0.125)
         u = {}
         for wl, rrs_val in rrs.items():
-            u[wl] = (-0.089 + np.sqrt((0.089**2) + 4 * 0.125 * rrs_val)) / (2 * 0.125)
+            # Safe u calculation to avoid sqrt warnings
+            if rrs_val > 0:
+                discriminant = (0.089**2) + 4 * 0.125 * rrs_val
+                if discriminant >= 0:
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings('ignore', 'invalid value encountered in sqrt')
+                        u[wl] = (-0.089 + np.sqrt(discriminant)) / (2 * 0.125)
+                else:
+                    u[wl] = np.nan
+            else:
+                u[wl] = np.nan
         
         # R code: x <- log((rrs["Rrs443"]+rrs["Rrs490"])/(rrs["Rrs560"]+5*rrs["Rrs665"]*rrs["Rrs665"]/rrs["Rrs490"]),10)
         numerator = rrs[443] + rrs[490]
@@ -1675,7 +1722,17 @@ class JiangTSSProcessor:
         # R code: u <- (-0.089+sqrt((0.089^2)+4*0.125*rrs))/(2*0.125)
         u = {}
         for wl, rrs_val in rrs.items():
-            u[wl] = (-0.089 + np.sqrt((0.089**2) + 4 * 0.125 * rrs_val)) / (2 * 0.125)
+            # Safe u calculation to avoid sqrt warnings
+            if rrs_val > 0:
+                discriminant = (0.089**2) + 4 * 0.125 * rrs_val
+                if discriminant >= 0:
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings('ignore', 'invalid value encountered in sqrt')
+                        u[wl] = (-0.089 + np.sqrt(discriminant)) / (2 * 0.125)
+                else:
+                    u[wl] = np.nan
+            else:
+                u[wl] = np.nan
         
         # R code: a665 <- aw["aw665"]+0.39*((site_Rrs["Rrs665"]/(site_Rrs["Rrs443"]+site_Rrs["Rrs490"]))^1.14)
         # CRITICAL: Use original site_Rrs, NOT converted rrs
@@ -1711,7 +1768,17 @@ class JiangTSSProcessor:
         # R code: u <- (-0.089+sqrt((0.089^2)+4*0.125*rrs))/(2*0.125)
         u = {}
         for wl, rrs_val in rrs.items():
-            u[wl] = (-0.089 + np.sqrt((0.089**2) + 4 * 0.125 * rrs_val)) / (2 * 0.125)
+            # Safe u calculation to avoid sqrt warnings
+            if rrs_val > 0:
+                discriminant = (0.089**2) + 4 * 0.125 * rrs_val
+                if discriminant >= 0:
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings('ignore', 'invalid value encountered in sqrt')
+                        u[wl] = (-0.089 + np.sqrt(discriminant)) / (2 * 0.125)
+                else:
+                    u[wl] = np.nan
+            else:
+                u[wl] = np.nan
         
         # R code: bbp740 <- ((u["Rrs740"]*aw["aw740"])/(1-u["Rrs740"]))-bbw["bbw740"]
         bbp740 = ((u[740] * aw[740]) / (1 - u[740])) - bbw[740]
@@ -1743,7 +1810,17 @@ class JiangTSSProcessor:
         # R code: u <- (-0.089+sqrt((0.089^2)+4*0.125*rrs))/(2*0.125)
         u = {}
         for wl, rrs_val in rrs.items():
-            u[wl] = (-0.089 + np.sqrt((0.089**2) + 4 * 0.125 * rrs_val)) / (2 * 0.125)
+            # Safe u calculation to avoid sqrt warnings
+            if rrs_val > 0:
+                discriminant = (0.089**2) + 4 * 0.125 * rrs_val
+                if discriminant >= 0:
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings('ignore', 'invalid value encountered in sqrt')
+                        u[wl] = (-0.089 + np.sqrt(discriminant)) / (2 * 0.125)
+                else:
+                    u[wl] = np.nan
+            else:
+                u[wl] = np.nan
         
         # R code: bbp865 <- ((u["Rrs865"]*aw["aw865"])/(1-u["Rrs865"]))-bbw["bbw865"]
         bbp865 = ((u[865] * aw[865]) / (1 - u[865])) - bbw[865]
@@ -4057,7 +4134,7 @@ class S2Processor:
             return False, 0.0, False
 
     def _calculate_missing_btot(self, c2rcc_path: str) -> bool:
-        """Calculate missing iop_btot from bpart + bwit"""
+        """Calculate missing iop_btot from bpart + bwit - FIXED VERSION"""
         try:
             data_folder = c2rcc_path.replace('.dim', '.data')
             bpart_path = os.path.join(data_folder, 'iop_bpart.img')
@@ -4066,10 +4143,16 @@ class S2Processor:
             
             # Check if btot already exists and is valid
             if os.path.exists(btot_path) and os.path.getsize(btot_path) > 1024:
+                logger.info("✓ iop_btot.img already exists")
                 return True
             
             # Check if source files exist
-            if not (os.path.exists(bpart_path) and os.path.exists(bwit_path)):
+            if not os.path.exists(bpart_path):
+                logger.error(f"Missing bpart file: {bpart_path}")
+                return False
+            
+            if not os.path.exists(bwit_path):
+                logger.error(f"Missing bwit file: {bwit_path}")
                 return False
             
             logger.info("🔄 Calculating missing iop_btot from bpart + bwit...")
@@ -4078,14 +4161,42 @@ class S2Processor:
             bpart_data, bpart_meta = RasterIO.read_raster(bpart_path)
             bwit_data, _ = RasterIO.read_raster(bwit_path)
             
+            # Validate data loaded correctly
+            if not isinstance(bpart_data, np.ndarray):
+                logger.error(f"Invalid bpart_data type: {type(bpart_data)}")
+                return False
+            
+            if not isinstance(bwit_data, np.ndarray):
+                logger.error(f"Invalid bwit_data type: {type(bwit_data)}")
+                return False
+            
+            # Check shapes match
+            if bpart_data.shape != bwit_data.shape:
+                logger.error(f"Shape mismatch: bpart {bpart_data.shape} vs bwit {bwit_data.shape}")
+                return False
+            
             # Calculate btot = bpart + bwit
             btot_data = bpart_data + bwit_data
             
-            # Save btot
-            success = RasterIO.write_raster(btot_path, btot_data, bpart_meta)
+            # Validate metadata
+            if not isinstance(bpart_meta, dict):
+                logger.error(f"Invalid metadata type: {type(bpart_meta)}")
+                return False
             
-            if success:
-                logger.info("✅ Successfully calculated and saved iop_btot.img")
+            logger.info(f"Calculated btot: shape={btot_data.shape}, valid_pixels={np.sum(~np.isnan(btot_data))}")
+            
+            # FIXED: Call write_raster with proper parameters
+            success = RasterIO.write_raster(
+                data=btot_data,
+                output_path=btot_path,
+                metadata=bpart_meta,
+                description="Total backscattering coefficient (bpart + bwit) in m^-1",
+                nodata=-9999
+            )
+            
+            if success and os.path.exists(btot_path):
+                file_size_kb = os.path.getsize(btot_path) / 1024
+                logger.info(f"✅ Successfully calculated and saved iop_btot.img ({file_size_kb:.1f} KB)")
                 return True
             else:
                 logger.error("❌ Failed to save iop_btot.img")
@@ -4093,6 +4204,8 @@ class S2Processor:
                 
         except Exception as e:
             logger.error(f"❌ Error calculating btot: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return False
         
     def _get_file_size_kb(self, file_path: str) -> float:
