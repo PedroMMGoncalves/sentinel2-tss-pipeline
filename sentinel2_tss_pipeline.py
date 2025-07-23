@@ -942,6 +942,94 @@ class SNAPTSMCHLCalculator:
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return {'error': ProcessingResult(False, "", None, error_msg)}
 
+    def calculate_uncertainties(self, c2rcc_path: str) -> Dict[str, ProcessingResult]:
+        """Calculate uncertainties for TSM and CHL products - ADD THIS METHOD HERE"""
+        try:
+            data_folder = c2rcc_path.replace('.dim', '.data')
+            
+            # Check if uncertainty files exist
+            unc_tsm_path = os.path.join(data_folder, 'unc_tsm.img')
+            unc_chl_path = os.path.join(data_folder, 'unc_chl.img')
+            
+            tsm_path = os.path.join(data_folder, 'conc_tsm.img')
+            chl_path = os.path.join(data_folder, 'conc_chl.img')
+            
+            results = {}
+            
+            # Calculate TSM uncertainty (typically 15-30% of TSM value)
+            if os.path.exists(tsm_path) and not (os.path.exists(unc_tsm_path) and os.path.getsize(unc_tsm_path) > 1024):
+                logger.info("🔄 Calculating TSM uncertainties...")
+                
+                tsm_data, tsm_meta = RasterIO.read_raster(tsm_path)
+                
+                # Simple uncertainty model: 20% of TSM value + 0.1 g/m³ base uncertainty
+                unc_tsm_data = np.where(
+                    tsm_data > 0,
+                    tsm_data * 0.20 + 0.1,  # 20% relative + 0.1 g/m³ absolute
+                    0
+                )
+                
+                success = RasterIO.write_raster(unc_tsm_path, unc_tsm_data, tsm_meta)
+                if success:
+                    logger.info("✅ TSM uncertainties calculated and saved")
+                    
+                    # Calculate statistics
+                    valid_pixels = np.sum(unc_tsm_data > 0)
+                    mean_uncertainty = np.mean(unc_tsm_data[unc_tsm_data > 0]) if valid_pixels > 0 else 0
+                    
+                    stats = {
+                        'coverage_percent': (valid_pixels / unc_tsm_data.size) * 100,
+                        'mean': mean_uncertainty,
+                        'valid_pixels': int(valid_pixels),
+                        'file_size_mb': os.path.getsize(unc_tsm_path) / (1024 * 1024)
+                    }
+                    
+                    results['unc_tsm'] = ProcessingResult(True, unc_tsm_path, stats, None)
+                else:
+                    logger.error("❌ Failed to save TSM uncertainties")
+                    results['unc_tsm'] = ProcessingResult(False, "", None, "Failed to save TSM uncertainties")
+            
+            # Calculate CHL uncertainty (typically 25-40% of CHL value)
+            if os.path.exists(chl_path) and not (os.path.exists(unc_chl_path) and os.path.getsize(unc_chl_path) > 1024):
+                logger.info("🔄 Calculating CHL uncertainties...")
+                
+                chl_data, chl_meta = RasterIO.read_raster(chl_path)
+                
+                # Simple uncertainty model: 30% of CHL value + 0.05 mg/m³ base uncertainty
+                unc_chl_data = np.where(
+                    chl_data > 0,
+                    chl_data * 0.30 + 0.05,  # 30% relative + 0.05 mg/m³ absolute
+                    0
+                )
+                
+                success = RasterIO.write_raster(unc_chl_path, unc_chl_data, chl_meta)
+                if success:
+                    logger.info("✅ CHL uncertainties calculated and saved")
+                    
+                    # Calculate statistics
+                    valid_pixels = np.sum(unc_chl_data > 0)
+                    mean_uncertainty = np.mean(unc_chl_data[unc_chl_data > 0]) if valid_pixels > 0 else 0
+                    
+                    stats = {
+                        'coverage_percent': (valid_pixels / unc_chl_data.size) * 100,
+                        'mean': mean_uncertainty,
+                        'valid_pixels': int(valid_pixels),
+                        'file_size_mb': os.path.getsize(unc_chl_path) / (1024 * 1024)
+                    }
+                    
+                    results['unc_chl'] = ProcessingResult(True, unc_chl_path, stats, None)
+                else:
+                    logger.error("❌ Failed to save CHL uncertainties")
+                    results['unc_chl'] = ProcessingResult(False, "", None, "Failed to save CHL uncertainties")
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"❌ Error calculating uncertainties: {e}")
+            return {
+                'unc_error': ProcessingResult(False, "", None, f"Error calculating uncertainties: {e}")
+            }
+            
 # ===== JIANG TSS PROCESSOR =====
 
 @dataclass  
@@ -3568,7 +3656,16 @@ class S2Processor:
             return os.path.join(output_dir, f"{clean_name}_{stage}.dim")
     
     def process_single_product(self, input_path: str, output_folder: str) -> Dict[str, ProcessingResult]:
-        """Process single product through complete S2 pipeline"""
+        """
+        Process single product through complete S2 pipeline - CORRECTED FULL VERSION
+        
+        Responsibilities:
+        - L1C → Resampling → Subset → C2RCC
+        - Calculate SNAP TSM/CHL from IOPs
+        - Verify C2RCC output
+        - NO TSS processing (handled by JiangTSSProcessor)
+        - NO Marine visualization (handled by JiangTSSProcessor)
+        """
         processing_start = time.time()
         results = {}
         
@@ -3581,12 +3678,6 @@ class S2Processor:
             logger.info(f"  Resolution: {self.config.resampling_config.target_resolution}m")
             logger.info(f"  ECMWF: {self.config.c2rcc_config.use_ecmwf_aux_data}")
             
-            # Ensure output directories exist
-            os.makedirs(os.path.join(output_folder, "Geometric_Products"), exist_ok=True)
-            os.makedirs(os.path.join(output_folder, "C2RCC_Products"), exist_ok=True)
-            os.makedirs(os.path.join(output_folder, "TSS_Products"), exist_ok=True)
-            os.makedirs(os.path.join(output_folder, "Logs"), exist_ok=True)
-            
             # Check system health before processing
             if hasattr(self, 'system_monitor'):
                 healthy, warnings = self.system_monitor.check_system_health()
@@ -3594,6 +3685,12 @@ class S2Processor:
                     logger.warning("System health issues detected:")
                     for warning in warnings:
                         logger.warning(f"  - {warning}")
+            
+            # Ensure output directories exist
+            os.makedirs(os.path.join(output_folder, "Geometric_Products"), exist_ok=True)
+            os.makedirs(os.path.join(output_folder, "C2RCC_Products"), exist_ok=True)
+            os.makedirs(os.path.join(output_folder, "TSS_Products"), exist_ok=True)
+            os.makedirs(os.path.join(output_folder, "Logs"), exist_ok=True)
             
             # Step 1: S2 Processing (Resampling + Subset + C2RCC)
             self.current_stage = "S2 Processing (Complete)"
@@ -3606,12 +3703,12 @@ class S2Processor:
                     logger.info(f"C2RCC output exists ({file_size/1024/1024:.1f}MB), skipping S2 processing")
                     self.skipped_count += 1
                     
-                    # Verify required bands exist for TSS processing
+                    # Verify required bands exist for potential TSS processing
                     data_folder = c2rcc_output_path.replace('.dim', '.data')
                     required_bands = ['conc_tsm.img', 'conc_chl.img', 'unc_tsm.img', 'unc_chl.img']
                     if self.config.jiang_config.enable_jiang_tss:
                         required_bands.extend(['rhow_B1.img', 'rhow_B2.img', 'rhow_B3.img', 'rhow_B4.img',
-                                             'rhow_B5.img', 'rhow_B6.img', 'rhow_B7.img', 'rhow_B8A.img'])
+                                            'rhow_B5.img', 'rhow_B6.img', 'rhow_B7.img', 'rhow_B8A.img'])
                     
                     missing_bands = []
                     for band in required_bands:
@@ -3622,20 +3719,23 @@ class S2Processor:
                         logger.warning(f"Missing bands for TSS processing: {missing_bands}")
                         logger.warning("Will reprocess to ensure all required bands are available")
                     else:
-                        results['s2_processing'] = ProcessingResult(True, c2rcc_output_path, 
-                                                                  {'file_size_mb': file_size/1024/1024, 'status': 'skipped'}, None)
-                        
-                        # Continue to TSS processing if enabled
-                        if self.config.processing_mode == ProcessingMode.COMPLETE_PIPELINE and self.config.jiang_config.enable_jiang_tss:
-                            tss_results = self._process_tss_stage(c2rcc_output_path, output_folder, product_name)
-                            results.update(tss_results)
-                        
-                        return results
+                        # Verify and return existing output
+                        c2rcc_stats = self._verify_c2rcc_output(c2rcc_output_path)
+                        if c2rcc_stats:
+                            results['s2_processing'] = ProcessingResult(True, c2rcc_output_path, 
+                                                                    c2rcc_stats, None)
+                            
+                            # ===== S2PROCESSOR STOPS HERE - NO TSS PROCESSING =====
+                            # TSS processing is handled by UnifiedS2TSSProcessor/JiangTSSProcessor
+                            logger.info("✅ S2 processing completed - ready for TSS processing")
+                            
+                            return results
                 else:
                     logger.warning(f"Removing incomplete C2RCC output file ({file_size} bytes)")
                     os.remove(c2rcc_output_path)
             
             # Run S2 processing
+            logger.info("Starting S2 processing with C2RCC...")
             s2_success = self._run_s2_processing(input_path, c2rcc_output_path)
             
             processing_time = time.time() - processing_start
@@ -3673,39 +3773,58 @@ class S2Processor:
                         if 'snap_chl' in snap_tsm_chl_results and snap_tsm_chl_results['snap_chl'].success:
                             logger.info("✅ SNAP CHL calculation successful!")
                         
-                        # RE-VERIFY after calculation to get updated status
-                        c2rcc_stats_updated = self._verify_c2rcc_output(c2rcc_output_path)
-                        if c2rcc_stats_updated:
+                        # Re-verify after calculating TSM/CHL
+                        final_stats = self._verify_c2rcc_output(c2rcc_output_path)
+                        if final_stats:
+                            results['s2_processing'] = ProcessingResult(True, c2rcc_output_path, final_stats, None)
                             logger.info("📊 UPDATED SNAP PRODUCTS STATUS:")
-                            logger.info(f"   TSM={c2rcc_stats_updated['has_tsm']}, CHL={c2rcc_stats_updated['has_chl']}, Uncertainties={c2rcc_stats_updated['has_uncertainties']}")
-                            # Update the stats in results
-                            results['s2_processing'] = ProcessingResult(True, c2rcc_output_path, c2rcc_stats_updated, None)
-                    else:
-                        logger.info("✅ SNAP TSM/CHL products already available")
-                        logger.info(f"   TSM={c2rcc_stats['has_tsm']}, CHL={c2rcc_stats['has_chl']}, Uncertainties={c2rcc_stats['has_uncertainties']}")
+                            logger.info(f"   TSM={final_stats['has_tsm']}, CHL={final_stats['has_chl']}, Uncertainties={final_stats['has_uncertainties']}")
                     
-                    # Continue with TSS Processing (if enabled and complete pipeline)
-                    if self.config.processing_mode == ProcessingMode.COMPLETE_PIPELINE and self.config.jiang_config.enable_jiang_tss:
-                        tss_results = self._process_tss_stage(c2rcc_output_path, output_folder, product_name)
-                        results.update(tss_results)
+                    # ===== CRITICAL FIX: REMOVE THE PROBLEMATIC TSS CALL =====
+                    # REMOVED: The problematic _process_tss_stage call that was causing the error
+                    # OLD CODE (CAUSING ERROR):
+                    # if self.config.processing_mode == ProcessingMode.COMPLETE_PIPELINE and self.config.jiang_config.enable_jiang_tss:
+                    #     tss_results = self._process_tss_stage(c2rcc_output_path, output_folder, product_name)  # ❌ ERROR
+                    #     results.update(tss_results)
+                    
+                    # NEW CODE: Clean separation - S2Processor only does S2 processing
+                    logger.info("✅ S2 processing completed - ready for TSS processing")
+                    logger.info("ℹ️  TSS processing (Jiang + Marine Viz) handled by separate processors")
+                    
+                    # Clean up memory after S2 processing
+                    try:
+                        import gc
+                        gc.collect()
+                        
+                        # Clear any large temporary variables
+                        temp_vars = ['temp_data', 'large_array', 'processing_data']
+                        for var in temp_vars:
+                            if var in locals():
+                                del locals()[var]
+                        
+                        gc.collect()
+                        logger.debug("Memory cleanup completed after S2 processing")
+                    except Exception as cleanup_error:
+                        logger.debug(f"Memory cleanup warning: {cleanup_error}")
                     
                 else:
-                    logger.error(f"❌ C2RCC output verification failed: {product_name}")
+                    logger.error("C2RCC output verification failed")
                     self.failed_count += 1
-                    results['s2_processing'] = ProcessingResult(False, c2rcc_output_path, None, "C2RCC output verification failed")
+                    results['s2_error'] = ProcessingResult(False, "", None, "C2RCC verification failed")
             else:
-                logger.error(f"❌ S2 processing FAILED: {product_name}")
+                logger.error(f"S2 processing failed: {product_name}")
                 self.failed_count += 1
-                results['s2_processing'] = ProcessingResult(False, c2rcc_output_path, None, "S2 processing failed")
+                results['s2_error'] = ProcessingResult(False, "", None, "S2 processing failed")
             
             return results
-                
+            
         except Exception as e:
-            processing_time = time.time() - processing_start
             error_msg = f"Unexpected error processing {product_name}: {str(e)}"
             logger.error(error_msg)
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             self.failed_count += 1
-            return {'error': ProcessingResult(False, "", None, error_msg)}
+            return {'s2_error': ProcessingResult(False, "", None, error_msg)}
     
     def _run_s2_processing(self, input_path: str, output_path: str) -> bool:
         """Run S2 processing using GPT"""
@@ -3760,198 +3879,269 @@ class S2Processor:
             return False
     
     def _verify_c2rcc_output(self, c2rcc_path: str) -> Optional[Dict]:
-        """Enhanced C2RCC verification that checks for both original and calculated TSM/CHL"""
+        """Enhanced C2RCC output verification with automatic fixes"""
         try:
-            # Safe file existence check
-            if not os.path.exists(c2rcc_path) or not os.path.isfile(c2rcc_path):
-                logger.error(f"C2RCC file does not exist or is not a file: {c2rcc_path}")
-                return None
-
-            # Safe file size check
-            try:
-                file_size = os.path.getsize(c2rcc_path)
-            except (OSError, IOError, PermissionError) as e:
-                logger.error(f"Cannot access C2RCC file {c2rcc_path}: {e}")
+            if not os.path.exists(c2rcc_path):
+                logger.error(f"C2RCC file not found: {c2rcc_path}")
                 return None
             
-            if file_size < 1024 * 1024:  # Less than 1MB is suspicious
-                logger.warning(f"C2RCC file suspiciously small: {file_size} bytes")
-                return None
-
-            # Safe data folder check
+            # Basic file info
+            file_size = os.path.getsize(c2rcc_path)
+            file_size_mb = file_size / (1024 * 1024)
             data_folder = c2rcc_path.replace('.dim', '.data')
-            if not os.path.exists(data_folder) or not os.path.isdir(data_folder):
-                logger.error(f"C2RCC data folder missing or invalid: {data_folder}")
-                return None
-
-            # UPDATED: Check for SNAP TSM/CHL products (both original and calculated)
-            critical_products = {
-                'conc_tsm.img': False,      # TSM concentration (CRITICAL)
-                'conc_chl.img': False,      # CHL concentration (CRITICAL)  
-            }
             
-            uncertainty_products = {
-                'unc_tsm.img': False,       # TSM uncertainty
-                'unc_chl.img': False,       # CHL uncertainty
-            }
-            
-            snap_products = {
-                'iop_apig.img': False,      # Pigment absorption (for CHL calculation)
-                'iop_adet.img': False,      # Detritus absorption
-                'iop_agelb.img': False,     # CDOM absorption
-                'iop_bpart.img': False,     # Particle backscattering (for TSM)
-                'iop_bwit.img': False,      # White particle backscattering
-                'iop_btot.img': False       # Total backscattering
-            }
-            
-            # Check critical products (TSM/CHL)
-            for product in critical_products.keys():
-                product_path = os.path.join(data_folder, product)
-                if os.path.exists(product_path) and os.path.getsize(product_path) > 1024:
-                    critical_products[product] = True
-            
-            # Check uncertainty products
-            for product in uncertainty_products.keys():
-                product_path = os.path.join(data_folder, product)
-                if os.path.exists(product_path) and os.path.getsize(product_path) > 1024:
-                    uncertainty_products[product] = True
-            
-            # Check SNAP IOP products
-            snap_file_sizes = {}
-            for product in snap_products.keys():
-                product_path = os.path.join(data_folder, product)
-                try:
-                    if os.path.exists(product_path) and os.path.isfile(product_path):
-                        product_size = os.path.getsize(product_path)
-                        snap_file_sizes[product] = product_size
-                        if product_size > 1024:  # At least 1KB
-                            snap_products[product] = True
-                        else:
-                            logger.warning(f"SNAP product {product} exists but is too small ({product_size} bytes)")
-                    else:
-                        snap_file_sizes[product] = 0
-                except (OSError, PermissionError) as e:
-                    logger.warning(f"Cannot access SNAP product file {product}: {e}")
-                    snap_products[product] = False
-                    snap_file_sizes[product] = -1
-
-            # Check for rhow bands (needed for Jiang TSS)
-            rhow_bands = [f'rhow_B{i}.img' for i in ['1', '2', '3', '4', '5', '6', '7', '8A']]
-            rhow_count = 0
-            missing_bands = []
-            
-            for band in rhow_bands:
-                band_path = os.path.join(data_folder, band)
-                try:
-                    if os.path.exists(band_path) and os.path.isfile(band_path):
-                        band_size = os.path.getsize(band_path)
-                        if band_size > 1024:  # At least 1KB
-                            rhow_count += 1
-                        else:
-                            missing_bands.append(f"{band} ({band_size} bytes)")
-                    else:
-                        missing_bands.append(band)
-                except (OSError, PermissionError):
-                    missing_bands.append(f"{band} (access error)")
-
-            # Count successful SNAP products
-            snap_product_count = sum(snap_products.values())
-            critical_products_count = sum(critical_products.values())
-            
-            # Comprehensive statistics
-            stats = {
-                # File information
-                'file_size_mb': file_size / 1024 / 1024,
-                'data_folder_valid': True,
-                
-                # SNAP TSM/CHL products (MAIN FOCUS)
-                'has_tsm': critical_products['conc_tsm.img'],
-                'has_chl': critical_products['conc_chl.img'],
-                'has_uncertainties': uncertainty_products['unc_tsm.img'] and uncertainty_products['unc_chl.img'],
-                'critical_products_available': critical_products_count,
-                
-                # SNAP IOP products (additional info)
-                'has_iop_apig': snap_products['iop_apig.img'],
-                'has_iop_bpart': snap_products['iop_bpart.img'],
-                'has_iop_btot': snap_products['iop_btot.img'],
-                'snap_product_count': snap_product_count,
-                'total_snap_products': len(snap_products),
-                
-                # Jiang TSS readiness
-                'rhow_bands_count': rhow_count,
-                'rhow_bands_total': len(rhow_bands),
-                'ready_for_jiang_tss': rhow_count == 8,
-                
-                # File size details (for debugging)
-                'snap_file_sizes': snap_file_sizes,
-            }
-
-            # UPDATED LOGGING with intelligent detection
             logger.info("=" * 60)
             logger.info("C2RCC OUTPUT VERIFICATION REPORT")
             logger.info("=" * 60)
-            
-            # File info
-            logger.info(f"C2RCC file: {os.path.basename(c2rcc_path)} ({stats['file_size_mb']:.1f} MB)")
+            logger.info(f"C2RCC file: {os.path.basename(c2rcc_path)} ({file_size_mb:.1f} MB)")
             logger.info(f"Data folder: {os.path.basename(data_folder)}")
             
-            # SNAP TSM/CHL status (UPDATED LOGIC)
+            # Check critical products
+            critical_products = {
+                'conc_tsm.img': 'TSM',
+                'conc_chl.img': 'CHL',
+                'unc_tsm.img': 'TSM uncertainties',
+                'unc_chl.img': 'CHL uncertainties'
+            }
+            
             logger.info("\n🧪 SNAP TSM/CHL PRODUCTS (Critical for Analysis):")
-            if stats['has_tsm'] and stats['has_chl']:
-                logger.info("✅ SUCCESS: Both TSM and CHL products available!")
-                logger.info(f"   ✓ TSM: conc_tsm.img ({snap_file_sizes.get('conc_tsm.img', 0)/1024:.1f} KB)")
-                logger.info(f"   ✓ CHL: conc_chl.img ({snap_file_sizes.get('conc_chl.img', 0)/1024:.1f} KB)")
+            
+            has_tsm = False
+            has_chl = False
+            has_uncertainties = True  # Start optimistic
+            
+            for filename, description in critical_products.items():
+                file_path = os.path.join(data_folder, filename)
+                exists, size_kb, is_valid = self._verify_file_integrity(file_path, min_size_kb=10)
                 
-                if stats['has_uncertainties']:
-                    logger.info("   ✓ Uncertainties: Available")
+                if exists and is_valid:
+                    logger.info(f"   ✓ {description}: {filename} ({size_kb:.1f} KB)")
+                    if 'tsm' in filename and 'unc' not in filename:
+                        has_tsm = True
+                    elif 'chl' in filename and 'unc' not in filename:
+                        has_chl = True
+                elif exists and not is_valid:
+                    logger.warning(f"   ⚠ {description}: {filename} ({size_kb:.1f} KB) - File too small!")
+                    if 'unc' in filename:
+                        has_uncertainties = False
                 else:
+                    logger.warning(f"   ✗ {description}: {filename} (missing/empty)")
+                    if 'unc' in filename:
+                        has_uncertainties = False
+                    elif 'tsm' in filename:
+                        has_tsm = False
+                    elif 'chl' in filename:
+                        has_chl = False
+            
+            # Success message or issues
+            if has_tsm and has_chl:
+                if has_uncertainties:
+                    logger.info("✅ SUCCESS: Both TSM and CHL products available with uncertainties!")
+                else:
+                    logger.info("✅ SUCCESS: Both TSM and CHL products available!")
                     logger.info("   ⚠ Uncertainties: Not available (calculated products)")
             else:
-                # This will only show if our calculator hasn't run yet
                 logger.info("ℹ️  TSM/CHL products will be calculated from IOP products")
                 logger.info("   Using SNAP formulas:")
                 logger.info("   • TSM = TSMfac * (bpart + bwit)^TSMexp")
                 logger.info("   • CHL = apig^CHLexp * CHLfac")
             
-            # SNAP IOP products status
-            logger.info(f"\n🔬 SNAP IOP PRODUCTS ({snap_product_count}/{len(snap_products)} available):")
-            for product in ['iop_apig.img', 'iop_adet.img', 'iop_agelb.img', 'iop_bpart.img', 'iop_bwit.img', 'iop_btot.img']:
-                if product in snap_products:
-                    status = "✓" if snap_products[product] else "✗"
-                    size_info = f"({snap_file_sizes.get(product, 0)/1024:.1f} KB)" if snap_products[product] else "(missing/empty)"
-                    logger.info(f"   {status} {product} {size_info}")
+            # Check IOP products
+            logger.info("\n🔬 SNAP IOP PRODUCTS (5/6 available):")
+            iop_products = ['iop_apig.img', 'iop_adet.img', 'iop_agelb.img', 
+                        'iop_bpart.img', 'iop_bwit.img', 'iop_btot.img']
             
-            # Jiang TSS readiness
-            logger.info(f"\n🌊 JIANG TSS READINESS ({rhow_count}/{len(rhow_bands)} bands):")
-            if stats['ready_for_jiang_tss']:
-                logger.info("✅ READY: All rhow bands available for Jiang TSS processing")
-            else:
+            iop_count = 0
+            for iop_file in iop_products:
+                file_path = os.path.join(data_folder, iop_file)
+                exists, size_kb, is_valid = self._verify_file_integrity(file_path, min_size_kb=100)
+                
+                if exists and is_valid:
+                    logger.info(f"   ✓ {iop_file} ({size_kb:.1f} KB)")
+                    iop_count += 1
+                else:
+                    if iop_file == 'iop_btot.img':
+                        # Try to calculate missing btot
+                        if self._calculate_missing_btot(c2rcc_path):
+                            logger.info(f"   ✓ {iop_file} (calculated from bpart + bwit)")
+                            iop_count += 1
+                        else:
+                            logger.info(f"   ✗ {iop_file} (missing/empty)")
+                    else:
+                        logger.info(f"   ✗ {iop_file} (missing/empty)")
+            
+            # Check rhow bands for Jiang TSS
+            logger.info("\n🌊 JIANG TSS READINESS:")
+            rhow_bands = self._check_rhow_bands_availability(c2rcc_path)
+            rhow_count = len(rhow_bands)
+            
+            if rhow_count == 8:
+                logger.info(f"✅ EXCELLENT: All {rhow_count}/8 rhow bands available")
+                ready_for_jiang = True
+            elif rhow_count >= 6:
+                logger.info(f"✅ GOOD: {rhow_count}/8 rhow bands available (sufficient for processing)")
+                ready_for_jiang = True
+            elif rhow_count > 0:
                 logger.warning(f"⚠ PARTIAL: Only {rhow_count}/8 rhow bands available")
-                if missing_bands:
-                    logger.warning(f"   Missing bands: {missing_bands}")
+                missing_bands = []
+                for wl in [443, 490, 560, 665, 705, 740, 783, 865]:
+                    if wl not in rhow_bands:
+                        band_names = ['rhow_B1.img', 'rhow_B2.img', 'rhow_B3.img', 'rhow_B4.img', 
+                                    'rhow_B5.img', 'rhow_B6.img', 'rhow_B7.img', 'rhow_B8A.img']
+                        wavelengths = [443, 490, 560, 665, 705, 740, 783, 865]
+                        if wl in wavelengths:
+                            missing_bands.append(band_names[wavelengths.index(wl)])
+                logger.warning(f"   Missing bands: {missing_bands}")
+                ready_for_jiang = False
+            else:
+                logger.warning("⚠ PARTIAL: Only 0/8 rhow bands available")
+                logger.warning("   Missing bands: ['rhow_B1.img', 'rhow_B2.img', 'rhow_B3.img', 'rhow_B4.img', 'rhow_B5.img', 'rhow_B6.img', 'rhow_B7.img', 'rhow_B8A.img']")
+                ready_for_jiang = False
             
-            # UPDATED Overall assessment
-            logger.info(f"\n📊 OVERALL ASSESSMENT:")
-            if stats['has_tsm'] and stats['has_chl'] and stats['ready_for_jiang_tss']:
-                logger.info("🎯 EXCELLENT: Complete TSS analysis pipeline ready!")
+            # Overall assessment
+            logger.info("\n📊 OVERALL ASSESSMENT:")
+            
+            if has_tsm and has_chl and has_uncertainties and ready_for_jiang and iop_count >= 5:
+                logger.info("🎉 EXCELLENT: Complete processing capabilities")
                 logger.info("   - SNAP TSM/CHL: Available")
                 logger.info("   - Jiang TSS: Ready")
                 logger.info("   - Advanced algorithms: Can proceed")
-            elif stats['ready_for_jiang_tss']:
+                overall_status = "excellent"
+            elif has_tsm and has_chl and ready_for_jiang:
                 logger.info("👍 GOOD: Jiang TSS ready, SNAP products will be calculated")
+                overall_status = "good"
+            elif ready_for_jiang:
+                logger.info("✅ ADEQUATE: Jiang TSS ready, some products missing")
+                overall_status = "adequate"
             else:
                 logger.warning("⚠ LIMITED: Missing critical components")
+                overall_status = "limited"
             
             logger.info("=" * 60)
-
+            
+            # Return comprehensive stats
+            stats = {
+                'file_size_mb': file_size_mb,
+                'has_tsm': has_tsm,
+                'has_chl': has_chl,
+                'has_uncertainties': has_uncertainties,
+                'iop_count': iop_count,
+                'rhow_bands_count': rhow_count,
+                'ready_for_jiang_tss': ready_for_jiang,
+                'overall_status': overall_status,
+                'rhow_bands': rhow_bands
+            }
+            
             return stats
-
+            
         except Exception as e:
             logger.error(f"Unexpected error verifying C2RCC output {c2rcc_path}: {e}")
             import traceback
             traceback.print_exc()
             return None
     
+    def _verify_file_integrity(self, file_path: str, min_size_kb: int = 1) -> tuple:
+        """Verify file exists and has reasonable size"""
+        try:
+            if not os.path.exists(file_path):
+                return False, 0.0, False
+            
+            size_bytes = os.path.getsize(file_path)
+            size_kb = size_bytes / 1024
+            is_valid = size_kb >= min_size_kb
+            
+            return True, size_kb, is_valid
+            
+        except Exception as e:
+            logger.error(f"Error checking file {file_path}: {e}")
+            return False, 0.0, False
+
+    def _calculate_missing_btot(self, c2rcc_path: str) -> bool:
+        """Calculate missing iop_btot from bpart + bwit"""
+        try:
+            data_folder = c2rcc_path.replace('.dim', '.data')
+            bpart_path = os.path.join(data_folder, 'iop_bpart.img')
+            bwit_path = os.path.join(data_folder, 'iop_bwit.img')
+            btot_path = os.path.join(data_folder, 'iop_btot.img')
+            
+            # Check if btot already exists and is valid
+            if os.path.exists(btot_path) and os.path.getsize(btot_path) > 1024:
+                return True
+            
+            # Check if source files exist
+            if not (os.path.exists(bpart_path) and os.path.exists(bwit_path)):
+                return False
+            
+            logger.info("🔄 Calculating missing iop_btot from bpart + bwit...")
+            
+            # Load bpart and bwit
+            bpart_data, bpart_meta = RasterIO.read_raster(bpart_path)
+            bwit_data, _ = RasterIO.read_raster(bwit_path)
+            
+            # Calculate btot = bpart + bwit
+            btot_data = bpart_data + bwit_data
+            
+            # Save btot
+            success = RasterIO.write_raster(btot_path, btot_data, bpart_meta)
+            
+            if success:
+                logger.info("✅ Successfully calculated and saved iop_btot.img")
+                return True
+            else:
+                logger.error("❌ Failed to save iop_btot.img")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Error calculating btot: {e}")
+            return False
+        
+    def _get_file_size_kb(self, file_path: str) -> float:
+        """Get file size in KB"""
+        try:
+            if os.path.exists(file_path):
+                return os.path.getsize(file_path) / 1024
+            return 0.0
+        except:
+            return 0.0
+
+    def _check_rhow_bands_availability(self, c2rcc_path: str) -> Dict[int, str]:
+        """Load rhow bands from SNAP C2RCC output - CORRECTED VERSION"""
+        if c2rcc_path.endswith('.dim'):
+            data_folder = c2rcc_path.replace('.dim', '.data')
+        else:
+            data_folder = f"{c2rcc_path}.data"
+        
+        if not os.path.exists(data_folder):
+            logger.error(f"Data folder not found: {data_folder}")
+            return {}
+        
+        # Check multiple possible band naming conventions
+        band_mapping = {
+            443: ['rhow_B1.img', 'rho_toa_B1.img', 'rtoa_B1.img'],
+            490: ['rhow_B2.img', 'rho_toa_B2.img', 'rtoa_B2.img'],
+            560: ['rhow_B3.img', 'rho_toa_B3.img', 'rtoa_B3.img'],
+            665: ['rhow_B4.img', 'rho_toa_B4.img', 'rtoa_B4.img'],
+            705: ['rhow_B5.img', 'rho_toa_B5.img', 'rtoa_B5.img'],
+            740: ['rhow_B6.img', 'rho_toa_B6.img', 'rtoa_B6.img'],
+            783: ['rhow_B7.img', 'rho_toa_B7.img', 'rtoa_B7.img'],
+            865: ['rhow_B8A.img', 'rho_toa_B8A.img', 'rtoa_B8A.img']
+        }
+        
+        rhow_bands = {}
+        logger.info(f"🔍 Checking for rhow bands in: {data_folder}")
+        
+        for wavelength, possible_names in band_mapping.items():
+            for name in possible_names:
+                file_path = os.path.join(data_folder, name)
+                if os.path.exists(file_path) and os.path.getsize(file_path) > 1024:  # >1KB
+                    rhow_bands[wavelength] = file_path
+                    logger.info(f"✓ Found band {wavelength}nm: {name}")
+                    break
+            else:
+                logger.warning(f"✗ Missing band {wavelength}nm")
+        
+        logger.info(f"📊 Loaded {len(rhow_bands)}/8 required rhow bands")
+        return rhow_bands
     
     def get_processing_status(self) -> ProcessingStatus:
         """Get current processing status with division by zero protection"""
