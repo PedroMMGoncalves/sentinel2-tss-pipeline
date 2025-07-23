@@ -381,12 +381,14 @@ class ProcessingConfig:
     memory_limit_gb: int = 8
     thread_count: int = 4
 
-class ProcessingResult(NamedTuple):
-    """Result container for processing outputs"""
+@dataclass
+class ProcessingResult:
+    """Result container for processing outputs with intermediate paths support"""
     success: bool
     output_path: str
     statistics: Optional[Dict]
     error_message: Optional[str]
+    intermediate_paths: Dict[str, str] = field(default_factory=dict)
 
 class ProcessingStatus(NamedTuple):
     """Processing status information"""
@@ -1412,13 +1414,23 @@ class JiangTSSProcessor:
  
     
     def process_jiang_tss(self, c2rcc_path: str, output_folder: str, 
-                        product_name: str) -> Dict[str, ProcessingResult]:
+                        product_name: str, s2_result: Optional[ProcessingResult] = None) -> Dict[str, ProcessingResult]:
         """
-        Complete TSS processing with automatic unit conversions
-        Works with your current _update_band_mapping_for_mixed_types method
+        Complete TSS processing with automatic unit conversions and marine visualization
+        UPDATED: Now includes band scaling fix for marine visualization
         """
         try:
-            logger.info(f"Starting comprehensive TSS processing for {product_name}")
+            logger.info(f"🧮 Starting comprehensive TSS processing for {product_name}")
+            
+            # Extract intermediate paths from S2 result for band scaling fix
+            intermediate_paths = {}
+            if s2_result and hasattr(s2_result, 'intermediate_paths') and s2_result.intermediate_paths:
+                intermediate_paths = s2_result.intermediate_paths
+                logger.info("✓ Received intermediate paths for band scaling fix:")
+                for key, path in intermediate_paths.items():
+                    logger.info(f"  {key}: {path}")
+            else:
+                logger.warning("No intermediate paths received - using C2RCC only approach")
             
             # Step 1: Load spectral bands using your current method
             logger.info("🔍 Step 1: Loading water reflectance bands")
@@ -1447,72 +1459,80 @@ class JiangTSSProcessor:
             logger.info("🧮 Step 4: Applying Jiang TSS methodology")
             jiang_results = self._apply_full_jiang_methodology(converted_bands_data)
             
-            # Step 5: Advanced algorithms processing
+            # Step 5: Generate Jiang TSS outputs
+            logger.info("💾 Step 5: Preparing TSS results")
             all_results = jiang_results.copy()
             
+            # Step 6: Advanced algorithms processing
             if (hasattr(self.config, 'enable_advanced_algorithms') and 
                 self.config.enable_advanced_algorithms and 
                 hasattr(self, 'advanced_processor') and 
                 self.advanced_processor is not None):
                 
-                logger.info("🔬 Step 5: Processing advanced algorithms")
+                logger.info("🔬 Step 6: Processing advanced algorithms")
                 advanced_results = self._process_advanced_algorithms(
                     c2rcc_path, jiang_results, converted_bands_data, product_name
                 )
                 all_results.update(advanced_results)
                 logger.info(f"Advanced algorithms completed: {len(advanced_results)} additional products")
             
-            # Step 6: Marine visualization processing
+            # Step 7: Marine visualization processing (WITH BAND SCALING FIX)
             if (hasattr(self.config, 'enable_marine_visualization') and 
                 self.config.enable_marine_visualization and 
                 hasattr(self, 'marine_viz_processor') and 
                 self.marine_viz_processor is not None):
                 
-                logger.info("🌊 Step 6: Processing marine visualizations")
+                logger.info("🌊 Step 7: Processing marine visualizations with band scaling fix")
+                
+                # CRITICAL: Pass intermediate_paths for band scaling fix
                 viz_results = self.marine_viz_processor.process_marine_visualizations(
-                    c2rcc_path, output_folder, product_name
+                    c2rcc_path, output_folder, product_name, intermediate_paths
                 )
                 all_results.update(viz_results)
                 
                 # Log visualization results
                 rgb_count = len([k for k in viz_results.keys() if k.startswith('rgb_')])
                 index_count = len([k for k in viz_results.keys() if k.startswith('index_')])
-                if 'error' not in viz_results:
-                    logger.info(f"Marine visualization completed: {rgb_count} RGB composites + {index_count} indices")
-                else:
-                    logger.warning(f"Marine visualization had errors: {viz_results['error'].error_message}")
+                logger.info(f"Marine visualization completed: {rgb_count} RGB + {index_count} indices")            
+          
+            # Final validation and cleanup
+            success_count = len([r for r in all_results.values() if r.success])
+            total_count = len(all_results)
             
-            # Step 7: Save all results
-            logger.info("💾 Step 7: Saving all results")
-            output_results = self._save_complete_results(
-                all_results, output_folder, product_name, reference_metadata
-            )
+            logger.info("=" * 80)
+            logger.info(f"✅ COMPLETE TSS PROCESSING FINISHED: {product_name}")
+            logger.info(f"   Total products generated: {success_count}/{total_count}")
+            logger.info(f"   Success rate: {(success_count/total_count)*100:.1f}%")
             
-            # Final summary
-            total_products = len(output_results)
-            jiang_products = len(jiang_results)
-            advanced_products = len([k for k in all_results.keys() if k.startswith(('clarity_', 'hab_'))])
-            viz_products = len([k for k in all_results.keys() if k.startswith(('rgb_', 'index_'))])
+            # Log product breakdown
+            if success_count > 0:
+                jiang_count = len([k for k in all_results.keys() if k.startswith('jiang_')])
+                advanced_count = len([k for k in all_results.keys() if k.startswith('advanced_')])
+                rgb_count = len([k for k in all_results.keys() if k.startswith('rgb_')])
+                index_count = len([k for k in all_results.keys() if k.startswith('index_')])
+                
+                logger.info(f"   Product breakdown:")
+                logger.info(f"     • Jiang TSS products: {jiang_count}")
+                if advanced_count > 0:
+                    logger.info(f"     • Advanced algorithms: {advanced_count}")
+                if rgb_count > 0:
+                    logger.info(f"     • RGB composites: {rgb_count}")
+                if index_count > 0:
+                    logger.info(f"     • Spectral indices: {index_count}")
             
-            logger.info(f"✅ Complete TSS processing summary:")
-            logger.info(f"  Jiang products: {jiang_products}")
-            logger.info(f"  Advanced products: {advanced_products}")
-            logger.info(f"  Visualization products: {viz_products}")
-            logger.info(f"  Total products: {total_products}")
-            logger.info(f"  🎯 Processing completed with automatic unit conversions")
+            logger.info("=" * 80)
             
-            return output_results
+            return all_results
             
         except Exception as e:
-            error_msg = f"Complete TSS processing failed: {str(e)}"
+            error_msg = f"Jiang TSS processing failed: {str(e)}"
             logger.error(error_msg)
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return {'error': ProcessingResult(False, "", None, error_msg)}
 
         
     def _process_advanced_algorithms(self, c2rcc_path: str, jiang_results: Dict, 
-                                rrs_bands_data: Dict, product_name: str) -> Dict:
+                                    rrs_bands_data: Dict, product_name: str) -> Dict[str, ProcessingResult]:
         """Process advanced algorithms with properly converted Rrs data"""
         try:
             logger.info("Processing advanced algorithms with unit-converted data")
@@ -1688,6 +1708,115 @@ class JiangTSSProcessor:
             'water_type_classification': water_type_classification
         }
     
+    def _create_visualization_summary(self, viz_results: Dict[str, ProcessingResult], 
+                                     output_folder: str, product_name: str):
+        """Create visualization summary report"""
+        try:
+            summary_file = os.path.join(output_folder, f"{product_name}_Visualization_Summary.txt")
+            
+            with open(summary_file, 'w') as f:
+                f.write(f"MARINE VISUALIZATION SUMMARY\n")
+                f.write(f"=" * 50 + "\n")
+                f.write(f"Product: {product_name}\n")
+                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                
+                # RGB Composites
+                rgb_products = {k: v for k, v in viz_results.items() if k.startswith('rgb_')}
+                if rgb_products:
+                    f.write(f"RGB COMPOSITES ({len(rgb_products)} products):\n")
+                    f.write(f"{'-'*30}\n")
+                    for product_key, result in rgb_products.items():
+                        if result.success and result.statistics:
+                            stats = result.statistics
+                            f.write(f"✓ {os.path.basename(result.output_path)}\n")
+                            f.write(f"  Description: {stats.get('description', 'N/A')}\n")
+                            f.write(f"  Bands: {stats.get('bands_used', 'N/A')}\n")
+                            f.write(f"  Coverage: {stats.get('coverage_percent', 0):.1f}%\n")
+                            f.write(f"  File Size: {stats.get('file_size_mb', 0):.1f} MB\n\n")
+                        else:
+                            f.write(f"✗ {product_key} (failed)\n\n")
+                
+                # Spectral Indices
+                index_products = {k: v for k, v in viz_results.items() if k.startswith('index_')}
+                if index_products:
+                    f.write(f"SPECTRAL INDICES ({len(index_products)} products):\n")
+                    f.write(f"{'-'*30}\n")
+                    for product_key, result in index_products.items():
+                        if result.success and result.statistics:
+                            stats = result.statistics
+                            f.write(f"✓ {os.path.basename(result.output_path)}\n")
+                            f.write(f"  Description: {stats.get('description', 'N/A')}\n")
+                            f.write(f"  Formula: {stats.get('formula', 'N/A')}\n")
+                            f.write(f"  Application: {stats.get('application', 'N/A')}\n")
+                            f.write(f"  Range: {stats.get('range', 'N/A')}\n")
+                            f.write(f"  Coverage: {stats.get('coverage_percent', 0):.1f}%\n")
+                            f.write(f"  Mean Value: {stats.get('mean', 0):.4f}\n\n")
+                        else:
+                            f.write(f"✗ {product_key} (failed)\n\n")
+                
+                f.write(f"Total visualization products: {len([r for r in viz_results.values() if r.success])}\n")
+            
+            logger.info(f"Visualization summary created: {os.path.basename(summary_file)}")
+            
+        except Exception as e:
+            logger.warning(f"Could not create visualization summary: {e}")
+
+    def _create_processing_summary(self, all_results: Dict[str, ProcessingResult], 
+                                  output_folder: str, product_name: str):
+        """Create comprehensive processing summary"""
+        try:
+            summary_file = os.path.join(output_folder, f"{product_name}_Processing_Summary.txt")
+            
+            with open(summary_file, 'w') as f:
+                f.write(f"COMPREHENSIVE PROCESSING SUMMARY\n")
+                f.write(f"=" * 60 + "\n")
+                f.write(f"Product: {product_name}\n")
+                f.write(f"Processing completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Pipeline: Unified S2-TSS Processing with Marine Visualization\n\n")
+                
+                # Processing statistics
+                total_products = len(all_results)
+                successful_products = len([r for r in all_results.values() if r.success])
+                success_rate = (successful_products / total_products) * 100 if total_products > 0 else 0
+                
+                f.write(f"PROCESSING STATISTICS:\n")
+                f.write(f"  Total products attempted: {total_products}\n")
+                f.write(f"  Successfully generated: {successful_products}\n")
+                f.write(f"  Success rate: {success_rate:.1f}%\n\n")
+                
+                # Product categories
+                categories = {
+                    'Jiang TSS Products': [k for k in all_results.keys() if k.startswith('jiang_')],
+                    'Advanced Algorithms': [k for k in all_results.keys() if k.startswith('advanced_')],
+                    'RGB Composites': [k for k in all_results.keys() if k.startswith('rgb_')],
+                    'Spectral Indices': [k for k in all_results.keys() if k.startswith('index_')]
+                }
+                
+                for category_name, products in categories.items():
+                    if products:
+                        successful = len([k for k in products if all_results[k].success])
+                        f.write(f"{category_name}: {successful}/{len(products)} successful\n")
+                
+                # List all successful products
+                f.write(f"\nSUCCESSFUL PRODUCTS:\n")
+                f.write(f"{'-'*40}\n")
+                for product_key, result in all_results.items():
+                    if result.success:
+                        f.write(f"✓ {os.path.basename(result.output_path)}\n")
+                
+                # List failed products
+                failed_products = [k for k, r in all_results.items() if not r.success]
+                if failed_products:
+                    f.write(f"\nFAILED PRODUCTS:\n")
+                    f.write(f"{'-'*40}\n")
+                    for product_key in failed_products:
+                        f.write(f"✗ {product_key}: {all_results[product_key].error_message}\n")
+            
+            logger.info(f"Processing summary created: {os.path.basename(summary_file)}")
+            
+        except Exception as e:
+            logger.warning(f"Could not create processing summary: {e}")
+            
     def _create_valid_pixel_mask(self, rrs_data: Dict[int, np.ndarray]) -> np.ndarray:
         """
         Validation matching R algorithm requirements
@@ -3606,6 +3735,9 @@ class S2Processor:
         self.current_product = ""
         self.current_stage = ""
         
+        # Track intermediate products
+        self.intermediate_products = {}
+        
         # Validate SNAP installation
         self.validate_snap_installation()
         
@@ -3905,8 +4037,6 @@ class S2Processor:
         - L1C → Resampling → Subset → C2RCC
         - Calculate SNAP TSM/CHL from IOPs
         - Verify C2RCC output
-        - NO TSS processing (handled by JiangTSSProcessor)
-        - NO Marine visualization (handled by JiangTSSProcessor)
         """
         processing_start = time.time()
         results = {}
@@ -4018,7 +4148,14 @@ class S2Processor:
                         # Re-verify after calculating TSM/CHL
                         final_stats = self._verify_c2rcc_output(c2rcc_output_path)
                         if final_stats:
-                            results['s2_processing'] = ProcessingResult(True, c2rcc_output_path, final_stats, None)
+                            # Store intermediate paths for marine visualization
+                            self.intermediate_products['geometric_path'] = self._get_geometric_output_path(input_path, output_folder)
+                            self.intermediate_products['c2rcc_path'] = c2rcc_output_path
+                            
+                            # Create enhanced ProcessingResult with intermediate paths
+                            result = ProcessingResult(True, c2rcc_output_path, final_stats, None)
+                            result.intermediate_paths = self.intermediate_products.copy()
+                            results['s2_processing'] = result
                             logger.info("📊 UPDATED SNAP PRODUCTS STATUS:")
                             logger.info(f"   TSM={final_stats['has_tsm']}, CHL={final_stats['has_chl']}, Uncertainties={final_stats['has_uncertainties']}")
                     
@@ -4636,8 +4773,9 @@ class UnifiedS2TSSProcessor:
                     os.makedirs(tss_output_folder, exist_ok=True)
                     
                     try:
+                        s2_result = s2_results.get('s2_processing')
                         tss_results = self.jiang_processor.process_jiang_tss(
-                            c2rcc_output_path, tss_output_folder, product_name
+                            c2rcc_output_path, tss_output_folder, product_name, s2_result  # <-- Add this
                         )
                         results.update(tss_results)
                         
