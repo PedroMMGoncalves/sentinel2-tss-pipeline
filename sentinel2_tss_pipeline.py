@@ -1481,10 +1481,11 @@ class JiangTSSProcessor:
             # Step 4: Apply Jiang methodology with converted data
             logger.info("🧮 Step 4: Applying Jiang TSS methodology")
             jiang_results = self._apply_full_jiang_methodology(converted_bands_data)
+            saved_results = self._save_complete_results(jiang_results, output_folder, product_name, reference_metadata)
             
             # Step 5: Generate Jiang TSS outputs
             logger.info("💾 Step 5: Preparing TSS results")
-            all_results = jiang_results.copy()
+            all_results = saved_results.copy()
             
             # Step 6: Advanced algorithms processing
             if (hasattr(self.config, 'enable_advanced_algorithms') and 
@@ -1586,10 +1587,16 @@ class JiangTSSProcessor:
                     clarity_results = self.advanced_processor.calculate_water_clarity(
                         absorption, backscattering, config.solar_zenith_angle
                     )
-                    
-                    # Add clarity results with prefix
-                    for key, value in clarity_results.items():
-                        advanced_results[f'clarity_{key}'] = value
+                    # Call existing save method for water clarity
+                    if hasattr(self, '_save_advanced_products'):
+                        clarity_saved = self._save_advanced_products(
+                            clarity_results, 'water_clarity', output_folder, product_name
+                        )
+                        advanced_results.update(clarity_saved)
+                    else:
+                        # Add clarity results with prefix
+                        for key, value in clarity_results.items():
+                            advanced_results[f'clarity_{key}'] = value
                     
                     logger.info(f"Water clarity calculation completed: {len(clarity_results)} products")
                     
@@ -1611,10 +1618,16 @@ class JiangTSSProcessor:
                             phycocyanin=None,  # Not available from S2
                             rrs_bands=rrs_bands_data  # Already in correct Rrs units
                         )
-                        
-                        # Add HAB results with prefix
-                        for key, value in hab_results.items():
-                            advanced_results[f'hab_{key}'] = value
+                        # SURGICAL FIX: Call existing save method for HAB detection
+                        if hasattr(self, '_save_advanced_products'):
+                            hab_saved = self._save_advanced_products(
+                                hab_results, 'hab_detection', output_folder, product_name
+                            )
+                            advanced_results.update(hab_saved)
+                        else:
+                            # Add HAB results with prefix
+                            for key, value in hab_results.items():
+                                advanced_results[f'hab_{key}'] = value
                         
                         logger.info(f"HAB detection completed: {len(hab_results)} products")
                     else:
@@ -2540,7 +2553,7 @@ class JiangTSSProcessor:
         
         logger.info("=" * 60)
     
-        def _log_processing_summary(self, results: Dict[str, np.ndarray], product_name: str):
+    def _log_processing_summary(self, results: Dict[str, np.ndarray], product_name: str):
             """Log comprehensive processing summary"""
             
             tss_data = results['tss']
@@ -2574,7 +2587,7 @@ class JiangTSSProcessor:
                             }[band]
                             logger.info(f"  {band}nm ({water_type}): {count} pixels ({percentage:.1f}%)")
             
-            logger.info("=" * 60)
+            logger.info("=" * 60)    
 
 # =============================================================================
 # ADVANCED AQUATIC ALGORITHMS WITH BIBLIOGRAPHIC REFERENCES
