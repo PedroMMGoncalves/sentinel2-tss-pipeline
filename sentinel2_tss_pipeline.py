@@ -3614,24 +3614,49 @@ class S2MarineVisualizationProcessor:
         return available_bands
     
     def _load_bands_data_from_paths(self, band_paths: Dict[int, str]) -> Tuple[Optional[Dict], Optional[Dict]]:
-        """Load band data from file paths"""
+        """
+        Load band data from file paths (works for both geometric and C2RCC bands)
+        
+        Args:
+            band_paths: Dictionary mapping wavelength -> file path
+            
+        Returns:
+            Tuple of (bands_data, reference_metadata) or (None, None) on failure
+        """
         bands_data = {}
         reference_metadata = None
         
+        self.logger.info(f"Loading {len(band_paths)} spectral bands into memory")
+        
         for wavelength, file_path in band_paths.items():
             try:
+                # Use your existing RasterIO.read_raster method
                 data, metadata = RasterIO.read_raster(file_path)
+                
+                # Convert to float32 for consistent processing
+                if data.dtype != np.float32:
+                    data = data.astype(np.float32)
+                
+                # Handle no-data values
+                if metadata and 'nodata' in metadata:
+                    nodata_value = metadata['nodata']
+                    if nodata_value is not None:
+                        data[data == nodata_value] = np.nan
+                
                 bands_data[wavelength] = data
                 
                 if reference_metadata is None:
                     reference_metadata = metadata
                 
-                self.logger.debug(f"Loaded band {wavelength}nm: shape={data.shape}, range=[{np.nanmin(data):.6f}, {np.nanmax(data):.6f}]")
+                # Log loading progress
+                file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+                self.logger.debug(f"✓ Loaded {wavelength}nm: {file_size_mb:.1f}MB, shape={data.shape}")
                 
             except Exception as e:
-                self.logger.error(f"Failed to load band {wavelength}nm from {file_path}: {e}")
+                self.logger.error(f"❌ Failed to load band {wavelength}nm from {file_path}: {e}")
                 return None, None
         
+        self.logger.info(f"✅ Successfully loaded {len(bands_data)} bands into memory")
         return bands_data, reference_metadata
     
     def _generate_rgb_composites(self, bands_data: Dict[int, np.ndarray], reference_metadata: Dict, 
