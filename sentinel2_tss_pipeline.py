@@ -108,6 +108,7 @@ import logging
 import json
 import gc
 import threading
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, NamedTuple
@@ -3261,62 +3262,128 @@ class S2MarineVisualizationProcessor:
         self.logger.info("Marine visualization processor ready for processing")
         
     def process_marine_visualizations(self, c2rcc_path: str, output_folder: str, 
-                                    product_name: str) -> Dict[str, ProcessingResult]:
+                                product_name: str, intermediate_paths: Optional[Dict[str, str]] = None) -> Dict[str, ProcessingResult]:
         """
-        Generate marine visualizations using actual SNAP output files
+        Generate comprehensive marine visualizations using actual SNAP output files
+        
+        Args:
+            c2rcc_path: Path to C2RCC output directory
+            output_folder: Output directory for visualizations
+            product_name: Name of the product being processed
+            intermediate_paths: Optional dictionary of intermediate file paths for band scaling fix
+            
+        Returns:
+            Dictionary of visualization results (RGB composites + spectral indices)
         """
         try:
-            self.logger.info(f"Starting marine visualization processing for {product_name}")
+            self.logger.info(f"🌊 Starting marine visualization processing for {product_name}")
             
-            # Create output structure
-            clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
-            scene_folder = os.path.join(output_folder, clean_product_name)
-            rgb_folder = os.path.join(scene_folder, "RGB_Composites")
-            indices_folder = os.path.join(scene_folder, "Spectral_Indices")
-            os.makedirs(rgb_folder, exist_ok=True)
-            os.makedirs(indices_folder, exist_ok=True)
+            # Handle intermediate paths parameter for band scaling fixes
+            if intermediate_paths:
+                self.logger.info("✓ Using intermediate paths for enhanced band scaling")
+                for key, path in intermediate_paths.items():
+                    self.logger.debug(f"  {key}: {path}")
+            else:
+                self.logger.info("Using C2RCC-only approach for visualization")
             
-            # Load available bands using corrected file structure
-            available_bands = self._load_available_bands(c2rcc_path)
-            if not available_bands:
-                return {'error': ProcessingResult(False, "", None, "No bands found in C2RCC output")}
+            # Create visualization output directory
+            viz_output_dir = os.path.join(output_folder, "Marine_Visualizations")
+            os.makedirs(viz_output_dir, exist_ok=True)
             
-            # Load band data
-            bands_data, reference_metadata = self._load_bands_data_from_paths(available_bands)
-            if bands_data is None:
-                return {'error': ProcessingResult(False, "", None, "Failed to load band data")}
+            # Initialize results dictionary
+            viz_results = {}
             
-            results = {}
+            # Verify C2RCC output path exists
+            if not os.path.exists(c2rcc_path):
+                error_msg = f"C2RCC output path does not exist: {c2rcc_path}"
+                self.logger.error(error_msg)
+                return {'error': ProcessingResult(False, "", None, error_msg)}
             
-            # Generate RGB composites
-            self.logger.info("Generating RGB composites...")
-            rgb_results = self._generate_rgb_composites(bands_data, reference_metadata, 
-                                                      rgb_folder, clean_product_name)
-            results.update(rgb_results)
+            # === STEP 1: LOAD SPECTRAL BANDS ===
+            self.logger.info("📊 Step 1: Loading spectral bands from C2RCC output")
             
-            # Generate spectral indices
-            self.logger.info("Generating spectral indices...")
-            indices_results = self._generate_spectral_indices(bands_data, reference_metadata,
-                                                            indices_folder, clean_product_name)
-            results.update(indices_results)
+            try:
+                # Use the same band loading logic as JiangTSSProcessor
+                # Create temporary instance to access band loading methods
+                temp_jiang_processor = JiangTSSProcessor(self.config)
+                band_paths = temp_jiang_processor._update_band_mapping_for_mixed_types(c2rcc_path)
+                
+                if not band_paths:
+                    error_msg = "No suitable spectral bands found for visualization"
+                    self.logger.error(error_msg)
+                    return {'error': ProcessingResult(False, "", None, error_msg)}
+                
+                self.logger.info(f"Found {len(band_paths)} spectral bands for visualization:")
+                for wavelength, path in band_paths.items():
+                    self.logger.debug(f"  {wavelength}nm: {os.path.basename(path)}")
+                
+                # Load band data arrays
+                bands_data, reference_metadata = temp_jiang_processor._load_bands_data(band_paths)
+                
+                if bands_data is None or reference_metadata is None:
+                    error_msg = "Failed to load band data arrays"
+                    self.logger.error(error_msg)
+                    return {'error': ProcessingResult(False, "", None, error_msg)}
+                
+                self.logger.info(f"✅ Successfully loaded {len(bands_data)} bands for visualization")
+                
+                # Log band statistics
+                for wavelength, data in bands_data.items():
+                    valid_pixels = np.sum(~np.isnan(data))
+                    total_pixels = data.size
+                    coverage = (valid_pixels / total_pixels) * 100
+                    data_range = (np.nanmin(data), np.nanmax(data))
+                    self.logger.debug(f"  {wavelength}nm: {coverage:.1f}% valid, range=[{data_range[0]:.6f}, {data_range[1]:.6f}]")
+                
+            except Exception as e:
+                error_msg = f"Error loading bands for visualization: {str(e)}"
+                self.logger.error(error_msg)
+                import traceback
+                self.logger.error(f"Full traceback: {traceback.format_exc()}")
+                return {'error': ProcessingResult(False, "", None, error_msg)}
             
-            # Create summary
-            self._create_visualization_summary(scene_folder, clean_product_name, results)
+            # === STEP 2: GENERATE RGB COMPOSITES ===
+            if (self.config.generate_natural_color or self.config.generate_false_color or 
+                self.config.generate_water_specific or self.config.generate_research_combinations):
+                
+                self.logger.info("🎨 Step 2: Generating RGB composite visualizations")
+                rgb_results = self._generate_rgb_composites(bands_data, reference_metadata, viz_output_dir, product_name)
+                viz_results.update(rgb_results)
+                
+                rgb_count = len([k for k in rgb_results.keys() if rgb_results[k].success])
+                self.logger.info(f"✓ Generated {rgb_count} RGB composites")
             
-            # Final statistics
-            rgb_count = len([k for k in results.keys() if k.startswith('rgb_')])
-            index_count = len([k for k in results.keys() if k.startswith('index_')])
+            # === STEP 3: GENERATE SPECTRAL INDICES ===
+            if (self.config.generate_water_quality_indices or self.config.generate_chlorophyll_indices or 
+                self.config.generate_turbidity_indices or self.config.generate_advanced_indices):
+                
+                self.logger.info("📈 Step 3: Generating spectral index visualizations")
+                index_results = self._generate_spectral_indices(bands_data, reference_metadata, viz_output_dir, product_name)
+                viz_results.update(index_results)
+                
+                index_count = len([k for k in index_results.keys() if index_results[k].success])
+                self.logger.info(f"✓ Generated {index_count} spectral indices")
             
-            self.logger.info(f"Marine visualization completed:")
-            self.logger.info(f"  RGB composites: {rgb_count}")
-            self.logger.info(f"  Spectral indices: {index_count}")
-            self.logger.info(f"  Total products: {len(results)}")
+            # === STEP 4: CREATE PROCESSING SUMMARY ===
+            self.logger.info("📄 Step 4: Creating visualization summary")
+            self._create_visualization_summary(viz_results, viz_output_dir, product_name)
             
-            return results
+            # === FINAL RESULTS ===
+            successful_viz = len([r for r in viz_results.values() if r.success])
+            total_viz = len(viz_results)
+            success_rate = (successful_viz / total_viz) * 100 if total_viz > 0 else 0
+            
+            self.logger.info("🌊 Marine visualization processing completed!")
+            self.logger.info(f"   Results: {successful_viz}/{total_viz} products successful ({success_rate:.1f}%)")
+            self.logger.info(f"   Output directory: {viz_output_dir}")
+            
+            return viz_results
             
         except Exception as e:
             error_msg = f"Marine visualization processing failed: {str(e)}"
             self.logger.error(error_msg)
+            import traceback
+            self.logger.error(f"Full traceback: {traceback.format_exc()}")
             return {'error': ProcessingResult(False, "", None, error_msg)}
     
     def _load_available_bands(self, c2rcc_path: str) -> Dict[int, str]:
@@ -3394,181 +3461,407 @@ class S2MarineVisualizationProcessor:
         
         return bands_data, reference_metadata
     
-    def _generate_rgb_composites(self, bands_data: Dict, metadata: Dict, 
-                               output_folder: str, product_name: str) -> Dict[str, ProcessingResult]:
-        """Generate RGB composites using available bands"""
+    def _generate_rgb_composites(self, bands_data: Dict[int, np.ndarray], reference_metadata: Dict, 
+                           output_folder: str, product_name: str) -> Dict[str, ProcessingResult]:
+        """Generate RGB composites based on available bands and configuration"""
         results = {}
         
-        available_wavelengths = set(bands_data.keys())
-        self.logger.info(f"Available wavelengths for RGB: {sorted(available_wavelengths)}")
-        
-        # Filter RGB combinations based on configuration and priority
-        filtered_combinations = {}
-        
-        for rgb_name, config in self.rgb_generator.rgb_combinations.items():
-            # Check configuration settings
-            if config['priority'] == 'essential':
-                filtered_combinations[rgb_name] = config
-            elif config['priority'] == 'important' and (self.config.generate_natural_color or self.config.generate_false_color):
-                filtered_combinations[rgb_name] = config
-            elif config['priority'] == 'marine' and self.config.generate_water_specific:
-                filtered_combinations[rgb_name] = config
-            elif config['priority'] == 'research' and self.config.generate_research_combinations:
-                filtered_combinations[rgb_name] = config
-            elif config['priority'] == 'optional' and self.config.generate_research_combinations:
-                filtered_combinations[rgb_name] = config
-        
-        for rgb_name, config in filtered_combinations.items():
-            try:
-                required_bands = [config['red'], config['green'], config['blue']]
-                missing_bands = [wl for wl in required_bands if wl not in available_wavelengths]
+        try:
+            available_wavelengths = set(bands_data.keys())
+            self.logger.info(f"Available wavelengths for RGB: {sorted(available_wavelengths)}")
+            
+            # Define RGB combinations with priorities
+            rgb_combinations = {
+                # Natural color combinations
+                'natural_color': {
+                    'red': 665, 'green': 560, 'blue': 490,  # B4, B3, B2
+                    'description': 'Natural color (True color)',
+                    'application': 'General visualization, publications',
+                    'priority': 'essential',
+                    'enabled': self.config.generate_natural_color
+                },
+                'natural_enhanced': {
+                    'red': 665, 'green': 560, 'blue': 443,  # B4, B3, B1
+                    'description': 'Natural color with enhanced contrast',
+                    'application': 'Better water-land contrast',
+                    'priority': 'important',
+                    'enabled': self.config.generate_natural_color
+                },
                 
-                if missing_bands:
-                    self.logger.info(f"Skipping {rgb_name}: missing wavelengths {missing_bands}")
-                    continue
+                # False color combinations
+                'false_color_infrared': {
+                    'red': 842, 'green': 665, 'blue': 560,  # B8, B4, B3
+                    'description': 'False color infrared',
+                    'application': 'Vegetation (red), clear water (dark)',
+                    'priority': 'important',
+                    'enabled': self.config.generate_false_color
+                },
+                'false_color_nir': {
+                    'red': 865, 'green': 665, 'blue': 560,  # B8A, B4, B3
+                    'description': 'False color NIR',
+                    'application': 'Enhanced vegetation/water contrast',
+                    'priority': 'important',
+                    'enabled': self.config.generate_false_color
+                },
                 
-                # Get band data
-                red_data = bands_data[config['red']]
-                green_data = bands_data[config['green']]
-                blue_data = bands_data[config['blue']]
+                # Water-specific combinations
+                'turbidity_enhanced': {
+                    'red': 705, 'green': 665, 'blue': 560,  # B5, B4, B3
+                    'description': 'Turbidity-enhanced RGB',
+                    'application': 'Enhanced turbidity visualization',
+                    'priority': 'marine',
+                    'enabled': self.config.generate_water_specific
+                },
+                'chlorophyll_enhanced': {
+                    'red': 705, 'green': 665, 'blue': 490,  # B5, B4, B2
+                    'description': 'Chlorophyll-enhanced RGB',
+                    'application': 'Enhanced chlorophyll visualization',
+                    'priority': 'marine',
+                    'enabled': self.config.generate_water_specific
+                },
+                'coastal_aerosol': {
+                    'red': 665, 'green': 490, 'blue': 443,  # B4, B2, B1
+                    'description': 'Coastal aerosol RGB',
+                    'application': 'Coastal water analysis',
+                    'priority': 'marine',
+                    'enabled': self.config.generate_water_specific
+                },
+                'water_quality': {
+                    'red': 740, 'green': 665, 'blue': 560,  # B6, B4, B3
+                    'description': 'Water quality RGB',
+                    'application': 'General water quality assessment',
+                    'priority': 'marine',
+                    'enabled': self.config.generate_water_specific
+                },
                 
-                self.logger.info(f"Creating {rgb_name}: R={config['red']}nm, G={config['green']}nm, B={config['blue']}nm")
-                
-                # Create RGB composite
-                rgb_array = self._create_robust_rgb_composite(red_data, green_data, blue_data)
-                
-                # Save RGB
-                output_path = os.path.join(output_folder, f"{product_name}_{rgb_name}.tif")
-                success = self._save_rgb_geotiff(rgb_array, output_path, metadata, config['description'])
-                
-                if success:
-                    stats = {
-                        'description': config['description'],
-                        'application': config['application'],
-                        'bands_used': f"R:{config['red']}nm, G:{config['green']}nm, B:{config['blue']}nm",
-                        'priority': config['priority'],
-                        'file_size_mb': os.path.getsize(output_path) / (1024 * 1024),
-                        'coverage_percent': np.sum(np.any(rgb_array > 0, axis=2)) / (rgb_array.shape[0] * rgb_array.shape[1]) * 100
-                    }
+                # Research combinations
+                'sediment_transport': {
+                    'red': 783, 'green': 705, 'blue': 665,  # B7, B5, B4
+                    'description': 'Sediment transport RGB',
+                    'application': 'Sediment plume visualization',
+                    'priority': 'research',
+                    'enabled': self.config.generate_research_combinations
+                },
+                'atmospheric_penetration': {
+                    'red': 865, 'green': 783, 'blue': 740,  # B8A, B7, B6
+                    'description': 'Atmospheric penetration RGB',
+                    'application': 'Deep water analysis',
+                    'priority': 'research',
+                    'enabled': self.config.generate_research_combinations
+                }
+            }
+            
+            # Filter combinations based on configuration
+            active_combinations = {name: config for name, config in rgb_combinations.items() 
+                                if config['enabled'] and config['priority'] in ['essential', 'important', 'marine', 'research']}
+            
+            self.logger.info(f"Processing {len(active_combinations)} RGB combinations")
+            
+            for rgb_name, config in active_combinations.items():
+                try:
+                    required_bands = [config['red'], config['green'], config['blue']]
+                    missing_bands = [wl for wl in required_bands if wl not in available_wavelengths]
                     
-                    results[f'rgb_{rgb_name}'] = ProcessingResult(True, output_path, stats, None)
-                    self.logger.info(f"✓ {rgb_name}: {stats['coverage_percent']:.1f}% coverage, {stats['file_size_mb']:.1f}MB")
-                else:
-                    results[f'rgb_{rgb_name}'] = ProcessingResult(False, output_path, None, "Failed to save")
+                    if missing_bands:
+                        self.logger.info(f"Skipping {rgb_name}: missing wavelengths {missing_bands}")
+                        continue
                     
-            except Exception as e:
-                self.logger.error(f"Error generating {rgb_name}: {e}")
-                results[f'rgb_{rgb_name}'] = ProcessingResult(False, "", None, str(e))
-        
-        return results
-    
-    def _generate_spectral_indices(self, bands_data: Dict, metadata: Dict,
-                                 output_folder: str, product_name: str) -> Dict[str, ProcessingResult]:
-        """Generate spectral indices based on configuration"""
-        results = {}
-        
-        # Create band mapping for easy access
-        band_vars = {}
-        for wavelength, data in bands_data.items():
-            if wavelength == 443: band_vars['B1'] = data
-            elif wavelength == 490: band_vars['B2'] = data
-            elif wavelength == 560: band_vars['B3'] = data
-            elif wavelength == 665: band_vars['B4'] = data
-            elif wavelength == 705: band_vars['B5'] = data
-            elif wavelength == 740: band_vars['B6'] = data
-            elif wavelength == 783: band_vars['B7'] = data
-            elif wavelength == 842: band_vars['B8'] = data
-            elif wavelength == 865: band_vars['B8A'] = data
-            elif wavelength == 945: band_vars['B9'] = data
-            elif wavelength == 1610: band_vars['B11'] = data
-            elif wavelength == 2190: band_vars['B12'] = data
-        
-        # Filter indices based on configuration and priority
-        filtered_indices = {}
-        
-        for index_name, config in self.rgb_generator.spectral_indices.items():
-            # Check configuration settings
-            if config['priority'] == 'essential':
-                filtered_indices[index_name] = config
-            elif config['priority'] == 'important' and self.config.generate_water_quality_indices:
-                filtered_indices[index_name] = config
-            elif config['priority'] == 'marine' and (self.config.generate_chlorophyll_indices or self.config.generate_turbidity_indices):
-                filtered_indices[index_name] = config
-            elif config['priority'] == 'advanced' and self.config.generate_advanced_indices:
-                filtered_indices[index_name] = config
-        
-        for index_name, config in filtered_indices.items():
-            try:
-                # Calculate index
-                index_data = self._calculate_spectral_index(index_name, band_vars)
-                
-                if index_data is not None:
-                    # Save index
-                    output_path = os.path.join(output_folder, f"{product_name}_{index_name}.tif")
-                    success = RasterIO.write_raster(
-                        index_data, output_path, metadata,
-                        f"{config['description']} - {config['application']}",
-                        nodata=-9999
-                    )
+                    self.logger.info(f"Creating {rgb_name}: R={config['red']}nm, G={config['green']}nm, B={config['blue']}nm")
+                    
+                    # Get band data
+                    red_data = bands_data[config['red']]
+                    green_data = bands_data[config['green']]
+                    blue_data = bands_data[config['blue']]
+                    
+                    # Create RGB composite
+                    rgb_array = self._create_robust_rgb_composite(red_data, green_data, blue_data)
+                    
+                    # Save RGB composite
+                    output_path = os.path.join(output_folder, f"{product_name}_{rgb_name}.tif")
+                    success = self._save_rgb_geotiff(rgb_array, output_path, reference_metadata, config['description'])
                     
                     if success:
-                        stats = RasterIO.calculate_statistics(index_data)
-                        stats.update({
+                        # Calculate statistics
+                        valid_pixels = np.sum(np.any(rgb_array > 0, axis=2))
+                        total_pixels = rgb_array.shape[0] * rgb_array.shape[1]
+                        coverage_percent = (valid_pixels / total_pixels) * 100
+                        file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
+                        
+                        stats = {
                             'description': config['description'],
                             'application': config['application'],
-                            'formula': config['formula'],
-                            'range': config['range'],
-                            'interpretation': config['interpretation'],
-                            'priority': config['priority']
-                        })
-                        results[f'index_{index_name.lower()}'] = ProcessingResult(True, output_path, stats, None)
-                        self.logger.info(f"✓ Generated index: {index_name} ({stats['coverage_percent']:.1f}% coverage)")
+                            'bands_used': f"R:{config['red']}nm, G:{config['green']}nm, B:{config['blue']}nm",
+                            'priority': config['priority'],
+                            'file_size_mb': file_size_mb,
+                            'coverage_percent': coverage_percent,
+                            'output_path': output_path
+                        }
+                        
+                        results[f'rgb_{rgb_name}'] = ProcessingResult(True, output_path, stats, None)
+                        self.logger.info(f"✓ {rgb_name}: {coverage_percent:.1f}% coverage, {file_size_mb:.1f}MB")
                     else:
-                        results[f'index_{index_name.lower()}'] = ProcessingResult(False, output_path, None, "Failed to save")
-                else:
-                    self.logger.warning(f"Could not calculate index: {index_name}")
-                    
-            except Exception as e:
-                self.logger.error(f"Error calculating index {index_name}: {e}")
-                results[f'index_{index_name.lower()}'] = ProcessingResult(False, "", None, str(e))
-        
-        return results
+                        results[f'rgb_{rgb_name}'] = ProcessingResult(False, output_path, None, "Failed to save RGB composite")
+                        
+                except Exception as e:
+                    self.logger.error(f"Error generating {rgb_name}: {e}")
+                    results[f'rgb_{rgb_name}'] = ProcessingResult(False, "", None, str(e))
+            
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"Error in RGB composite generation: {e}")
+            return {'rgb_error': ProcessingResult(False, "", None, str(e))}
     
-    def _calculate_spectral_index(self, index_name: str, bands: Dict) -> Optional[np.ndarray]:
-        """Calculate specific spectral index"""
+    def _generate_spectral_indices(self, bands_data: Dict[int, np.ndarray], reference_metadata: Dict,
+                                output_folder: str, product_name: str) -> Dict[str, ProcessingResult]:
+        """Generate spectral indices based on configuration and available bands"""
+        results = {}
+        
         try:
-            if index_name == 'NDTI':
-                return SafeMathNumPy.safe_divide(bands['B4'] - bands['B3'], bands['B4'] + bands['B3'])
-            elif index_name == 'NDWI':
-                return SafeMathNumPy.safe_divide(bands['B3'] - bands['B8'], bands['B3'] + bands['B8'])
+            available_wavelengths = set(bands_data.keys())
+            self.logger.info(f"Available wavelengths for indices: {sorted(available_wavelengths)}")
+            
+            # Define spectral indices with requirements
+            spectral_indices = {
+                # Water quality indices
+                'NDWI': {
+                    'formula': '(B3 - B8A) / (B3 + B8A)',
+                    'required_bands': [560, 865],
+                    'description': 'Normalized Difference Water Index',
+                    'application': 'Water body delineation',
+                    'enabled': self.config.generate_water_quality_indices,
+                    'category': 'water_quality'
+                },
+                'MNDWI': {
+                    'formula': '(B3 - B11) / (B3 + B11)',
+                    'required_bands': [560, 1610],  # B11 might not be available in C2RCC
+                    'fallback_bands': [560, 865],   # Use B8A as fallback
+                    'description': 'Modified Normalized Difference Water Index',
+                    'application': 'Enhanced water detection',
+                    'enabled': self.config.generate_water_quality_indices,
+                    'category': 'water_quality'
+                },
+                'NDTI': {
+                    'formula': '(B4 - B3) / (B4 + B3)',
+                    'required_bands': [665, 560],
+                    'description': 'Normalized Difference Turbidity Index',
+                    'application': 'Turbidity assessment',
+                    'enabled': self.config.generate_water_quality_indices,
+                    'category': 'water_quality'
+                },
+                
+                # Chlorophyll indices
+                'NDCI': {
+                    'formula': '(B5 - B4) / (B5 + B4)',
+                    'required_bands': [705, 665],
+                    'description': 'Normalized Difference Chlorophyll Index',
+                    'application': 'Chlorophyll concentration',
+                    'enabled': self.config.generate_chlorophyll_indices,
+                    'category': 'chlorophyll'
+                },
+                'CHL_RED_EDGE': {
+                    'formula': '(B5 / B4) - 1',
+                    'required_bands': [705, 665],
+                    'description': 'Chlorophyll Red Edge',
+                    'application': 'Chlorophyll using red edge',
+                    'enabled': self.config.generate_chlorophyll_indices,
+                    'category': 'chlorophyll'
+                },
+                'GNDVI': {
+                    'formula': '(B8 - B3) / (B8 + B3)',
+                    'required_bands': [842, 560],
+                    'description': 'Green Normalized Difference Vegetation Index',
+                    'application': 'Aquatic vegetation',
+                    'enabled': self.config.generate_chlorophyll_indices,
+                    'category': 'chlorophyll'
+                },
+                
+                # Turbidity indices
+                'TSI': {
+                    'formula': '(B4 + B3) / 2',
+                    'required_bands': [665, 560],
+                    'description': 'Turbidity Spectral Index',
+                    'application': 'Turbidity estimation',
+                    'enabled': self.config.generate_turbidity_indices,
+                    'category': 'turbidity'
+                },
+                'NGRDI': {
+                    'formula': '(B3 - B4) / (B3 + B4)',
+                    'required_bands': [560, 665],
+                    'description': 'Normalized Green Red Difference Index',
+                    'application': 'Water-vegetation separation',
+                    'enabled': self.config.generate_turbidity_indices,
+                    'category': 'turbidity'
+                },
+                
+                # Advanced indices
+                'FUI': {
+                    'formula': 'arctan2(B4 - B3, B2 - B3) * 180 / π',
+                    'required_bands': [665, 560, 490],
+                    'description': 'Forel-Ule Index',
+                    'application': 'Water color classification',
+                    'enabled': self.config.generate_advanced_indices,
+                    'category': 'advanced'
+                },
+                'SDD': {
+                    'formula': 'ln(0.14 / B4) / 1.7',
+                    'required_bands': [665],
+                    'description': 'Secchi Disk Depth proxy',
+                    'application': 'Water transparency',
+                    'enabled': self.config.generate_advanced_indices,
+                    'category': 'advanced'
+                },
+                'CDOM': {
+                    'formula': 'B1 / B3',
+                    'required_bands': [443, 560],
+                    'description': 'Colored Dissolved Organic Matter proxy',
+                    'application': 'CDOM concentration',
+                    'enabled': self.config.generate_advanced_indices,
+                    'category': 'advanced'
+                }
+            }
+            
+            # Filter indices based on configuration
+            active_indices = {name: config for name, config in spectral_indices.items() if config['enabled']}
+            
+            self.logger.info(f"Processing {len(active_indices)} spectral indices")
+            
+            for index_name, config in active_indices.items():
+                try:
+                    # Check band availability
+                    required_bands = config['required_bands']
+                    fallback_bands = config.get('fallback_bands', None)
+                    
+                    if all(band in available_wavelengths for band in required_bands):
+                        bands_to_use = required_bands
+                    elif fallback_bands and all(band in available_wavelengths for band in fallback_bands):
+                        bands_to_use = fallback_bands
+                        self.logger.info(f"Using fallback bands for {index_name}")
+                    else:
+                        missing = [b for b in required_bands if b not in available_wavelengths]
+                        self.logger.info(f"Skipping {index_name}: missing wavelengths {missing}")
+                        continue
+                    
+                    self.logger.info(f"Calculating {index_name} using bands: {bands_to_use}")
+                    
+                    # Calculate index based on formula
+                    index_data = self._calculate_spectral_index(index_name, config, bands_data, bands_to_use)
+                    
+                    if index_data is not None:
+                        # Save index
+                        output_path = os.path.join(output_folder, f"{product_name}_{index_name.lower()}.tif")
+                        success = self._save_single_band_geotiff(index_data, output_path, reference_metadata, config['description'])
+                        
+                        if success:
+                            # Calculate statistics
+                            valid_data = index_data[~np.isnan(index_data)]
+                            if len(valid_data) > 0:
+                                stats = {
+                                    'description': config['description'],
+                                    'application': config['application'],
+                                    'formula': config['formula'],
+                                    'bands_used': bands_to_use,
+                                    'category': config['category'],
+                                    'min_value': float(np.min(valid_data)),
+                                    'max_value': float(np.max(valid_data)),
+                                    'mean_value': float(np.mean(valid_data)),
+                                    'std_value': float(np.std(valid_data)),
+                                    'valid_pixels': len(valid_data),
+                                    'coverage_percent': (len(valid_data) / index_data.size) * 100,
+                                    'file_size_mb': os.path.getsize(output_path) / (1024 * 1024)
+                                }
+                            else:
+                                stats = {'description': config['description'], 'error': 'No valid data'}
+                            
+                            results[f'index_{index_name.lower()}'] = ProcessingResult(True, output_path, stats, None)
+                            self.logger.info(f"✓ {index_name}: {stats.get('coverage_percent', 0):.1f}% coverage")
+                        else:
+                            results[f'index_{index_name.lower()}'] = ProcessingResult(False, output_path, None, "Failed to save index")
+                    else:
+                        results[f'index_{index_name.lower()}'] = ProcessingResult(False, "", None, "Failed to calculate index")
+                        
+                except Exception as e:
+                    self.logger.error(f"Error calculating {index_name}: {e}")
+                    results[f'index_{index_name.lower()}'] = ProcessingResult(False, "", None, str(e))
+            
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"Error in spectral index generation: {e}")
+            return {'index_error': ProcessingResult(False, "", None, str(e))}
+
+    def _calculate_spectral_index(self, index_name: str, config: Dict, bands_data: Dict[int, np.ndarray], 
+                                bands_to_use: List[int]) -> Optional[np.ndarray]:
+        """Calculate specific spectral index using provided bands"""
+        try:
+            if index_name == 'NDWI':
+                # (B3 - B8A) / (B3 + B8A)
+                b3 = bands_data[bands_to_use[0]]  # 560nm
+                b8a = bands_data[bands_to_use[1]]  # 865nm
+                return (b3 - b8a) / (b3 + b8a + 1e-8)
+                
             elif index_name == 'MNDWI':
-                return SafeMathNumPy.safe_divide(bands['B3'] - bands['B11'], bands['B3'] + bands['B11'])
-            elif index_name == 'NDVI':
-                return SafeMathNumPy.safe_divide(bands['B8'] - bands['B4'], bands['B8'] + bands['B4'])
-            elif index_name == 'GNDVI':
-                return SafeMathNumPy.safe_divide(bands['B8'] - bands['B3'], bands['B8'] + bands['B3'])
+                # Modified NDWI using available bands
+                b3 = bands_data[bands_to_use[0]]  # 560nm
+                b_swir = bands_data[bands_to_use[1]]  # 865nm or 1610nm
+                return (b3 - b_swir) / (b3 + b_swir + 1e-8)
+                
+            elif index_name == 'NDTI':
+                # (B4 - B3) / (B4 + B3)
+                b4 = bands_data[bands_to_use[0]]  # 665nm
+                b3 = bands_data[bands_to_use[1]]  # 560nm
+                return (b4 - b3) / (b4 + b3 + 1e-8)
+                
             elif index_name == 'NDCI':
-                return SafeMathNumPy.safe_divide(bands['B5'] - bands['B4'], bands['B5'] + bands['B4'])
+                # (B5 - B4) / (B5 + B4)
+                b5 = bands_data[bands_to_use[0]]  # 705nm
+                b4 = bands_data[bands_to_use[1]]  # 665nm
+                return (b5 - b4) / (b5 + b4 + 1e-8)
+                
             elif index_name == 'CHL_RED_EDGE':
-                return SafeMathNumPy.safe_divide(bands['B6'], bands['B5']) - 1
+                # (B5 / B4) - 1
+                b5 = bands_data[bands_to_use[0]]  # 705nm
+                b4 = bands_data[bands_to_use[1]]  # 665nm
+                return (b5 / (b4 + 1e-8)) - 1
+                
+            elif index_name == 'GNDVI':
+                # (B8 - B3) / (B8 + B3)
+                b8 = bands_data[bands_to_use[0]]  # 842nm
+                b3 = bands_data[bands_to_use[1]]  # 560nm
+                return (b8 - b3) / (b8 + b3 + 1e-8)
+                
             elif index_name == 'TSI':
-                return SafeMathNumPy.safe_divide(bands['B4'], bands['B2'])
+                # (B4 + B3) / 2
+                b4 = bands_data[bands_to_use[0]]  # 665nm
+                b3 = bands_data[bands_to_use[1]]  # 560nm
+                return (b4 + b3) / 2
+                
             elif index_name == 'NGRDI':
-                return SafeMathNumPy.safe_divide(bands['B3'] - bands['B4'], bands['B3'] + bands['B4'])
-            elif index_name == 'BSI':
-                numerator = (bands['B11'] + bands['B4']) - (bands['B8'] + bands['B2'])
-                denominator = (bands['B11'] + bands['B4']) + (bands['B8'] + bands['B2'])
-                return SafeMathNumPy.safe_divide(numerator, denominator)
+                # (B3 - B4) / (B3 + B4)
+                b3 = bands_data[bands_to_use[0]]  # 560nm
+                b4 = bands_data[bands_to_use[1]]  # 665nm
+                return (b3 - b4) / (b3 + b4 + 1e-8)
+                
             elif index_name == 'FUI':
-                # Forel-Ule Index (water color)
-                angle = np.arctan2(bands['B4'] - bands['B3'], bands['B2'] - bands['B3'])
-                return angle * 180 / np.pi
+                # arctan2(B4 - B3, B2 - B3) * 180 / π
+                b4 = bands_data[bands_to_use[0]]  # 665nm
+                b3 = bands_data[bands_to_use[1]]  # 560nm
+                b2 = bands_data[bands_to_use[2]]  # 490nm
+                return np.arctan2(b4 - b3, b2 - b3) * 180 / np.pi
+                
             elif index_name == 'SDD':
-                # Secchi Disk Depth proxy
-                return SafeMathNumPy.safe_log(0.14 / bands['B4'], base=np.e) / 1.7
+                # ln(0.14 / B4) / 1.7
+                b4 = bands_data[bands_to_use[0]]  # 665nm
+                return np.log(0.14 / (b4 + 1e-8)) / 1.7
+                
             elif index_name == 'CDOM':
-                return SafeMathNumPy.safe_divide(bands['B1'], bands['B3'])
+                # B1 / B3
+                b1 = bands_data[bands_to_use[0]]  # 443nm
+                b3 = bands_data[bands_to_use[1]]  # 560nm
+                return b1 / (b3 + 1e-8)
+                
             else:
+                self.logger.warning(f"Unknown index calculation for {index_name}")
                 return None
                 
         except Exception as e:
@@ -3590,7 +3883,7 @@ class S2MarineVisualizationProcessor:
             
             for i, (band, name) in enumerate(zip(bands, band_names)):
                 # Create comprehensive mask for valid data
-                # Note: rho_toa values are typically 0-1 range (reflectance)
+                # Note: reflectance values should be 0-1 range for most sensors
                 valid_mask = (
                     (~np.isnan(band)) & 
                     (~np.isinf(band)) & 
@@ -3605,25 +3898,29 @@ class S2MarineVisualizationProcessor:
                     rgb_array[:, :, i] = 0
                     continue
                 
-                # Apply contrast enhancement appropriate for TOA reflectance
+                # Apply contrast enhancement appropriate for reflectance data
                 if len(valid_data) > 100:
-                    # Use conservative percentiles for TOA data
-                    p1, p99 = np.percentile(valid_data, [1, 99])
-                    if p99 > p1:
+                    # Use conservative percentiles for reflectance data
+                    p2, p98 = np.percentile(valid_data, [2, 98])
+                    if p98 > p2:
                         # Apply percentile stretch
-                        enhanced = np.clip((band - p1) / (p99 - p1), 0, 1)
+                        enhanced = np.clip((band - p2) / (p98 - p2), 0, 1)
                         rgb_array[:, :, i] = enhanced
                     else:
                         # Data is too uniform, use simple scaling
-                        rgb_array[:, :, i] = np.clip(band * 3, 0, 1)  # 3x boost for low contrast
+                        rgb_array[:, :, i] = np.clip(band * 2, 0, 1)  # 2x boost for low contrast
                 else:
                     # Not enough data, use simple scaling
-                    rgb_array[:, :, i] = np.clip(band * 3, 0, 1)
+                    rgb_array[:, :, i] = np.clip(band * 2, 0, 1)
                 
                 # Ensure invalid pixels are black
                 rgb_array[~valid_mask, i] = 0
             
-            # Final validation
+            # Apply additional contrast enhancement if configured
+            if self.config.apply_contrast_enhancement:
+                rgb_array = self._apply_additional_contrast_enhancement(rgb_array)
+            
+            # Final validation and clipping
             rgb_array = np.clip(rgb_array, 0, 1)
             
             return rgb_array
@@ -3631,95 +3928,400 @@ class S2MarineVisualizationProcessor:
         except Exception as e:
             self.logger.error(f"Error in RGB composite creation: {e}")
             return np.zeros((red.shape[0], red.shape[1], 3), dtype=np.float32)
-    
-    def _save_rgb_geotiff(self, rgb_array: np.ndarray, output_path: str, 
-                         metadata: Dict, description: str) -> bool:
-        """Save RGB array as GeoTIFF"""
+
+    def _apply_additional_contrast_enhancement(self, rgb_array: np.ndarray) -> np.ndarray:
+        """Apply additional contrast enhancement based on configuration"""
         try:
-            from osgeo import gdal
+            if self.config.contrast_method == 'percentile_stretch':
+                # Apply percentile stretch to the combined RGB
+                for i in range(3):  # R, G, B channels
+                    channel = rgb_array[:, :, i]
+                    valid_mask = channel > 0
+                    valid_data = channel[valid_mask]
+                    
+                    if len(valid_data) > 100:
+                        p_low, p_high = self.config.percentile_range
+                        p_low_val, p_high_val = np.percentile(valid_data, [p_low, p_high])
+                        
+                        if p_high_val > p_low_val:
+                            enhanced_channel = np.clip(
+                                (channel - p_low_val) / (p_high_val - p_low_val), 
+                                0, 1
+                            )
+                            rgb_array[:, :, i] = enhanced_channel
             
-            # Convert to uint8 (0-255)
+            elif self.config.contrast_method == 'histogram_equalization':
+                # Simple histogram equalization
+                for i in range(3):
+                    channel = rgb_array[:, :, i]
+                    valid_mask = channel > 0
+                    
+                    if np.any(valid_mask):
+                        # Apply histogram equalization to valid pixels only
+                        valid_data = channel[valid_mask]
+                        if len(np.unique(valid_data)) > 10:  # Enough unique values
+                            hist, bins = np.histogram(valid_data, bins=256, range=(0, 1))
+                            cdf = hist.cumsum()
+                            cdf = cdf / cdf[-1]  # Normalize
+                            
+                            # Interpolate to get equalized values
+                            enhanced_data = np.interp(valid_data, bins[:-1], cdf)
+                            channel[valid_mask] = enhanced_data
+                            rgb_array[:, :, i] = channel
+            
+            return rgb_array
+            
+        except Exception as e:
+            self.logger.warning(f"Error in additional contrast enhancement: {e}")
+            return rgb_array
+
+    def _save_rgb_geotiff(self, rgb_array: np.ndarray, output_path: str, 
+                        metadata: Dict, description: str) -> bool:
+        """Save RGB array as GeoTIFF with proper metadata"""
+        try:
+            # Convert to uint8 for better visualization and smaller file size
             rgb_uint8 = (rgb_array * 255).astype(np.uint8)
             
-            # Create output raster
-            driver = gdal.GetDriverByName('GTiff')
+            # Get dimensions
             height, width, bands = rgb_uint8.shape
             
+            # Create the dataset
+            driver = gdal.GetDriverByName('GTiff')
+            if driver is None:
+                self.logger.error("GTiff driver not available")
+                return False
+            
             dataset = driver.Create(
-                output_path, width, height, bands, gdal.GDT_Byte,
-                ['COMPRESS=LZW', 'PHOTOMETRIC=RGB', 'TILED=YES']
+                output_path, 
+                width, 
+                height, 
+                bands, 
+                gdal.GDT_Byte,
+                options=['COMPRESS=LZW', 'TILED=YES', 'BIGTIFF=IF_SAFER']
             )
             
-            # Set georeference information
-            dataset.SetGeoTransform(metadata['geotransform'])
-            dataset.SetProjection(metadata['projection'])
+            if dataset is None:
+                self.logger.error(f"Could not create dataset: {output_path}")
+                return False
             
-            # Write bands
+            # Set geotransform and projection
+            if 'geotransform' in metadata:
+                dataset.SetGeoTransform(metadata['geotransform'])
+            if 'projection' in metadata:
+                dataset.SetProjection(metadata['projection'])
+            
+            # Write the RGB bands
             for i in range(bands):
                 band = dataset.GetRasterBand(i + 1)
                 band.WriteArray(rgb_uint8[:, :, i])
-                band.SetDescription(f"{description} - Band {i+1}")
+                
+                # Set band metadata
+                if i == 0:
+                    band.SetDescription('Red')
+                    band.SetColorInterpretation(gdal.GCI_RedBand)
+                elif i == 1:
+                    band.SetDescription('Green')
+                    band.SetColorInterpretation(gdal.GCI_GreenBand)
+                elif i == 2:
+                    band.SetDescription('Blue')
+                    band.SetColorInterpretation(gdal.GCI_BlueBand)
+                
+                # Set statistics
+                band.SetStatistics(0, 255, float(np.mean(rgb_uint8[:, :, i])), float(np.std(rgb_uint8[:, :, i])))
             
-            dataset = None  # Close dataset
+            # Set dataset metadata
+            dataset.SetDescription(description)
+            dataset.SetMetadataItem('DESCRIPTION', description)
+            dataset.SetMetadataItem('CREATION_DATE', datetime.now().isoformat())
+            dataset.SetMetadataItem('SOURCE', 'Unified S2 TSS Pipeline - Marine Visualization')
+            
+            if self.config.export_metadata:
+                dataset.SetMetadataItem('PROCESSING_METHOD', 'Marine RGB Composite')
+                dataset.SetMetadataItem('CONTRAST_ENHANCEMENT', str(self.config.apply_contrast_enhancement))
+                dataset.SetMetadataItem('CONTRAST_METHOD', self.config.contrast_method)
+            
+            # Build overviews if configured
+            if self.config.create_overview_images:
+                dataset.BuildOverviews('AVERAGE', [2, 4, 8, 16])
+            
+            # Flush and close
+            dataset.FlushCache()
+            dataset = None
+            
+            self.logger.debug(f"✓ Saved RGB composite: {os.path.basename(output_path)}")
             return True
             
         except Exception as e:
-            self.logger.error(f"Error saving RGB {output_path}: {e}")
+            self.logger.error(f"Error saving RGB GeoTIFF {output_path}: {e}")
             return False
-    
-    def _create_visualization_summary(self, scene_folder: str, product_name: str, results: Dict):
-        """Create a summary file of all visualization products"""
+
+    def _save_single_band_geotiff(self, data: np.ndarray, output_path: str, 
+                                metadata: Dict, description: str) -> bool:
+        """Save single band data as GeoTIFF with proper metadata"""
         try:
-            summary_file = os.path.join(scene_folder, f"{product_name}_VisualizationSummary.txt")
+            # Get dimensions
+            height, width = data.shape
+            
+            # Create the dataset
+            driver = gdal.GetDriverByName('GTiff')
+            if driver is None:
+                self.logger.error("GTiff driver not available")
+                return False
+            
+            dataset = driver.Create(
+                output_path, 
+                width, 
+                height, 
+                1, 
+                gdal.GDT_Float32,
+                options=['COMPRESS=LZW', 'TILED=YES', 'BIGTIFF=IF_SAFER']
+            )
+            
+            if dataset is None:
+                self.logger.error(f"Could not create dataset: {output_path}")
+                return False
+            
+            # Set geotransform and projection
+            if 'geotransform' in metadata:
+                dataset.SetGeoTransform(metadata['geotransform'])
+            if 'projection' in metadata:
+                dataset.SetProjection(metadata['projection'])
+            
+            # Write the data
+            band = dataset.GetRasterBand(1)
+            band.WriteArray(data.astype(np.float32))
+            
+            # Set nodata value
+            nodata_value = metadata.get('nodata', -9999)
+            band.SetNoDataValue(float(nodata_value))
+            
+            # Calculate and set statistics for valid data
+            valid_data = data[~np.isnan(data)]
+            if len(valid_data) > 0:
+                band.SetStatistics(
+                    float(np.min(valid_data)), 
+                    float(np.max(valid_data)), 
+                    float(np.mean(valid_data)), 
+                    float(np.std(valid_data))
+                )
+            
+            # Set band metadata
+            band.SetDescription(description)
+            
+            # Set dataset metadata
+            dataset.SetDescription(description)
+            dataset.SetMetadataItem('DESCRIPTION', description)
+            dataset.SetMetadataItem('CREATION_DATE', datetime.now().isoformat())
+            dataset.SetMetadataItem('SOURCE', 'Unified S2 TSS Pipeline - Marine Visualization')
+            
+            if self.config.export_metadata:
+                dataset.SetMetadataItem('PROCESSING_METHOD', 'Spectral Index Calculation')
+                dataset.SetMetadataItem('UNITS', 'Dimensionless')
+            
+            # Build overviews if configured
+            if self.config.create_overview_images:
+                dataset.BuildOverviews('AVERAGE', [2, 4, 8, 16])
+            
+            # Flush and close
+            dataset.FlushCache()
+            dataset = None
+            
+            self.logger.debug(f"✓ Saved spectral index: {os.path.basename(output_path)}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error saving single band GeoTIFF {output_path}: {e}")
+            return False
+
+    def _create_visualization_summary(self, viz_results: Dict[str, ProcessingResult], 
+                                    output_folder: str, product_name: str):
+        """Create comprehensive visualization summary report"""
+        try:
+            summary_file = os.path.join(output_folder, f"{product_name}_Marine_Visualization_Summary.txt")
             
             with open(summary_file, 'w', encoding='utf-8') as f:
-                f.write(f"SENTINEL-2 MARINE VISUALIZATION SUMMARY\n")
-                f.write(f"{'='*50}\n")
+                # Header
+                f.write("MARINE VISUALIZATION PROCESSING SUMMARY\n")
+                f.write("=" * 60 + "\n")
                 f.write(f"Product: {product_name}\n")
-                f.write(f"Processing Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"Pipeline: Unified S2-TSS Processing v1.0\n\n")
+                f.write(f"Processing completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Pipeline: Unified S2-TSS Processing with Marine Visualization\n")
+                f.write(f"Output directory: {output_folder}\n\n")
                 
-                # RGB Composites
-                rgb_products = {k: v for k, v in results.items() if k.startswith('rgb_')}
+                # Overall statistics
+                total_products = len(viz_results)
+                successful_products = len([r for r in viz_results.values() if r.success])
+                failed_products = total_products - successful_products
+                success_rate = (successful_products / total_products) * 100 if total_products > 0 else 0
+                
+                f.write("PROCESSING STATISTICS:\n")
+                f.write(f"  Total products attempted: {total_products}\n")
+                f.write(f"  Successfully generated: {successful_products}\n")
+                f.write(f"  Failed: {failed_products}\n")
+                f.write(f"  Success rate: {success_rate:.1f}%\n\n")
+                
+                # Product categories
+                rgb_products = {k: v for k, v in viz_results.items() if k.startswith('rgb_')}
+                index_products = {k: v for k, v in viz_results.items() if k.startswith('index_')}
+                
+                f.write("PRODUCT CATEGORIES:\n")
+                f.write(f"  RGB Composites: {len(rgb_products)} products\n")
+                f.write(f"  Spectral Indices: {len(index_products)} products\n\n")
+                
+                # RGB Composites section
                 if rgb_products:
-                    f.write(f"RGB COMPOSITES ({len(rgb_products)} products):\n")
-                    f.write(f"{'-'*30}\n")
+                    f.write("RGB COMPOSITES:\n")
+                    f.write("-" * 40 + "\n")
+                    
                     for product_key, result in rgb_products.items():
+                        product_name_clean = product_key.replace('rgb_', '').replace('_', ' ').title()
+                        
                         if result.success and result.statistics:
                             stats = result.statistics
-                            f.write(f"✓ {os.path.basename(result.output_path)}\n")
+                            f.write(f"✓ {product_name_clean}\n")
                             f.write(f"  Description: {stats.get('description', 'N/A')}\n")
                             f.write(f"  Application: {stats.get('application', 'N/A')}\n")
-                            f.write(f"  Bands: {stats.get('bands_used', 'N/A')}\n")
+                            f.write(f"  Bands used: {stats.get('bands_used', 'N/A')}\n")
                             f.write(f"  Coverage: {stats.get('coverage_percent', 0):.1f}%\n")
-                            f.write(f"  File Size: {stats.get('file_size_mb', 0):.1f} MB\n\n")
+                            f.write(f"  File size: {stats.get('file_size_mb', 0):.1f} MB\n")
+                            f.write(f"  Output: {os.path.basename(result.output_path)}\n\n")
                         else:
-                            f.write(f"✗ {product_key} (failed)\n\n")
+                            f.write(f"✗ {product_name_clean} (failed)\n")
+                            if result.error_message:
+                                f.write(f"  Error: {result.error_message}\n\n")
+                            else:
+                                f.write("  Error: Unknown failure\n\n")
                 
-                # Spectral Indices
-                index_products = {k: v for k, v in results.items() if k.startswith('index_')}
+                # Spectral Indices section
                 if index_products:
-                    f.write(f"SPECTRAL INDICES ({len(index_products)} products):\n")
-                    f.write(f"{'-'*30}\n")
+                    f.write("SPECTRAL INDICES:\n")
+                    f.write("-" * 40 + "\n")
+                    
                     for product_key, result in index_products.items():
+                        index_name = product_key.replace('index_', '').upper()
+                        
                         if result.success and result.statistics:
                             stats = result.statistics
-                            f.write(f"✓ {os.path.basename(result.output_path)}\n")
+                            f.write(f"✓ {index_name}\n")
                             f.write(f"  Description: {stats.get('description', 'N/A')}\n")
-                            f.write(f"  Formula: {stats.get('formula', 'N/A')}\n")
                             f.write(f"  Application: {stats.get('application', 'N/A')}\n")
-                            f.write(f"  Range: {stats.get('range', 'N/A')}\n")
+                            f.write(f"  Formula: {stats.get('formula', 'N/A')}\n")
+                            f.write(f"  Bands used: {stats.get('bands_used', 'N/A')}\n")
+                            f.write(f"  Value range: [{stats.get('min_value', 0):.4f}, {stats.get('max_value', 0):.4f}]\n")
+                            f.write(f"  Mean ± Std: {stats.get('mean_value', 0):.4f} ± {stats.get('std_value', 0):.4f}\n")
                             f.write(f"  Coverage: {stats.get('coverage_percent', 0):.1f}%\n")
-                            f.write(f"  Mean Value: {stats.get('mean', 0):.4f}\n\n")
+                            f.write(f"  File size: {stats.get('file_size_mb', 0):.1f} MB\n")
+                            f.write(f"  Output: {os.path.basename(result.output_path)}\n\n")
                         else:
-                            f.write(f"✗ {product_key} (failed)\n\n")
+                            f.write(f"✗ {index_name} (failed)\n")
+                            if result.error_message:
+                                f.write(f"  Error: {result.error_message}\n\n")
+                            else:
+                                f.write("  Error: Unknown failure\n\n")
                 
-                f.write(f"Total visualization products: {len([r for r in results.values() if r.success])}\n")
+                # Configuration used
+                f.write("CONFIGURATION SETTINGS:\n")
+                f.write("-" * 40 + "\n")
+                f.write(f"  RGB Format: {self.config.rgb_format}\n")
+                f.write(f"  Contrast Enhancement: {self.config.apply_contrast_enhancement}\n")
+                f.write(f"  Contrast Method: {self.config.contrast_method}\n")
+                f.write(f"  Percentile Range: {self.config.percentile_range}\n")
+                f.write(f"  Export Metadata: {self.config.export_metadata}\n")
+                f.write(f"  Create Overviews: {self.config.create_overview_images}\n\n")
+                
+                # Enabled features
+                f.write("ENABLED FEATURES:\n")
+                f.write("-" * 40 + "\n")
+                f.write(f"  Natural Color RGB: {self.config.generate_natural_color}\n")
+                f.write(f"  False Color RGB: {self.config.generate_false_color}\n")
+                f.write(f"  Water-specific RGB: {self.config.generate_water_specific}\n")
+                f.write(f"  Research RGB: {self.config.generate_research_combinations}\n")
+                f.write(f"  Water Quality Indices: {self.config.generate_water_quality_indices}\n")
+                f.write(f"  Chlorophyll Indices: {self.config.generate_chlorophyll_indices}\n")
+                f.write(f"  Turbidity Indices: {self.config.generate_turbidity_indices}\n")
+                f.write(f"  Advanced Indices: {self.config.generate_advanced_indices}\n\n")
+                
+                # File listing
+                f.write("OUTPUT FILES:\n")
+                f.write("-" * 40 + "\n")
+                successful_files = [result.output_path for result in viz_results.values() 
+                                if result.success and result.output_path]
+                
+                for file_path in sorted(successful_files):
+                    file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+                    f.write(f"  {os.path.basename(file_path)} ({file_size_mb:.1f} MB)\n")
+                
+                total_size_mb = sum(os.path.getsize(fp) / (1024 * 1024) for fp in successful_files)
+                f.write(f"\nTotal output size: {total_size_mb:.1f} MB\n")
             
-            self.logger.info(f"Visualization summary created: {os.path.basename(summary_file)}")
+            self.logger.info(f"✓ Visualization summary created: {os.path.basename(summary_file)}")
             
         except Exception as e:
             self.logger.warning(f"Could not create visualization summary: {e}")
+
+    def _calculate_rgb_statistics(self, rgb_array: np.ndarray) -> Dict:
+        """Calculate statistics for RGB composite"""
+        try:
+            stats = {}
+            
+            # Overall coverage
+            valid_pixels = np.sum(np.any(rgb_array > 0, axis=2))
+            total_pixels = rgb_array.shape[0] * rgb_array.shape[1]
+            stats['coverage_percent'] = (valid_pixels / total_pixels) * 100
+            
+            # Per-channel statistics
+            for i, channel_name in enumerate(['red', 'green', 'blue']):
+                channel = rgb_array[:, :, i]
+                valid_data = channel[channel > 0]
+                
+                if len(valid_data) > 0:
+                    stats[f'{channel_name}_min'] = float(np.min(valid_data))
+                    stats[f'{channel_name}_max'] = float(np.max(valid_data))
+                    stats[f'{channel_name}_mean'] = float(np.mean(valid_data))
+                    stats[f'{channel_name}_std'] = float(np.std(valid_data))
+                else:
+                    stats[f'{channel_name}_min'] = 0.0
+                    stats[f'{channel_name}_max'] = 0.0
+                    stats[f'{channel_name}_mean'] = 0.0
+                    stats[f'{channel_name}_std'] = 0.0
+            
+            return stats
+            
+        except Exception as e:
+            self.logger.warning(f"Error calculating RGB statistics: {e}")
+            return {'coverage_percent': 0.0}
+
+    def _calculate_band_statistics(self, data: np.ndarray, band_name: str) -> Dict:
+        """Calculate statistics for single band data"""
+        try:
+            valid_data = data[~np.isnan(data)]
+            
+            if len(valid_data) > 0:
+                stats = {
+                    'band_name': band_name,
+                    'min_value': float(np.min(valid_data)),
+                    'max_value': float(np.max(valid_data)),
+                    'mean_value': float(np.mean(valid_data)),
+                    'std_value': float(np.std(valid_data)),
+                    'valid_pixels': len(valid_data),
+                    'coverage_percent': (len(valid_data) / data.size) * 100
+                }
+            else:
+                stats = {
+                    'band_name': band_name,
+                    'min_value': 0.0,
+                    'max_value': 0.0,
+                    'mean_value': 0.0,
+                    'std_value': 0.0,
+                    'valid_pixels': 0,
+                    'coverage_percent': 0.0
+                }
+            
+            return stats
+            
+        except Exception as e:
+            self.logger.warning(f"Error calculating band statistics for {band_name}: {e}")
+            return {'band_name': band_name, 'coverage_percent': 0.0}
 
 # ===== S2 PROCESSOR =====
 
@@ -6968,10 +7570,17 @@ class UnifiedS2TSSGUI:
             self.input_dir_var.set(directory)
     
     def browse_output_dir(self):
-        """Browse for output directory"""
+        """Browse for output directory - TRIGGERED BY USER CLICKING BROWSE BUTTON"""
         directory = filedialog.askdirectory(title="Select Output Directory", parent=self.root)
         if directory:
             self.output_dir_var.set(directory)
+            
+            # ✅ SOLUTION 1: Fix logging when user selects output folder
+            global logger
+            logger, log_file = setup_enhanced_logging(log_level=logging.INFO, output_folder=directory)
+            logger.info(f"🎯 Output directory selected: {directory}")
+            logger.info(f"📋 Log file: {log_file}")
+            self.status_var.set(f"Output: {directory} | Logging to: {os.path.basename(log_file)}")
     
     def load_geometry(self):
         """Load geometry using geometry utils"""
