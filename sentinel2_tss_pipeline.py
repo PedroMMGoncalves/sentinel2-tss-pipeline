@@ -3290,9 +3290,9 @@ class S2MarineVisualizationProcessor:
         self.logger.info("Marine visualization processor ready for processing")
         
     def process_marine_visualizations(self, c2rcc_path: str, output_folder: str, 
-                                product_name: str, intermediate_paths: Optional[Dict[str, str]] = None) -> Dict[str, ProcessingResult]:
+                                    product_name: str, intermediate_paths: Optional[Dict[str, str]] = None) -> Dict[str, ProcessingResult]:
         """
-        UPDATED: Generate marine visualizations using geometric products as primary input
+        Generate RGB composites and spectral indices from geometric products ONLY - UPDATED COMPLETE VERSION
         
         Args:
             c2rcc_path: Path to C2RCC output directory (fallback only)
@@ -3353,12 +3353,12 @@ class S2MarineVisualizationProcessor:
                 else:
                     self.logger.warning(f"⚠️  Geometric path in intermediate_paths not found: {geometric_path}")
             
-            # Priority 3: Final fallback to C2RCC (not recommended for visualization)
+            # REMOVED: C2RCC fallback - we only want geometric products
             if input_source is None:
-                input_source = c2rcc_path
-                input_type = "c2rcc"
-                self.logger.warning("⚠️  FALLBACK: Using C2RCC products")
-                self.logger.warning("     RGB colors and index ranges may be suboptimal")
+                error_msg = "No geometric products found for visualization"
+                self.logger.error(error_msg)
+                self.logger.error("Required: Geometric_Products folder with resampled S2 bands")
+                return {'error': ProcessingResult(False, "", None, error_msg)}
             
             # Log intermediate paths info if provided
             if intermediate_paths:
@@ -3381,19 +3381,15 @@ class S2MarineVisualizationProcessor:
                 self.logger.error(error_msg)
                 return {'error': ProcessingResult(False, "", None, error_msg)}
             
-            # === STEP 2: LOAD SPECTRAL BANDS FROM DETERMINED SOURCE ===
-            self.logger.info(f"📊 Step 2: Loading spectral bands from {input_type.upper()} products")
+            # === STEP 2: LOAD SPECTRAL BANDS FROM GEOMETRIC PRODUCTS ===
+            self.logger.info(f"📊 Step 2: Loading spectral bands from GEOMETRIC products")
             
             try:
-                if input_type == "geometric":
-                    # Load bands from geometric products (original S2 bands)
-                    band_paths = self._load_bands_from_geometric_products(input_source)
-                else:
-                    # Load bands from C2RCC products (fallback)
-                    band_paths = self._load_available_bands(input_source)
+                # Load bands from geometric products only
+                band_paths = self._load_bands_from_geometric_products(input_source)
                 
                 if not band_paths:
-                    error_msg = f"No suitable spectral bands found in {input_type} products"
+                    error_msg = "No suitable spectral bands found in geometric products"
                     self.logger.error(error_msg)
                     return {'error': ProcessingResult(False, "", None, error_msg)}
                 
@@ -3416,14 +3412,10 @@ class S2MarineVisualizationProcessor:
                 data_min = np.nanmin(sample_band)
                 data_max = np.nanmax(sample_band)
                 self.logger.info(f"Data characteristics:")
-                self.logger.info(f"  Input type: {input_type.upper()}")
+                self.logger.info(f"  Input type: GEOMETRIC (S2 TOA reflectance)")
                 self.logger.info(f"  Value range: {data_min:.4f} to {data_max:.4f}")
                 self.logger.info(f"  Spatial dimensions: {sample_band.shape}")
-                
-                if input_type == "geometric":
-                    self.logger.info("  ✅ Using original S2 TOA reflectance - optimal for visualization!")
-                else:
-                    self.logger.info("  ⚠️  Using C2RCC bands - visualization quality may be reduced")
+                self.logger.info("  ✅ Using original S2 TOA reflectance - optimal for visualization!")
                 
                 # Log band coverage for verification
                 for wavelength, data in bands_data.items():
@@ -3439,7 +3431,6 @@ class S2MarineVisualizationProcessor:
                 self.logger.error(f"Full traceback: {traceback.format_exc()}")
                 return {'error': ProcessingResult(False, "", None, error_msg)}
             
-            # === KEEP ALL YOUR EXISTING STEP 3, 4, 5 CODE UNCHANGED ===
             # === STEP 3: GENERATE RGB COMPOSITES ===
             if (self.config.generate_natural_color or self.config.generate_false_color or 
                 self.config.generate_water_specific or self.config.generate_research_combinations):
@@ -3466,13 +3457,21 @@ class S2MarineVisualizationProcessor:
             self.logger.info("📄 Step 5: Creating visualization summary")
             self._create_visualization_summary(viz_results, viz_output_dir, product_name)
             
+            # === STEP 6: CLEANUP GEOMETRIC PRODUCTS ===
+            self.logger.info("🧹 Step 6: Cleaning up geometric products")
+            cleanup_success = self._cleanup_geometric_products(output_folder, product_name)
+            if cleanup_success:
+                self.logger.info("✅ Geometric products cleaned up successfully")
+            else:
+                self.logger.warning("⚠️  Some issues during geometric products cleanup")
+            
             # === FINAL RESULTS ===
             successful_viz = len([r for r in viz_results.values() if r.success])
             total_viz = len(viz_results)
             success_rate = (successful_viz / total_viz) * 100 if total_viz > 0 else 0
             
             self.logger.info("🌊 Marine visualization processing completed!")
-            self.logger.info(f"   Input source: {input_type.upper()} products")
+            self.logger.info(f"   Input source: GEOMETRIC products")
             self.logger.info(f"   Results: {successful_viz}/{total_viz} products successful ({success_rate:.1f}%)")
             self.logger.info(f"   Output directory: {viz_output_dir}")
             
@@ -3486,21 +3485,8 @@ class S2MarineVisualizationProcessor:
             return {'error': ProcessingResult(False, "", None, error_msg)}
 
     def _load_bands_from_geometric_products(self, geometric_path: str) -> Dict[int, str]:
-        """
-        NEW METHOD: Load bands from permanently saved geometric products
+        """Load bands from geometric products - basic validation only"""
         
-        These are the Sentinel-2 bands that were saved to Geometric_Products folder:
-        - Resampled to target resolution 
-        - Spatially subsetted to AOI
-        - Original TOA reflectance (perfect for visualization)
-        
-        Args:
-            geometric_path: Path to geometric .dim file in Geometric_Products folder
-            
-        Returns:
-            Dictionary mapping wavelengths to band file paths
-        """
-        # Determine data folder from geometric product
         if geometric_path.endswith('.dim'):
             data_folder = geometric_path.replace('.dim', '.data')
         else:
@@ -3510,53 +3496,38 @@ class S2MarineVisualizationProcessor:
             self.logger.error(f"Geometric data folder not found: {data_folder}")
             return {}
         
-        # Sentinel-2 band mapping for geometric products saved by SNAP
+        # Standard S2 band mapping
         band_mapping = {
-            443: ['B1.img'],           # Coastal aerosol
-            490: ['B2.img'],           # Blue  
-            560: ['B3.img'],           # Green - excellent for visualization
-            665: ['B4.img'],           # Red - excellent for visualization
-            705: ['B5.img'],           # Red Edge 1
-            740: ['B6.img'],           # Red Edge 2
-            783: ['B7.img'],           # Red Edge 3
-            842: ['B8.img'],           # NIR (broad)
-            865: ['B8A.img'],          # NIR (narrow) - excellent for water indices
-            945: ['B9.img'],           # Water vapour
-            1375: ['B10.img'],         # SWIR Cirrus
-            1610: ['B11.img'],         # SWIR 1 - excellent for water indices
-            2190: ['B12.img']          # SWIR 2
+            443: ['B1.img'],    # Coastal aerosol
+            490: ['B2.img'],    # Blue  
+            560: ['B3.img'],    # Green
+            665: ['B4.img'],    # Red
+            705: ['B5.img'],    # Red Edge 1
+            740: ['B6.img'],    # Red Edge 2
+            783: ['B7.img'],    # Red Edge 3
+            842: ['B8.img'],    # NIR (broad)
+            865: ['B8A.img'],   # NIR (narrow)
+            945: ['B9.img'],    # Water vapour
+            1375: ['B10.img'],  # SWIR Cirrus
+            1610: ['B11.img'],  # SWIR 1
+            2190: ['B12.img']   # SWIR 2
         }
         
         available_bands = {}
-        found_files = []
-        missing_files = []
         
-        self.logger.info(f"🔍 Loading from geometric products:")
-        self.logger.info(f"   Source: {os.path.basename(data_folder)}")
+        self.logger.info(f"Loading bands from: {os.path.basename(data_folder)}")
         
         for wavelength, possible_files in band_mapping.items():
-            band_found = False
             for filename in possible_files:
                 band_path = os.path.join(data_folder, filename)
                 if os.path.exists(band_path):
                     file_size = os.path.getsize(band_path)
-                    if file_size > 1024:  # At least 1KB
+                    if file_size > 1024:  # Basic size check
                         available_bands[wavelength] = band_path
-                        found_files.append(filename)
-                        band_found = True
-                        self.logger.debug(f"✅ {wavelength}nm: {filename} ({file_size/1024:.1f} KB)")
+                        self.logger.debug(f"✓ {wavelength}nm: {filename}")
                         break
-            
-            if not band_found:
-                missing_files.append(f"{wavelength}nm ({possible_files[0]})")
         
-        self.logger.info(f"Geometric band loading results:")
-        self.logger.info(f"  ✅ Found: {len(available_bands)} bands - {sorted(available_bands.keys())}")
-        self.logger.info(f"  📁 Source: Geometric_Products folder (subsetted + resampled)")
-        
-        if missing_files:
-            self.logger.debug(f"  Missing: {missing_files}")
-        
+        self.logger.info(f"Found {len(available_bands)} bands: {sorted(available_bands.keys())}")
         return available_bands
     
     def _load_available_bands(self, c2rcc_path: str) -> Dict[int, str]:
@@ -3614,49 +3585,46 @@ class S2MarineVisualizationProcessor:
         return available_bands
     
     def _load_bands_data_from_paths(self, band_paths: Dict[int, str]) -> Tuple[Optional[Dict], Optional[Dict]]:
-        """
-        Load band data from file paths (works for both geometric and C2RCC bands)
-        
-        Args:
-            band_paths: Dictionary mapping wavelength -> file path
-            
-        Returns:
-            Tuple of (bands_data, reference_metadata) or (None, None) on failure
-        """
+        """Load band data from geometric products - straightforward approach"""
         bands_data = {}
         reference_metadata = None
         
-        self.logger.info(f"Loading {len(band_paths)} spectral bands into memory")
+        self.logger.info(f"Loading {len(band_paths)} bands into memory")
         
         for wavelength, file_path in band_paths.items():
             try:
-                # Use your existing RasterIO.read_raster method
+                # Simple file validation
+                if not os.path.exists(file_path):
+                    self.logger.error(f"Band file missing: {file_path}")
+                    return None, None
+                
+                # Load using existing RasterIO
                 data, metadata = RasterIO.read_raster(file_path)
                 
-                # Convert to float32 for consistent processing
-                if data.dtype != np.float32:
-                    data = data.astype(np.float32)
+                # Basic validation
+                if data is None or data.size == 0:
+                    self.logger.error(f"Invalid data from {file_path}")
+                    return None, None
                 
-                # Handle no-data values
-                if metadata and 'nodata' in metadata:
-                    nodata_value = metadata['nodata']
-                    if nodata_value is not None:
-                        data[data == nodata_value] = np.nan
+                # Convert to float32
+                data = data.astype(np.float32)
+                
+                # Handle nodata
+                if metadata and 'nodata' in metadata and metadata['nodata'] is not None:
+                    data[data == metadata['nodata']] = np.nan
                 
                 bands_data[wavelength] = data
                 
                 if reference_metadata is None:
                     reference_metadata = metadata
                 
-                # Log loading progress
-                file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-                self.logger.debug(f"✓ Loaded {wavelength}nm: {file_size_mb:.1f}MB, shape={data.shape}")
+                self.logger.debug(f"✓ Loaded {wavelength}nm: shape={data.shape}")
                 
             except Exception as e:
-                self.logger.error(f"❌ Failed to load band {wavelength}nm from {file_path}: {e}")
+                self.logger.error(f"Failed to load {wavelength}nm: {e}")
                 return None, None
         
-        self.logger.info(f"✅ Successfully loaded {len(bands_data)} bands into memory")
+        self.logger.info(f"Successfully loaded {len(bands_data)} bands")
         return bands_data, reference_metadata
     
     def _generate_rgb_composites(self, bands_data: Dict[int, np.ndarray], reference_metadata: Dict, 
@@ -4067,7 +4035,7 @@ class S2MarineVisualizationProcessor:
             return None
     
     def _create_robust_rgb_composite(self, red: np.ndarray, green: np.ndarray, blue: np.ndarray) -> np.ndarray:
-        """Create RGB composite with proper atmospheric correction data handling"""
+        """Create RGB composite from geometric products - SIMPLIFIED VERSION"""
         try:
             # Input validation
             if red.shape != green.shape or red.shape != blue.shape:
@@ -4080,46 +4048,30 @@ class S2MarineVisualizationProcessor:
             band_names = ['Red', 'Green', 'Blue']
             
             for i, (band, name) in enumerate(zip(bands, band_names)):
-                # Create comprehensive mask for valid data
-                # Note: reflectance values should be 0-1 range for most sensors
-                valid_mask = (
-                    (~np.isnan(band)) & 
-                    (~np.isinf(band)) & 
-                    (band >= 0) & 
-                    (band <= 1.5)  # Allow slight overshoot for atmospheric correction
-                )
+                # Simple valid data mask
+                valid_mask = (~np.isnan(band)) & (~np.isinf(band)) & (band >= 0)
                 
-                valid_data = band[valid_mask]
-                
-                if len(valid_data) == 0:
-                    self.logger.warning(f"{name} band has no valid data")
+                if not np.any(valid_mask):
+                    self.logger.warning(f"{name} band: No valid data found")
                     rgb_array[:, :, i] = 0
                     continue
                 
-                # Apply contrast enhancement appropriate for reflectance data
-                if len(valid_data) > 100:
-                    # Use conservative percentiles for reflectance data
-                    p2, p98 = np.percentile(valid_data, [2, 98])
-                    if p98 > p2:
-                        # Apply percentile stretch
-                        enhanced = np.clip((band - p2) / (p98 - p2), 0, 1)
-                        rgb_array[:, :, i] = enhanced
-                    else:
-                        # Data is too uniform, use simple scaling
-                        rgb_array[:, :, i] = np.clip(band * 2, 0, 1)  # 2x boost for low contrast
-                else:
-                    # Not enough data, use simple scaling
-                    rgb_array[:, :, i] = np.clip(band * 2, 0, 1)
+                # Simple percentile normalization for TOA reflectance
+                valid_data = band[valid_mask]
+                p2, p98 = np.percentile(valid_data, [2, 98])
                 
-                # Ensure invalid pixels are black
-                rgb_array[~valid_mask, i] = 0
-            
-            # Apply additional contrast enhancement if configured
-            if self.config.apply_contrast_enhancement:
-                rgb_array = self._apply_additional_contrast_enhancement(rgb_array)
-            
-            # Final validation and clipping
-            rgb_array = np.clip(rgb_array, 0, 1)
+                if p98 > p2:
+                    # Standard 2-98% stretch
+                    normalized_band = np.clip((band - p2) / (p98 - p2), 0, 1)
+                else:
+                    # Fallback: direct clipping
+                    normalized_band = np.clip(band, 0, 1)
+                
+                rgb_array[:, :, i] = normalized_band
+                
+                # Log simple statistics
+                mean_val = np.mean(valid_data)
+                self.logger.debug(f"{name}: mean={mean_val:.4f}, range=[{p2:.4f}, {p98:.4f}]")
             
             return rgb_array
             
@@ -4456,6 +4408,72 @@ class S2MarineVisualizationProcessor:
             
         except Exception as e:
             self.logger.warning(f"Could not create visualization summary: {e}")
+
+    def _cleanup_geometric_products(self, output_folder: str, product_name: str) -> bool:
+        """Clean up geometric products after processing"""
+        try:
+            geometric_folder = os.path.join(output_folder, "Geometric_Products")
+            
+            if not os.path.exists(geometric_folder):
+                return True
+            
+            # Find files to delete based on product name
+            clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
+            if 'MSIL1C' in clean_product_name:
+                parts = clean_product_name.split('_')
+                if len(parts) >= 6:
+                    clean_name = f"{parts[0]}_{parts[2]}_{parts[5]}"
+                else:
+                    clean_name = clean_product_name.replace('MSIL1C_', '')
+            else:
+                clean_name = clean_product_name
+            
+            files_to_delete = []
+            total_size = 0
+            
+            # Find matching files
+            for filename in os.listdir(geometric_folder):
+                if clean_name in filename and filename.startswith('Resampled_'):
+                    file_path = os.path.join(geometric_folder, filename)
+                    files_to_delete.append(file_path)
+                    
+                    # Calculate size
+                    if os.path.isfile(file_path):
+                        total_size += os.path.getsize(file_path)
+                    
+                    # Check for .data folder
+                    if filename.endswith('.dim'):
+                        data_folder = file_path.replace('.dim', '.data')
+                        if os.path.exists(data_folder):
+                            files_to_delete.append(data_folder)
+                            # Calculate folder size
+                            for root, dirs, files in os.walk(data_folder):
+                                for file in files:
+                                    total_size += os.path.getsize(os.path.join(root, file))
+            
+            # Delete files
+            import shutil
+            deleted_count = 0
+            for file_path in files_to_delete:
+                try:
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                    elif os.path.isdir(file_path):
+                        shutil.rmtree(file_path)
+                    deleted_count += 1
+                    self.logger.debug(f"Deleted: {os.path.basename(file_path)}")
+                except Exception as e:
+                    self.logger.warning(f"Could not delete {file_path}: {e}")
+            
+            total_size_mb = total_size / (1024 * 1024)
+            self.logger.info(f"🧹 Cleaned up {deleted_count} files ({total_size_mb:.1f} MB freed)")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.warning(f"Cleanup error: {e}")
+            return False
+
 
     def _calculate_rgb_statistics(self, rgb_array: np.ndarray) -> Dict:
         """Calculate statistics for RGB composite"""
