@@ -232,8 +232,30 @@ def setup_enhanced_logging(log_level=logging.INFO, output_folder: str = None):
     logger.info(f"Logging configured - File: {log_file}")
     return logger, log_file
 
+def get_default_logger():
+    """Create logger with smart default location - prevents logs in code directory"""
+    try:
+        # Create a default results folder to avoid cluttering code directory
+        default_output = os.path.join(os.getcwd(), "S2_TSS_Results")
+        os.makedirs(default_output, exist_ok=True)
+        
+        # Setup logging in the default location
+        logger, log_file = setup_enhanced_logging(log_level=logging.INFO, output_folder=default_output)
+        
+        # Print to console so user knows where logs are going
+        print(f"📋 Default logging location: {log_file}")
+        print(f"📁 Logs will be saved to: {default_output}/Logs/")
+        
+        return logger
+        
+    except Exception as e:
+        # Fallback to current directory if anything fails
+        print(f"⚠️ Could not create default log folder: {e}")
+        print("📋 Using current directory for logs")
+        return setup_enhanced_logging()[0]
+
 # Initialize logger without output folder initially (will be updated later)
-logger = setup_enhanced_logging()[0]
+logger = get_default_logger()
 
 # ===== ENUMS AND DATA CLASSES =====
 
@@ -8389,6 +8411,12 @@ class UnifiedS2TSSGUI:
         """Start processing in background thread"""
         if self.processing_active:
             return
+            
+        output_folder = self.output_dir_var.get()
+        global logger
+        logger, log_file = setup_enhanced_logging(log_level=logging.INFO, output_folder=output_folder)
+        logger.info("🚀 Processing started - logs redirected to output folder")
+        logger.info(f"📋 Log file: {log_file}")
         
         try:
             # Validate configuration
