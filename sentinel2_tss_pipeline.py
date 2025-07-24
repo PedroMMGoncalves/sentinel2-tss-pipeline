@@ -4644,10 +4644,10 @@ class S2Processor:
 <node id="WriteGeometric">
   <operator>Write</operator>
   <sources>
-    <sourceProduct refid="Subset"/>
+    <source refid="Subset"/>
   </sources>
   <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-    <file>${geometricProduct}</file>
+    <file>${{geometricProduct}}</file>
     <formatName>BEAM-DIMAP</formatName>
   </parameters>
 </node>
