@@ -8203,22 +8203,28 @@ class UnifiedS2TSSGUI:
                 self._update_c2rcc_gui_variables()
                 logger.info(f"✓ C2RCC config loaded: {self.c2rcc_config.salinity}‰ salinity, {self.c2rcc_config.temperature}°C")
             
-            # ===== JIANG TSS CONFIGURATION =====
+            # ===== JIANG TSS CONFIGURATION - FIXED VERSION =====
             if 'jiang' in config:
                 jiang_data = config['jiang']
                 
-                # Reconstruct JiangTSSConfig from dictionary
+                # STEP 1: Create basic JiangTSSConfig with only essential parameters
                 self.jiang_config = JiangTSSConfig(
                     enable_jiang_tss=jiang_data.get('enable_jiang_tss', True),
                     output_intermediates=jiang_data.get('output_intermediates', True),
                     water_mask_threshold=jiang_data.get('water_mask_threshold', 0.01),
                     tss_valid_range=tuple(jiang_data.get('tss_valid_range', [0.01, 10000])),
                     output_comparison_stats=jiang_data.get('output_comparison_stats', True),
-                    enable_advanced_algorithms=jiang_data.get('enable_advanced_algorithms', True),
-                    enable_marine_visualization=jiang_data.get('enable_marine_visualization', True)
+                    enable_advanced_algorithms=jiang_data.get('enable_advanced_algorithms', True)
                 )
                 
-                # Reconstruct advanced_config if present
+                # STEP 2: Add marine visualization attributes safely (after creation)
+                if not hasattr(self.jiang_config, 'enable_marine_visualization'):
+                    self.jiang_config.enable_marine_visualization = jiang_data.get('enable_marine_visualization', True)
+                
+                if not hasattr(self.jiang_config, 'marine_viz_config'):
+                    self.jiang_config.marine_viz_config = None
+                
+                # STEP 3: Reconstruct advanced_config if present
                 if jiang_data.get('advanced_config') and self.jiang_config.enable_advanced_algorithms:
                     adv_data = jiang_data['advanced_config']
                     self.jiang_config.advanced_config = AdvancedAquaticConfig(
@@ -8232,28 +8238,30 @@ class UnifiedS2TSSGUI:
                         generate_statistics=adv_data.get('generate_statistics', True)
                     )
                 
-                # Reconstruct marine_viz_config if present
-                if jiang_data.get('marine_viz_config') and self.jiang_config.enable_marine_visualization:
-                    viz_data = jiang_data['marine_viz_config']
+                # STEP 4: Create marine visualization config safely
+                if self.jiang_config.enable_marine_visualization:
                     try:
-                        self.jiang_config.marine_viz_config = MarineVisualizationConfig(
-                            generate_natural_color=viz_data.get('generate_natural_color', True),
-                            generate_false_color=viz_data.get('generate_false_color', True),
-                            generate_water_specific=viz_data.get('generate_water_specific', True),
-                            generate_research_combinations=viz_data.get('generate_research_combinations', True),
-                            generate_water_quality_indices=viz_data.get('generate_water_quality_indices', True),
-                            generate_chlorophyll_indices=viz_data.get('generate_chlorophyll_indices', True),
-                            generate_turbidity_indices=viz_data.get('generate_turbidity_indices', True),
-                            generate_advanced_indices=viz_data.get('generate_advanced_indices', True),
-                            rgb_format=viz_data.get('rgb_format', 'GeoTIFF'),
-                            export_metadata=viz_data.get('export_metadata', True),
-                            create_overview_images=viz_data.get('create_overview_images', True),
-                            apply_contrast_enhancement=viz_data.get('apply_contrast_enhancement', True),
-                            contrast_method=viz_data.get('contrast_method', 'percentile_stretch'),
-                            percentile_range=tuple(viz_data.get('percentile_range', [2, 98]))
-                        )
-                    except NameError:
-                        logger.warning("MarineVisualizationConfig not available, skipping marine viz config")
+                        # Create with defaults first
+                        self.jiang_config.marine_viz_config = MarineVisualizationConfig()
+                        
+                        # Update from saved data if available
+                        if 'marine_viz_config' in jiang_data and jiang_data['marine_viz_config']:
+                            viz_data = jiang_data['marine_viz_config']
+                            # Set attributes directly to avoid constructor issues
+                            for attr_name, attr_value in viz_data.items():
+                                if hasattr(self.jiang_config.marine_viz_config, attr_name):
+                                    setattr(self.jiang_config.marine_viz_config, attr_name, attr_value)
+                        
+                        logger.info("✓ Marine visualization config loaded from file")
+                        
+                    except Exception as marine_error:
+                        logger.warning(f"MarineVisualizationConfig loading failed: {marine_error}")
+                        # Fallback: disable marine visualization
+                        self.jiang_config.enable_marine_visualization = False
+                        self.jiang_config.marine_viz_config = None
+                        logger.info("Marine visualization disabled due to loading error")
+                else:
+                    self.jiang_config.marine_viz_config = None
                 
                 # Update GUI variables
                 self._update_jiang_gui_variables()
