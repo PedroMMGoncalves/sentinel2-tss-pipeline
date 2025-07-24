@@ -3292,13 +3292,13 @@ class S2MarineVisualizationProcessor:
     def process_marine_visualizations(self, c2rcc_path: str, output_folder: str, 
                                 product_name: str, intermediate_paths: Optional[Dict[str, str]] = None) -> Dict[str, ProcessingResult]:
         """
-        Generate comprehensive marine visualizations using actual SNAP output files
+        UPDATED: Generate marine visualizations using geometric products as primary input
         
         Args:
-            c2rcc_path: Path to C2RCC output directory
+            c2rcc_path: Path to C2RCC output directory (fallback only)
             output_folder: Output directory for visualizations
             product_name: Name of the product being processed
-            intermediate_paths: Optional dictionary of intermediate file paths for band scaling fix
+            intermediate_paths: Optional dictionary containing geometric_path
             
         Returns:
             Dictionary of visualization results (RGB composites + spectral indices)
@@ -3306,13 +3306,67 @@ class S2MarineVisualizationProcessor:
         try:
             self.logger.info(f"🌊 Starting marine visualization processing for {product_name}")
             
-            # Handle intermediate paths parameter for band scaling fixes
+            # STEP 1: Determine input source - PRIORITIZE GEOMETRIC PRODUCTS
+            input_source = None
+            input_type = "unknown"
+            
+            # Priority 1: Look for geometric products in standard Geometric_Products folder
+            geometric_folder = os.path.join(output_folder, "Geometric_Products")
+            if os.path.exists(geometric_folder):
+                # Extract clean product name to find matching geometric product
+                clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
+                if 'MSIL1C' in clean_product_name:
+                    parts = clean_product_name.split('_')
+                    if len(parts) >= 6:
+                        clean_name = f"{parts[0]}_{parts[2]}_{parts[5]}"
+                    else:
+                        clean_name = clean_product_name.replace('MSIL1C_', '')
+                else:
+                    clean_name = clean_product_name
+                
+                # Look for geometric product file
+                geometric_filename = f"Resampled_{clean_name}_Subset.dim"
+                geometric_path = os.path.join(geometric_folder, geometric_filename)
+                
+                if os.path.exists(geometric_path):
+                    input_source = geometric_path
+                    input_type = "geometric"
+                    self.logger.info(f"✅ Using GEOMETRIC PRODUCTS: {geometric_filename}")
+                    self.logger.info(f"   Source: Saved geometric products (subsetted+resampled S2 bands)")
+                    self.logger.info(f"   Benefits: Natural colors, proper contrast, correct index ranges")
+                else:
+                    # Fallback: search for any geometric product in the folder
+                    for file in os.listdir(geometric_folder):
+                        if file.endswith('.dim') and 'Subset' in file:
+                            input_source = os.path.join(geometric_folder, file)
+                            input_type = "geometric"
+                            self.logger.info(f"✅ Found geometric product: {file}")
+                            break
+            
+            # Priority 2: Use intermediate_paths as fallback
+            if input_source is None and intermediate_paths and 'geometric_path' in intermediate_paths:
+                geometric_path = intermediate_paths['geometric_path']
+                if os.path.exists(geometric_path):
+                    input_source = geometric_path
+                    input_type = "geometric"
+                    self.logger.info(f"✅ Using geometric path from intermediate_paths: {os.path.basename(geometric_path)}")
+                else:
+                    self.logger.warning(f"⚠️  Geometric path in intermediate_paths not found: {geometric_path}")
+            
+            # Priority 3: Final fallback to C2RCC (not recommended for visualization)
+            if input_source is None:
+                input_source = c2rcc_path
+                input_type = "c2rcc"
+                self.logger.warning("⚠️  FALLBACK: Using C2RCC products")
+                self.logger.warning("     RGB colors and index ranges may be suboptimal")
+            
+            # Log intermediate paths info if provided
             if intermediate_paths:
-                self.logger.info("✓ Using intermediate paths for enhanced band scaling")
+                self.logger.info("✓ Intermediate paths available:")
                 for key, path in intermediate_paths.items():
                     self.logger.debug(f"  {key}: {path}")
             else:
-                self.logger.info("Using C2RCC-only approach for visualization")
+                self.logger.info("No intermediate paths provided - using standard locations")
             
             # Create visualization output directory
             viz_output_dir = os.path.join(output_folder, "Marine_Visualizations")
@@ -3321,28 +3375,25 @@ class S2MarineVisualizationProcessor:
             # Initialize results dictionary
             viz_results = {}
             
-            # Verify C2RCC output path exists
-            if not os.path.exists(c2rcc_path):
-                error_msg = f"C2RCC output path does not exist: {c2rcc_path}"
+            # Verify input source exists
+            if not os.path.exists(input_source):
+                error_msg = f"Input source does not exist: {input_source}"
                 self.logger.error(error_msg)
                 return {'error': ProcessingResult(False, "", None, error_msg)}
             
-            # === STEP 1: LOAD SPECTRAL BANDS ===
-            self.logger.info("📊 Step 1: Loading spectral bands from C2RCC output")
+            # === STEP 2: LOAD SPECTRAL BANDS FROM DETERMINED SOURCE ===
+            self.logger.info(f"📊 Step 2: Loading spectral bands from {input_type.upper()} products")
             
             try:
-                # Use the same band loading logic as JiangTSSProcessor
-                # Create temporary instance to access band loading methods
-                temp_jiang_config = JiangTSSConfig()
-                temp_jiang_config.enable_jiang_tss = False
-                temp_jiang_config.enable_advanced_algorithms = False  
-                temp_jiang_config.enable_marine_visualization = False
-                temp_jiang_config.advanced_config = None
-                temp_jiang_processor = JiangTSSProcessor(temp_jiang_config)
-                band_paths = temp_jiang_processor._update_band_mapping_for_mixed_types(c2rcc_path)
+                if input_type == "geometric":
+                    # Load bands from geometric products (original S2 bands)
+                    band_paths = self._load_bands_from_geometric_products(input_source)
+                else:
+                    # Load bands from C2RCC products (fallback)
+                    band_paths = self._load_available_bands(input_source)
                 
                 if not band_paths:
-                    error_msg = "No suitable spectral bands found for visualization"
+                    error_msg = f"No suitable spectral bands found in {input_type} products"
                     self.logger.error(error_msg)
                     return {'error': ProcessingResult(False, "", None, error_msg)}
                 
@@ -3351,7 +3402,7 @@ class S2MarineVisualizationProcessor:
                     self.logger.debug(f"  {wavelength}nm: {os.path.basename(path)}")
                 
                 # Load band data arrays
-                bands_data, reference_metadata = temp_jiang_processor._load_bands_data(band_paths)
+                bands_data, reference_metadata = self._load_bands_data_from_paths(band_paths)
                 
                 if bands_data is None or reference_metadata is None:
                     error_msg = "Failed to load band data arrays"
@@ -3360,13 +3411,26 @@ class S2MarineVisualizationProcessor:
                 
                 self.logger.info(f"✅ Successfully loaded {len(bands_data)} bands for visualization")
                 
-                # Log band statistics
+                # Log band statistics and verify we're using the right data type
+                sample_band = list(bands_data.values())[0]
+                data_min = np.nanmin(sample_band)
+                data_max = np.nanmax(sample_band)
+                self.logger.info(f"Data characteristics:")
+                self.logger.info(f"  Input type: {input_type.upper()}")
+                self.logger.info(f"  Value range: {data_min:.4f} to {data_max:.4f}")
+                self.logger.info(f"  Spatial dimensions: {sample_band.shape}")
+                
+                if input_type == "geometric":
+                    self.logger.info("  ✅ Using original S2 TOA reflectance - optimal for visualization!")
+                else:
+                    self.logger.info("  ⚠️  Using C2RCC bands - visualization quality may be reduced")
+                
+                # Log band coverage for verification
                 for wavelength, data in bands_data.items():
                     valid_pixels = np.sum(~np.isnan(data))
                     total_pixels = data.size
                     coverage = (valid_pixels / total_pixels) * 100
-                    data_range = (np.nanmin(data), np.nanmax(data))
-                    self.logger.debug(f"  {wavelength}nm: {coverage:.1f}% valid, range=[{data_range[0]:.6f}, {data_range[1]:.6f}]")
+                    self.logger.debug(f"  {wavelength}nm: {coverage:.1f}% valid pixels")
                 
             except Exception as e:
                 error_msg = f"Error loading bands for visualization: {str(e)}"
@@ -3375,30 +3439,31 @@ class S2MarineVisualizationProcessor:
                 self.logger.error(f"Full traceback: {traceback.format_exc()}")
                 return {'error': ProcessingResult(False, "", None, error_msg)}
             
-            # === STEP 2: GENERATE RGB COMPOSITES ===
+            # === KEEP ALL YOUR EXISTING STEP 3, 4, 5 CODE UNCHANGED ===
+            # === STEP 3: GENERATE RGB COMPOSITES ===
             if (self.config.generate_natural_color or self.config.generate_false_color or 
                 self.config.generate_water_specific or self.config.generate_research_combinations):
                 
-                self.logger.info("🎨 Step 2: Generating RGB composite visualizations")
+                self.logger.info("🎨 Step 3: Generating RGB composite visualizations")
                 rgb_results = self._generate_rgb_composites(bands_data, reference_metadata, viz_output_dir, product_name)
                 viz_results.update(rgb_results)
                 
                 rgb_count = len([k for k in rgb_results.keys() if rgb_results[k].success])
                 self.logger.info(f"✓ Generated {rgb_count} RGB composites")
             
-            # === STEP 3: GENERATE SPECTRAL INDICES ===
+            # === STEP 4: GENERATE SPECTRAL INDICES ===
             if (self.config.generate_water_quality_indices or self.config.generate_chlorophyll_indices or 
                 self.config.generate_turbidity_indices or self.config.generate_advanced_indices):
                 
-                self.logger.info("📈 Step 3: Generating spectral index visualizations")
+                self.logger.info("📈 Step 4: Generating spectral index visualizations")
                 index_results = self._generate_spectral_indices(bands_data, reference_metadata, viz_output_dir, product_name)
                 viz_results.update(index_results)
                 
                 index_count = len([k for k in index_results.keys() if index_results[k].success])
                 self.logger.info(f"✓ Generated {index_count} spectral indices")
             
-            # === STEP 4: CREATE PROCESSING SUMMARY ===
-            self.logger.info("📄 Step 4: Creating visualization summary")
+            # === STEP 5: CREATE PROCESSING SUMMARY ===
+            self.logger.info("📄 Step 5: Creating visualization summary")
             self._create_visualization_summary(viz_results, viz_output_dir, product_name)
             
             # === FINAL RESULTS ===
@@ -3407,6 +3472,7 @@ class S2MarineVisualizationProcessor:
             success_rate = (successful_viz / total_viz) * 100 if total_viz > 0 else 0
             
             self.logger.info("🌊 Marine visualization processing completed!")
+            self.logger.info(f"   Input source: {input_type.upper()} products")
             self.logger.info(f"   Results: {successful_viz}/{total_viz} products successful ({success_rate:.1f}%)")
             self.logger.info(f"   Output directory: {viz_output_dir}")
             
@@ -3418,6 +3484,80 @@ class S2MarineVisualizationProcessor:
             import traceback
             self.logger.error(f"Full traceback: {traceback.format_exc()}")
             return {'error': ProcessingResult(False, "", None, error_msg)}
+
+    def _load_bands_from_geometric_products(self, geometric_path: str) -> Dict[int, str]:
+        """
+        NEW METHOD: Load bands from permanently saved geometric products
+        
+        These are the Sentinel-2 bands that were saved to Geometric_Products folder:
+        - Resampled to target resolution 
+        - Spatially subsetted to AOI
+        - Original TOA reflectance (perfect for visualization)
+        
+        Args:
+            geometric_path: Path to geometric .dim file in Geometric_Products folder
+            
+        Returns:
+            Dictionary mapping wavelengths to band file paths
+        """
+        # Determine data folder from geometric product
+        if geometric_path.endswith('.dim'):
+            data_folder = geometric_path.replace('.dim', '.data')
+        else:
+            data_folder = f"{geometric_path}.data"
+        
+        if not os.path.exists(data_folder):
+            self.logger.error(f"Geometric data folder not found: {data_folder}")
+            return {}
+        
+        # Sentinel-2 band mapping for geometric products saved by SNAP
+        band_mapping = {
+            443: ['B1.img'],           # Coastal aerosol
+            490: ['B2.img'],           # Blue  
+            560: ['B3.img'],           # Green - excellent for visualization
+            665: ['B4.img'],           # Red - excellent for visualization
+            705: ['B5.img'],           # Red Edge 1
+            740: ['B6.img'],           # Red Edge 2
+            783: ['B7.img'],           # Red Edge 3
+            842: ['B8.img'],           # NIR (broad)
+            865: ['B8A.img'],          # NIR (narrow) - excellent for water indices
+            945: ['B9.img'],           # Water vapour
+            1375: ['B10.img'],         # SWIR Cirrus
+            1610: ['B11.img'],         # SWIR 1 - excellent for water indices
+            2190: ['B12.img']          # SWIR 2
+        }
+        
+        available_bands = {}
+        found_files = []
+        missing_files = []
+        
+        self.logger.info(f"🔍 Loading from geometric products:")
+        self.logger.info(f"   Source: {os.path.basename(data_folder)}")
+        
+        for wavelength, possible_files in band_mapping.items():
+            band_found = False
+            for filename in possible_files:
+                band_path = os.path.join(data_folder, filename)
+                if os.path.exists(band_path):
+                    file_size = os.path.getsize(band_path)
+                    if file_size > 1024:  # At least 1KB
+                        available_bands[wavelength] = band_path
+                        found_files.append(filename)
+                        band_found = True
+                        self.logger.debug(f"✅ {wavelength}nm: {filename} ({file_size/1024:.1f} KB)")
+                        break
+            
+            if not band_found:
+                missing_files.append(f"{wavelength}nm ({possible_files[0]})")
+        
+        self.logger.info(f"Geometric band loading results:")
+        self.logger.info(f"  ✅ Found: {len(available_bands)} bands - {sorted(available_bands.keys())}")
+        self.logger.info(f"  📁 Source: Geometric_Products folder (subsetted + resampled)")
+        
+        if missing_files:
+            self.logger.debug(f"  Missing: {missing_files}")
+        
+        return available_bands
     
     def _load_available_bands(self, c2rcc_path: str) -> Dict[int, str]:
         """Load bands from actual SNAP C2RCC output structure"""
