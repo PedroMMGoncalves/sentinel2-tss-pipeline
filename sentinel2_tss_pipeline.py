@@ -1519,9 +1519,15 @@ class JiangTSSProcessor:
                 logger.info(f"Marine visualization completed: {rgb_count} RGB + {index_count} indices")            
           
             # Final validation and cleanup
-            success_count = len([r for r in all_results.values() if r.success])
+            success_count = 0
+            for key, result in all_results.items():
+                if isinstance(result, ProcessingResult) and hasattr(result, 'success'):
+                    if result.success:
+                        success_count += 1
+                elif result is not None:
+                    success_count += 1
             total_count = len(all_results)
-            
+
             logger.info("=" * 80)
             logger.info(f"✅ COMPLETE TSS PROCESSING FINISHED: {product_name}")
             logger.info(f"   Total products generated: {success_count}/{total_count}")
@@ -3327,7 +3333,12 @@ class S2MarineVisualizationProcessor:
             try:
                 # Use the same band loading logic as JiangTSSProcessor
                 # Create temporary instance to access band loading methods
-                temp_jiang_processor = JiangTSSProcessor(self.config)
+                temp_jiang_config = JiangTSSConfig()
+                temp_jiang_config.enable_jiang_tss = False
+                temp_jiang_config.enable_advanced_algorithms = False  
+                temp_jiang_config.enable_marine_visualization = False
+                temp_jiang_config.advanced_config = None
+                temp_jiang_processor = JiangTSSProcessor(temp_jiang_config)
                 band_paths = temp_jiang_processor._update_band_mapping_for_mixed_types(c2rcc_path)
                 
                 if not band_paths:
