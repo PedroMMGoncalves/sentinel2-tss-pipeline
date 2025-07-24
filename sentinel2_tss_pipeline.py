@@ -7438,7 +7438,7 @@ class UnifiedS2TSSGUI:
             messagebox.showerror("Error", f"Failed to save configuration: {str(e)}", parent=self.root)
     
     def load_config(self):
-        """Load configuration from file"""
+        """Load configuration from file - COMPLETE IMPLEMENTATION"""
         try:
             config_file = filedialog.askopenfilename(
                 title="Load Configuration",
@@ -7446,27 +7446,335 @@ class UnifiedS2TSSGUI:
                 parent=self.root
             )
             
-            if config_file:
-                with open(config_file, 'r') as f:
-                    config = json.load(f)
+            if not config_file:
+                return
+            
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+            
+            logger.info(f"Loading configuration from: {config_file}")
+            
+            # ===== PROCESSING MODE =====
+            if 'processing_mode' in config:
+                self.processing_mode.set(config['processing_mode'])
+                logger.info(f"✓ Processing mode: {config['processing_mode']}")
+            
+            # ===== RESAMPLING CONFIGURATION =====
+            if 'resampling' in config:
+                resampling_data = config['resampling']
+                # Reconstruct ResamplingConfig from dictionary
+                self.resampling_config = ResamplingConfig(
+                    target_resolution=resampling_data.get('target_resolution', '10'),
+                    upsampling_method=resampling_data.get('upsampling_method', 'Bilinear'),
+                    downsampling_method=resampling_data.get('downsampling_method', 'Mean'),
+                    flag_downsampling=resampling_data.get('flag_downsampling', 'First'),
+                    resample_on_pyramid_levels=resampling_data.get('resample_on_pyramid_levels', True)
+                )
                 
-                # Load processing mode
-                if 'processing_mode' in config:
-                    self.processing_mode.set(config['processing_mode'])
+                # Update GUI variables
+                if hasattr(self, 'target_resolution_var'):
+                    self.target_resolution_var.set(self.resampling_config.target_resolution)
+                if hasattr(self, 'upsampling_method_var'):
+                    self.upsampling_method_var.set(self.resampling_config.upsampling_method)
+                if hasattr(self, 'downsampling_method_var'):
+                    self.downsampling_method_var.set(self.resampling_config.downsampling_method)
                 
-                # Load configurations (simplified loading for brevity)
-                # You can expand this to load all parameters
+                logger.info(f"✓ Resampling config loaded: {self.resampling_config.target_resolution}m resolution")
+            
+            # ===== SUBSET CONFIGURATION =====
+            if 'subset' in config:
+                subset_data = config['subset']
+                # Reconstruct SubsetConfig from dictionary
+                self.subset_config = SubsetConfig(
+                    geometry_wkt=subset_data.get('geometry_wkt'),
+                    sub_sampling_x=subset_data.get('sub_sampling_x', 1),
+                    sub_sampling_y=subset_data.get('sub_sampling_y', 1),
+                    full_swath=subset_data.get('full_swath', False),
+                    copy_metadata=subset_data.get('copy_metadata', True),
+                    pixel_start_x=subset_data.get('pixel_start_x'),
+                    pixel_start_y=subset_data.get('pixel_start_y'),
+                    pixel_size_x=subset_data.get('pixel_size_x'),
+                    pixel_size_y=subset_data.get('pixel_size_y')
+                )
                 
-                # Update GUI state
-                self.update_tab_visibility()
-                self.update_subset_visibility()
-                self.update_jiang_visibility()
+                # Update GUI variables
+                if hasattr(self, 'subset_method_var'):
+                    if self.subset_config.geometry_wkt:
+                        self.subset_method_var.set("geometry")
+                        if hasattr(self, 'geometry_text'):
+                            self.geometry_text.delete(1.0, tk.END)
+                            self.geometry_text.insert(1.0, self.subset_config.geometry_wkt)
+                    elif self.subset_config.pixel_start_x is not None:
+                        self.subset_method_var.set("pixel_coordinates")
+                        if hasattr(self, 'pixel_start_x_var'):
+                            self.pixel_start_x_var.set(str(self.subset_config.pixel_start_x))
+                        if hasattr(self, 'pixel_start_y_var'):
+                            self.pixel_start_y_var.set(str(self.subset_config.pixel_start_y))
+                        if hasattr(self, 'pixel_size_x_var'):
+                            self.pixel_size_x_var.set(str(self.subset_config.pixel_size_x))
+                        if hasattr(self, 'pixel_size_y_var'):
+                            self.pixel_size_y_var.set(str(self.subset_config.pixel_size_y))
+                    else:
+                        self.subset_method_var.set("no_subset")
                 
-                messagebox.showinfo("Success", "Configuration loaded successfully!", parent=self.root)
-                self.status_var.set("Configuration loaded")
+                logger.info(f"✓ Subset config loaded")
+            
+            # ===== C2RCC CONFIGURATION =====
+            if 'c2rcc' in config:
+                c2rcc_data = config['c2rcc']
+                # Reconstruct C2RCCConfig from dictionary
+                self.c2rcc_config = C2RCCConfig(
+                    salinity=c2rcc_data.get('salinity', 35.0),
+                    temperature=c2rcc_data.get('temperature', 15.0),
+                    ozone=c2rcc_data.get('ozone', 330.0),
+                    pressure=c2rcc_data.get('pressure', 1000.0),
+                    elevation=c2rcc_data.get('elevation', 0.0),
+                    net_set=c2rcc_data.get('net_set', 'C2RCC-Nets'),
+                    dem_name=c2rcc_data.get('dem_name', 'Copernicus 30m Global DEM'),
+                    use_ecmwf_aux_data=c2rcc_data.get('use_ecmwf_aux_data', True),
+                    atmospheric_aux_data_path=c2rcc_data.get('atmospheric_aux_data_path', ''),
+                    alternative_nn_path=c2rcc_data.get('alternative_nn_path', ''),
+                    output_as_rrs=c2rcc_data.get('output_as_rrs', True),
+                    output_rhown=c2rcc_data.get('output_rhown', True),
+                    output_kd=c2rcc_data.get('output_kd', True),
+                    output_uncertainties=c2rcc_data.get('output_uncertainties', True),
+                    output_ac_reflectance=c2rcc_data.get('output_ac_reflectance', True),
+                    output_rtoa=c2rcc_data.get('output_rtoa', True),
+                    output_rtosa_gc=c2rcc_data.get('output_rtosa_gc', False),
+                    output_rtosa_gc_aann=c2rcc_data.get('output_rtosa_gc_aann', False),
+                    output_rpath=c2rcc_data.get('output_rpath', False),
+                    output_tdown=c2rcc_data.get('output_tdown', False),
+                    output_tup=c2rcc_data.get('output_tup', False),
+                    output_oos=c2rcc_data.get('output_oos', False),
+                    derive_rw_from_path_and_transmittance=c2rcc_data.get('derive_rw_from_path_and_transmittance', False),
+                    valid_pixel_expression=c2rcc_data.get('valid_pixel_expression', 'B8 > 0 && B8 < 0.1'),
+                    threshold_rtosa_oos=c2rcc_data.get('threshold_rtosa_oos', 0.05),
+                    threshold_ac_reflec_oos=c2rcc_data.get('threshold_ac_reflec_oos', 0.1),
+                    threshold_cloud_tdown865=c2rcc_data.get('threshold_cloud_tdown865', 0.955),
+                    tsm_fac=c2rcc_data.get('tsm_fac', 1.06),
+                    tsm_exp=c2rcc_data.get('tsm_exp', 0.942),
+                    chl_fac=c2rcc_data.get('chl_fac', 21.0),
+                    chl_exp=c2rcc_data.get('chl_exp', 1.04)
+                )
                 
+                # Update GUI variables
+                self._update_c2rcc_gui_variables()
+                logger.info(f"✓ C2RCC config loaded: {self.c2rcc_config.salinity}‰ salinity, {self.c2rcc_config.temperature}°C")
+            
+            # ===== JIANG TSS CONFIGURATION =====
+            if 'jiang' in config:
+                jiang_data = config['jiang']
+                
+                # Reconstruct JiangTSSConfig from dictionary
+                self.jiang_config = JiangTSSConfig(
+                    enable_jiang_tss=jiang_data.get('enable_jiang_tss', True),
+                    output_intermediates=jiang_data.get('output_intermediates', True),
+                    water_mask_threshold=jiang_data.get('water_mask_threshold', 0.01),
+                    tss_valid_range=tuple(jiang_data.get('tss_valid_range', [0.01, 10000])),
+                    output_comparison_stats=jiang_data.get('output_comparison_stats', True),
+                    enable_advanced_algorithms=jiang_data.get('enable_advanced_algorithms', True),
+                    enable_marine_visualization=jiang_data.get('enable_marine_visualization', True)
+                )
+                
+                # Reconstruct advanced_config if present
+                if jiang_data.get('advanced_config') and self.jiang_config.enable_advanced_algorithms:
+                    adv_data = jiang_data['advanced_config']
+                    self.jiang_config.advanced_config = AdvancedAquaticConfig(
+                        enable_water_clarity=adv_data.get('enable_water_clarity', True),
+                        solar_zenith_angle=adv_data.get('solar_zenith_angle', 30.0),
+                        enable_hab_detection=adv_data.get('enable_hab_detection', True),
+                        hab_biomass_threshold=adv_data.get('hab_biomass_threshold', 20.0),
+                        hab_extreme_threshold=adv_data.get('hab_extreme_threshold', 100.0),
+                        save_intermediate_products=adv_data.get('save_intermediate_products', True),
+                        create_classification_maps=adv_data.get('create_classification_maps', True),
+                        generate_statistics=adv_data.get('generate_statistics', True)
+                    )
+                
+                # Reconstruct marine_viz_config if present
+                if jiang_data.get('marine_viz_config') and self.jiang_config.enable_marine_visualization:
+                    viz_data = jiang_data['marine_viz_config']
+                    try:
+                        self.jiang_config.marine_viz_config = MarineVisualizationConfig(
+                            generate_natural_color=viz_data.get('generate_natural_color', True),
+                            generate_false_color=viz_data.get('generate_false_color', True),
+                            generate_water_specific=viz_data.get('generate_water_specific', True),
+                            generate_research_combinations=viz_data.get('generate_research_combinations', True),
+                            generate_water_quality_indices=viz_data.get('generate_water_quality_indices', True),
+                            generate_chlorophyll_indices=viz_data.get('generate_chlorophyll_indices', True),
+                            generate_turbidity_indices=viz_data.get('generate_turbidity_indices', True),
+                            generate_advanced_indices=viz_data.get('generate_advanced_indices', True),
+                            rgb_format=viz_data.get('rgb_format', 'GeoTIFF'),
+                            export_metadata=viz_data.get('export_metadata', True),
+                            create_overview_images=viz_data.get('create_overview_images', True),
+                            apply_contrast_enhancement=viz_data.get('apply_contrast_enhancement', True),
+                            contrast_method=viz_data.get('contrast_method', 'percentile_stretch'),
+                            percentile_range=tuple(viz_data.get('percentile_range', [2, 98]))
+                        )
+                    except NameError:
+                        logger.warning("MarineVisualizationConfig not available, skipping marine viz config")
+                
+                # Update GUI variables
+                self._update_jiang_gui_variables()
+                logger.info(f"✓ Jiang TSS config loaded: {self.jiang_config.enable_jiang_tss}")
+            
+            # ===== SYSTEM SETTINGS =====
+            if 'skip_existing' in config:
+                self.skip_existing_var.set(config['skip_existing'])
+            if 'test_mode' in config:
+                self.test_mode_var.set(config['test_mode'])
+            if 'memory_limit' in config:
+                self.memory_limit_var.set(str(config['memory_limit']))
+            if 'thread_count' in config:
+                self.thread_count_var.set(str(config['thread_count']))
+            
+            # ===== UPDATE GUI STATE =====
+            self.update_tab_visibility()
+            self.update_subset_visibility()
+            self.update_jiang_visibility()
+            
+            # Show success message
+            messagebox.showinfo("Success", 
+                            f"Configuration loaded successfully!\n\n"
+                            f"Processing mode: {self.processing_mode.get()}\n"
+                            f"Saved at: {config.get('saved_at', 'Unknown time')}", 
+                            parent=self.root)
+            self.status_var.set("Configuration loaded successfully")
+            logger.info("✅ Configuration loading completed successfully")
+            
+        except FileNotFoundError:
+            messagebox.showerror("Error", "Configuration file not found!", parent=self.root)
+        except json.JSONDecodeError as e:
+            messagebox.showerror("Error", f"Invalid JSON format: {str(e)}", parent=self.root)
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to load configuration: {str(e)}", parent=self.root)
+            error_msg = f"Failed to load configuration: {str(e)}"
+            logger.error(error_msg)
+            messagebox.showerror("Error", error_msg, parent=self.root)
+
+    def _update_c2rcc_gui_variables(self):
+        """Update C2RCC GUI variables from config object"""
+        try:
+            # Basic parameters
+            if hasattr(self, 'salinity_var'):
+                self.salinity_var.set(self.c2rcc_config.salinity)
+            if hasattr(self, 'temperature_var'):
+                self.temperature_var.set(self.c2rcc_config.temperature)
+            if hasattr(self, 'ozone_var'):
+                self.ozone_var.set(self.c2rcc_config.ozone)
+            if hasattr(self, 'pressure_var'):
+                self.pressure_var.set(self.c2rcc_config.pressure)
+            if hasattr(self, 'elevation_var'):
+                self.elevation_var.set(self.c2rcc_config.elevation)
+            
+            # Network and DEM
+            if hasattr(self, 'net_set_var'):
+                self.net_set_var.set(self.c2rcc_config.net_set)
+            if hasattr(self, 'dem_name_var'):
+                self.dem_name_var.set(self.c2rcc_config.dem_name)
+            if hasattr(self, 'use_ecmwf_var'):
+                self.use_ecmwf_var.set(self.c2rcc_config.use_ecmwf_aux_data)
+            
+            # Output products
+            if hasattr(self, 'output_rrs_var'):
+                self.output_rrs_var.set(self.c2rcc_config.output_as_rrs)
+            if hasattr(self, 'output_rhow_var'):
+                self.output_rhow_var.set(self.c2rcc_config.output_rhown)
+            if hasattr(self, 'output_kd_var'):
+                self.output_kd_var.set(self.c2rcc_config.output_kd)
+            if hasattr(self, 'output_uncertainties_var'):
+                self.output_uncertainties_var.set(self.c2rcc_config.output_uncertainties)
+            if hasattr(self, 'output_ac_reflectance_var'):
+                self.output_ac_reflectance_var.set(self.c2rcc_config.output_ac_reflectance)
+            if hasattr(self, 'output_rtoa_var'):
+                self.output_rtoa_var.set(self.c2rcc_config.output_rtoa)
+            
+            # Advanced products
+            if hasattr(self, 'output_rtosa_gc_var'):
+                self.output_rtosa_gc_var.set(self.c2rcc_config.output_rtosa_gc)
+            if hasattr(self, 'output_rtosa_gc_aann_var'):
+                self.output_rtosa_gc_aann_var.set(self.c2rcc_config.output_rtosa_gc_aann)
+            if hasattr(self, 'output_rpath_var'):
+                self.output_rpath_var.set(self.c2rcc_config.output_rpath)
+            if hasattr(self, 'output_tdown_var'):
+                self.output_tdown_var.set(self.c2rcc_config.output_tdown)
+            if hasattr(self, 'output_tup_var'):
+                self.output_tup_var.set(self.c2rcc_config.output_tup)
+            if hasattr(self, 'output_oos_var'):
+                self.output_oos_var.set(self.c2rcc_config.output_oos)
+            
+            # Advanced parameters
+            if hasattr(self, 'valid_pixel_var'):
+                self.valid_pixel_var.set(self.c2rcc_config.valid_pixel_expression)
+            if hasattr(self, 'threshold_rtosa_oos_var'):
+                self.threshold_rtosa_oos_var.set(self.c2rcc_config.threshold_rtosa_oos)
+            if hasattr(self, 'threshold_ac_reflec_oos_var'):
+                self.threshold_ac_reflec_oos_var.set(self.c2rcc_config.threshold_ac_reflec_oos)
+            if hasattr(self, 'threshold_cloud_tdown865_var'):
+                self.threshold_cloud_tdown865_var.set(self.c2rcc_config.threshold_cloud_tdown865)
+            
+            # TSM/CHL parameters
+            if hasattr(self, 'tsm_fac_var'):
+                self.tsm_fac_var.set(self.c2rcc_config.tsm_fac)
+            if hasattr(self, 'tsm_exp_var'):
+                self.tsm_exp_var.set(self.c2rcc_config.tsm_exp)
+            if hasattr(self, 'chl_fac_var'):
+                self.chl_fac_var.set(self.c2rcc_config.chl_fac)
+            if hasattr(self, 'chl_exp_var'):
+                self.chl_exp_var.set(self.c2rcc_config.chl_exp)
+            
+            logger.debug("✓ C2RCC GUI variables updated from config")
+        except Exception as e:
+            logger.warning(f"Error updating C2RCC GUI variables: {e}")
+
+    def _update_jiang_gui_variables(self):
+        """Update Jiang TSS GUI variables from config object"""
+        try:
+            # Basic Jiang settings
+            if hasattr(self, 'enable_jiang_var'):
+                self.enable_jiang_var.set(self.jiang_config.enable_jiang_tss)
+            if hasattr(self, 'jiang_intermediates_var'):
+                self.jiang_intermediates_var.set(self.jiang_config.output_intermediates)
+            if hasattr(self, 'jiang_comparison_var'):
+                self.jiang_comparison_var.set(self.jiang_config.output_comparison_stats)
+            
+            # Advanced algorithms
+            if hasattr(self, 'enable_advanced_var'):
+                self.enable_advanced_var.set(self.jiang_config.enable_advanced_algorithms)
+            
+            # Marine visualization
+            if hasattr(self, 'enable_marine_viz_var'):
+                self.enable_marine_viz_var.set(self.jiang_config.enable_marine_visualization)
+            
+            # Marine visualization options
+            if self.jiang_config.marine_viz_config:
+                viz_config = self.jiang_config.marine_viz_config
+                if hasattr(self, 'natural_color_var'):
+                    self.natural_color_var.set(viz_config.generate_natural_color)
+                if hasattr(self, 'false_color_var'):
+                    self.false_color_var.set(viz_config.generate_false_color)
+                if hasattr(self, 'water_specific_var'):
+                    self.water_specific_var.set(viz_config.generate_water_specific)
+                if hasattr(self, 'research_rgb_var'):
+                    self.research_rgb_var.set(viz_config.generate_research_combinations)
+                if hasattr(self, 'water_quality_indices_var'):
+                    self.water_quality_indices_var.set(viz_config.generate_water_quality_indices)
+                if hasattr(self, 'chlorophyll_indices_var'):
+                    self.chlorophyll_indices_var.set(viz_config.generate_chlorophyll_indices)
+                if hasattr(self, 'turbidity_indices_var'):
+                    self.turbidity_indices_var.set(viz_config.generate_turbidity_indices)
+                if hasattr(self, 'advanced_indices_var'):
+                    self.advanced_indices_var.set(viz_config.generate_advanced_indices)
+            
+            # Advanced algorithms options
+            if self.jiang_config.advanced_config:
+                adv_config = self.jiang_config.advanced_config
+                if hasattr(self, 'water_clarity_var'):
+                    self.water_clarity_var.set(adv_config.enable_water_clarity)
+                if hasattr(self, 'hab_detection_var'):
+                    self.hab_detection_var.set(adv_config.enable_hab_detection)
+            
+            logger.debug("✓ Jiang TSS GUI variables updated from config")
+        except Exception as e:
+            logger.warning(f"Error updating Jiang TSS GUI variables: {e}")
     
     def start_processing(self):
         """Start processing in background thread"""
