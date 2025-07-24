@@ -4475,6 +4475,18 @@ class S2Processor:
     </parameters>
   </node>
   
+  <!-- Step 3.5: SAVE GEOMETRIC PRODUCTS -->
+<node id="WriteGeometric">
+  <operator>Write</operator>
+  <sources>
+    <sourceProduct refid="Subset"/>
+  </sources>
+  <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+    <file>${geometricProduct}</file>
+    <formatName>BEAM-DIMAP</formatName>
+  </parameters>
+</node>
+
   <!-- Step 4: C2RCC Atmospheric Correction -->
   <node id="c2rcc_msi">
     <operator>c2rcc.msi</operator>
@@ -4627,6 +4639,31 @@ class S2Processor:
             params += f'\n      <alternativeNNPath>{c2rcc.alternative_nn_path}</alternativeNNPath>'
         
         return params
+    
+    def _get_geometric_output_path(self, input_path: str, output_folder: str) -> str:
+        """Generate geometric product output path"""
+        basename = os.path.basename(input_path)
+        if basename.endswith('.zip'):
+            product_name = basename.replace('.zip', '')
+        elif basename.endswith('.SAFE'):
+            product_name = basename.replace('.SAFE', '')
+        else:
+            product_name = basename
+        
+        geometric_folder = os.path.join(output_folder, "Geometric_Products")
+        os.makedirs(geometric_folder, exist_ok=True)
+        
+        # Clean product name for geometric output
+        if 'MSIL1C' in product_name:
+            parts = product_name.split('_')
+            if len(parts) >= 6:
+                clean_name = f"Resampled_{parts[0]}_{parts[2]}_{parts[5]}_Subset"
+            else:
+                clean_name = f"Resampled_{product_name}_Subset"
+        else:
+            clean_name = f"Resampled_{product_name}_Subset"
+        
+        return os.path.join(geometric_folder, f"{clean_name}.dim")
     
     def get_output_filename(self, input_path: str, output_dir: str, stage: str) -> str:
         """Generate output filename based on processing stage"""
@@ -4846,11 +4883,16 @@ class S2Processor:
             # Prepare GPT command
             gpt_cmd = self.get_gpt_command()
             
+            # FIX: Need to get output_folder from output_path
+            output_folder = os.path.dirname(output_path)
+            geometric_output_path = self._get_geometric_output_path(input_path, output_folder)
+            
             cmd = [
                 gpt_cmd,
                 self.main_graph_file,
                 f'-PsourceProduct={input_path}',
                 f'-PtargetProduct={output_path}',
+                f'-PgeometricProduct={geometric_output_path}',  # NOW FIXED
                 f'-c', f'{self.config.memory_limit_gb}G',
                 f'-q', str(self.config.thread_count)
             ]
@@ -5485,7 +5527,13 @@ class UnifiedS2TSSProcessor:
                 logger.error(f"Processing failed with errors")
                 self.failed_count += 1
             else:
-                success_count = sum(1 for r in results.values() if r.success)
+                success_count = 0
+                for key, result in results.items():
+                    if isinstance(result, ProcessingResult) and hasattr(result, 'success'):
+                        if result.success:
+                            success_count += 1
+                    elif result is not None:
+                        success_count += 1
                 logger.info(f"✓ Processing completed: {success_count} products generated")
                 self.processed_count += 1
                 
