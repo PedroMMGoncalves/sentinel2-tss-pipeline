@@ -5043,25 +5043,34 @@ class S2Processor:
             return {'s2_error': ProcessingResult(False, "", None, error_msg)}
     
     def _run_s2_processing(self, input_path: str, output_path: str) -> bool:
-        """Run S2 processing using GPT"""
+        """Run S2 processing using GPT - CORRECTED VERSION"""
         try:
             # Prepare GPT command
             gpt_cmd = self.get_gpt_command()
             
-            # FIX: Need to get output_folder from output_path
-            output_folder = os.path.dirname(output_path)
+            # FIXED: Get the main output folder (parent of C2RCC_Products)
+            # output_path is like: /path/to/output/C2RCC_Products/product.dim
+            # We need: /path/to/output/ (the main output folder)
+            output_folder = os.path.dirname(os.path.dirname(output_path))
             geometric_output_path = self._get_geometric_output_path(input_path, output_folder)
+            
+            # Ensure geometric products directory exists
+            os.makedirs(os.path.dirname(geometric_output_path), exist_ok=True)
             
             cmd = [
                 gpt_cmd,
                 self.main_graph_file,
                 f'-PsourceProduct={input_path}',
                 f'-PtargetProduct={output_path}',
-                f'-PgeometricProduct={geometric_output_path}',  # NOW FIXED
+                f'-PgeometricProduct={geometric_output_path}',  # NOW PROPERLY FIXED
                 f'-c', f'{self.config.memory_limit_gb}G',
                 f'-q', str(self.config.thread_count)
             ]
             
+            logger.info(f"GPT processing paths:")
+            logger.info(f"  Input: {os.path.basename(input_path)}")
+            logger.info(f"  C2RCC Output: {os.path.basename(output_path)}")
+            logger.info(f"  Geometric Output: {os.path.basename(geometric_output_path)}")
             logger.debug(f"GPT command: {' '.join(cmd)}")
             
             # Run GPT processing with timeout
@@ -5075,15 +5084,25 @@ class S2Processor:
             
             # Check processing results
             if result.returncode == 0:
+                # Check main C2RCC output
                 if os.path.exists(output_path):
                     file_size = os.path.getsize(output_path)
                     if file_size > 1024 * 1024:  # > 1MB
+                        logger.info(f"✅ C2RCC output created: {file_size / (1024*1024):.1f} MB")
+                        
+                        # Also check if geometric product was created
+                        if os.path.exists(geometric_output_path):
+                            geom_size = os.path.getsize(geometric_output_path)
+                            logger.info(f"✅ Geometric output created: {geom_size / (1024*1024):.1f} MB")
+                        else:
+                            logger.warning("⚠️  Geometric product not created (but C2RCC succeeded)")
+                        
                         return True
                     else:
-                        logger.error(f"❌ Output file too small ({file_size} bytes)")
+                        logger.error(f"❌ C2RCC output file too small ({file_size} bytes)")
                         return False
                 else:
-                    logger.error(f"❌ Output file not created")
+                    logger.error(f"❌ C2RCC output file not created")
                     return False
             else:
                 logger.error(f"❌ GPT processing failed")
