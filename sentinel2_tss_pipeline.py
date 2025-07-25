@@ -3628,10 +3628,11 @@ class S2MarineVisualizationProcessor:
         self.logger.info(f"Expected products: ~{expected_rgb} RGB composites + ~{expected_indices} spectral indices")
         self.logger.info("Marine visualization processor ready for processing")
         
+
     def process_marine_visualizations(self, c2rcc_path: str, output_folder: str, 
                                     product_name: str, intermediate_paths: Optional[Dict[str, str]] = None) -> Dict[str, ProcessingResult]:
         """
-        Generate RGB composites and spectral indices from geometric products ONLY - UPDATED COMPLETE VERSION
+        Generate RGB composites and spectral indices from geometric products - FIXED VERSION
         
         Args:
             c2rcc_path: Path to C2RCC output directory (fallback only)
@@ -3645,96 +3646,99 @@ class S2MarineVisualizationProcessor:
         try:
             self.logger.info(f"🌊 Starting marine visualization processing for {product_name}")
             
-            # STEP 1: Determine input source - PRIORITIZE GEOMETRIC PRODUCTS
+            # CRITICAL FIX: PRIORITIZE INTERMEDIATE_PATHS FIRST
             input_source = None
             input_type = "unknown"
             
-            # Priority 1: Look for geometric products in standard Geometric_Products folder
-            geometric_folder = os.path.join(output_folder, "Geometric_Products")
-            if os.path.exists(geometric_folder):
-                # Extract clean product name to find matching geometric product
-                clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
-                if 'MSIL1C' in clean_product_name:
-                    parts = clean_product_name.split('_')
-                    if len(parts) >= 6:
-                        clean_name = f"{parts[0]}_{parts[2]}_{parts[5]}"
-                    else:
-                        clean_name = clean_product_name.replace('MSIL1C_', '')
-                else:
-                    clean_name = clean_product_name
-                
-                # Look for geometric product file
-                geometric_filename = f"Resampled_{clean_name}_Subset.dim"
-                geometric_path = os.path.join(geometric_folder, geometric_filename)
-                
-                if os.path.exists(geometric_path):
-                    input_source = geometric_path
-                    input_type = "geometric"
-                    self.logger.info(f"✅ Using GEOMETRIC PRODUCTS: {geometric_filename}")
-                    self.logger.info(f"   Source: Saved geometric products (subsetted+resampled S2 bands)")
-                    self.logger.info(f"   Benefits: Natural colors, proper contrast, correct index ranges")
-                else:
-                    # Fallback: search for any geometric product in the folder
-                    for file in os.listdir(geometric_folder):
-                        if file.endswith('.dim') and 'Subset' in file:
-                            input_source = os.path.join(geometric_folder, file)
-                            input_type = "geometric"
-                            self.logger.info(f"✅ Found geometric product: {file}")
-                            break
-            
-            # Priority 2: Use intermediate_paths as fallback
-            if input_source is None and intermediate_paths and 'geometric_path' in intermediate_paths:
+            # =======================================================================
+            # PRIORITY 1: Use intermediate_paths geometric_path (HIGHEST PRIORITY)
+            # =======================================================================
+            if intermediate_paths and 'geometric_path' in intermediate_paths:
                 geometric_path = intermediate_paths['geometric_path']
+                self.logger.info(f"🔍 Checking intermediate_paths geometric_path: {geometric_path}")
+                
                 if os.path.exists(geometric_path):
                     input_source = geometric_path
                     input_type = "geometric"
-                    self.logger.info(f"✅ Using geometric path from intermediate_paths: {os.path.basename(geometric_path)}")
+                    self.logger.info(f"✅ Using GEOMETRIC products from intermediate_paths: {os.path.basename(geometric_path)}")
+                    self.logger.info(f"   Source: Provided geometric path (highest priority)")
+                    self.logger.info(f"   Full path: {geometric_path}")
                 else:
-                    self.logger.warning(f"⚠️  Geometric path in intermediate_paths not found: {geometric_path}")
+                    self.logger.warning(f"⚠️ Geometric path in intermediate_paths not found: {geometric_path}")
             
-            # REMOVED: C2RCC fallback - we only want geometric products
+            # =======================================================================
+            # PRIORITY 2: Look in standard output_folder location (FALLBACK)
+            # =======================================================================
             if input_source is None:
-                error_msg = "No geometric products found for visualization"
-                self.logger.error(error_msg)
-                self.logger.error("Required: Geometric_Products folder with resampled S2 bands")
-                return {'error': ProcessingResult(False, "", None, error_msg)}
+                self.logger.info("🔍 Trying standard Geometric_Products folder location")
+                geometric_folder = os.path.join(output_folder, "Geometric_Products")
+                
+                if os.path.exists(geometric_folder):
+                    # Extract clean product name to find matching geometric product
+                    clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
+                    if 'MSIL1C' in clean_product_name:
+                        parts = clean_product_name.split('_')
+                        if len(parts) >= 6:
+                            clean_name = f"{parts[0]}_{parts[2]}_{parts[5]}"
+                        else:
+                            clean_name = clean_product_name.replace('MSIL1C_', '')
+                    else:
+                        clean_name = clean_product_name
+                    
+                    # Look for geometric product file
+                    geometric_filename = f"Resampled_{clean_name}_Subset.dim"
+                    geometric_path = os.path.join(geometric_folder, geometric_filename)
+                    
+                    if os.path.exists(geometric_path):
+                        input_source = geometric_path
+                        input_type = "geometric"
+                        self.logger.info(f"✅ Using GEOMETRIC products from standard location: {geometric_filename}")
+                    else:
+                        # Fallback: search for any geometric product in the folder
+                        for file in os.listdir(geometric_folder):
+                            if file.endswith('.dim') and 'Subset' in file:
+                                input_source = os.path.join(geometric_folder, file)
+                                input_type = "geometric"
+                                self.logger.info(f"✅ Found geometric product: {file}")
+                                break
+                      
+            # =======================================================================
+            # Create visualization output directories
+            # =======================================================================
+            # Create RGB_Composites and Spectral_Indices folders as expected
+            rgb_output_dir = os.path.join(output_folder, "RGB_Composites")
+            indices_output_dir = os.path.join(output_folder, "Spectral_Indices")
             
-            # Log intermediate paths info if provided
-            if intermediate_paths:
-                self.logger.info("✓ Intermediate paths available:")
-                for key, path in intermediate_paths.items():
-                    self.logger.debug(f"  {key}: {path}")
-            else:
-                self.logger.info("No intermediate paths provided - using standard locations")
+            os.makedirs(rgb_output_dir, exist_ok=True)
+            os.makedirs(indices_output_dir, exist_ok=True)
             
-            # Create visualization output directory
-            viz_output_dir = os.path.join(output_folder, "Marine_Visualizations")
-            os.makedirs(viz_output_dir, exist_ok=True)
+            self.logger.info(f"📁 RGB output directory: {rgb_output_dir}")
+            self.logger.info(f"📁 Indices output directory: {indices_output_dir}")
             
             # Initialize results dictionary
             viz_results = {}
             
-            # Verify input source exists
-            if not os.path.exists(input_source):
-                error_msg = f"Input source does not exist: {input_source}"
-                self.logger.error(error_msg)
-                return {'error': ProcessingResult(False, "", None, error_msg)}
-            
-            # === STEP 2: LOAD SPECTRAL BANDS FROM GEOMETRIC PRODUCTS ===
-            self.logger.info(f"📊 Step 2: Loading spectral bands from GEOMETRIC products")
+            # =======================================================================
+            # STEP 2: LOAD SPECTRAL BANDS FROM DETERMINED SOURCE
+            # =======================================================================
+            self.logger.info(f"📊 Step 2: Loading spectral bands from {input_type.upper()} products")
             
             try:
-                # Load bands from geometric products only
-                band_paths = self._load_bands_from_geometric_products(input_source)
+                if input_type == "geometric":
+                    # Load bands from geometric products
+                    band_paths = self._load_bands_from_geometric_products(input_source)
+                else:
+                    # Load bands from C2RCC products (fallback)
+                    band_paths = self._load_available_bands(input_source)
                 
                 if not band_paths:
-                    error_msg = "No suitable spectral bands found in geometric products"
+                    error_msg = f"No suitable spectral bands found in {input_type} products"
                     self.logger.error(error_msg)
                     return {'error': ProcessingResult(False, "", None, error_msg)}
                 
                 self.logger.info(f"Found {len(band_paths)} spectral bands for visualization:")
                 for wavelength, path in band_paths.items():
-                    self.logger.debug(f"  {wavelength}nm: {os.path.basename(path)}")
+                    self.logger.info(f"  {wavelength}nm: {os.path.basename(path)}")
                 
                 # Load band data arrays
                 bands_data, reference_metadata = self._load_bands_data_from_paths(band_paths)
@@ -3746,73 +3750,75 @@ class S2MarineVisualizationProcessor:
                 
                 self.logger.info(f"✅ Successfully loaded {len(bands_data)} bands for visualization")
                 
-                # Log band statistics and verify we're using the right data type
+                # Log band statistics
                 sample_band = list(bands_data.values())[0]
                 data_min = np.nanmin(sample_band)
                 data_max = np.nanmax(sample_band)
                 self.logger.info(f"Data characteristics:")
-                self.logger.info(f"  Input type: GEOMETRIC (S2 TOA reflectance)")
+                self.logger.info(f"  Input type: {input_type.upper()}")
                 self.logger.info(f"  Value range: {data_min:.4f} to {data_max:.4f}")
                 self.logger.info(f"  Spatial dimensions: {sample_band.shape}")
-                self.logger.info("  ✅ Using original S2 TOA reflectance - optimal for visualization!")
                 
-                # Log band coverage for verification
-                for wavelength, data in bands_data.items():
-                    valid_pixels = np.sum(~np.isnan(data))
-                    total_pixels = data.size
-                    coverage = (valid_pixels / total_pixels) * 100
-                    self.logger.debug(f"  {wavelength}nm: {coverage:.1f}% valid pixels")
-                
-            except Exception as e:
-                error_msg = f"Error loading bands for visualization: {str(e)}"
+            except Exception as band_error:
+                error_msg = f"Error loading spectral bands: {str(band_error)}"
                 self.logger.error(error_msg)
                 import traceback
-                self.logger.error(f"Full traceback: {traceback.format_exc()}")
+                self.logger.error(f"Band loading traceback: {traceback.format_exc()}")
                 return {'error': ProcessingResult(False, "", None, error_msg)}
             
-            # === STEP 3: GENERATE RGB COMPOSITES ===
-            if (self.config.generate_natural_color or self.config.generate_false_color or 
-                self.config.generate_water_specific or self.config.generate_research_combinations):
+            # =======================================================================
+            # STEP 3: GENERATE RGB COMPOSITES
+            # =======================================================================
+            if bands_data and len(bands_data) >= 3:
+                self.logger.info("🎨 Step 3: Generating RGB composites")
                 
-                self.logger.info("🎨 Step 3: Generating RGB composite visualizations")
-                rgb_results = self._generate_rgb_composites(bands_data, reference_metadata, viz_output_dir, product_name)
-                viz_results.update(rgb_results)
-                
-                rgb_count = len([k for k in rgb_results.keys() if rgb_results[k].success])
-                self.logger.info(f"✓ Generated {rgb_count} RGB composites")
+                try:
+                    rgb_results = self._generate_rgb_composites(bands_data, reference_metadata, rgb_output_dir, product_name)
+                    viz_results.update(rgb_results)
+                    rgb_count = len([k for k in rgb_results.keys() if k.startswith('rgb_')])
+                    self.logger.info(f"Generated {rgb_count} RGB composites")
+                    
+                except Exception as rgb_error:
+                    self.logger.error(f"Error generating RGB composites: {rgb_error}")
+                    viz_results['rgb_error'] = ProcessingResult(False, "", None, str(rgb_error))
             
-            # === STEP 4: GENERATE SPECTRAL INDICES ===
-            if (self.config.generate_water_quality_indices or self.config.generate_chlorophyll_indices or 
-                self.config.generate_turbidity_indices or self.config.generate_advanced_indices):
+            # =======================================================================
+            # STEP 4: GENERATE SPECTRAL INDICES
+            # =======================================================================
+            if bands_data and len(bands_data) >= 2:
+                self.logger.info("📊 Step 4: Generating spectral indices")
                 
-                self.logger.info("📈 Step 4: Generating spectral index visualizations")
-                index_results = self._generate_spectral_indices(bands_data, reference_metadata, viz_output_dir, product_name)
-                viz_results.update(index_results)
-                
-                index_count = len([k for k in index_results.keys() if index_results[k].success])
-                self.logger.info(f"✓ Generated {index_count} spectral indices")
+                try:
+                    index_results = self._generate_spectral_indices(bands_data, reference_metadata, indices_output_dir, product_name)
+                    viz_results.update(index_results)
+                    index_count = len([k for k in index_results.keys() if k.startswith('index_')])
+                    self.logger.info(f"Generated {index_count} spectral indices")
+                    
+                except Exception as index_error:
+                    self.logger.error(f"Error generating spectral indices: {index_error}")
+                    viz_results['index_error'] = ProcessingResult(False, "", None, str(index_error))
             
-            # === STEP 5: CREATE PROCESSING SUMMARY ===
+            # =======================================================================
+            # STEP 5: CREATE PROCESSING SUMMARY
+            # =======================================================================
             self.logger.info("📄 Step 5: Creating visualization summary")
-            self._create_visualization_summary(viz_results, viz_output_dir, product_name)
+            try:
+                self._create_visualization_summary(viz_results, output_folder, product_name)
+            except Exception as summary_error:
+                self.logger.warning(f"Could not create visualization summary: {summary_error}")
             
-            # === STEP 6: CLEANUP GEOMETRIC PRODUCTS ===
-            self.logger.info("🧹 Step 6: Cleaning up geometric products")
-            cleanup_success = self._cleanup_geometric_products(output_folder, product_name)
-            if cleanup_success:
-                self.logger.info("✅ Geometric products cleaned up successfully")
-            else:
-                self.logger.warning("⚠️  Some issues during geometric products cleanup")
-            
-            # === FINAL RESULTS ===
-            successful_viz = len([r for r in viz_results.values() if r.success])
-            total_viz = len(viz_results)
+            # =======================================================================
+            # FINAL RESULTS
+            # =======================================================================
+            successful_viz = len([r for r in viz_results.values() if isinstance(r, ProcessingResult) and r.success])
+            total_viz = len([r for r in viz_results.values() if isinstance(r, ProcessingResult)])
             success_rate = (successful_viz / total_viz) * 100 if total_viz > 0 else 0
             
             self.logger.info("🌊 Marine visualization processing completed!")
-            self.logger.info(f"   Input source: GEOMETRIC products")
+            self.logger.info(f"   Input source: {input_type.upper()} products")
             self.logger.info(f"   Results: {successful_viz}/{total_viz} products successful ({success_rate:.1f}%)")
-            self.logger.info(f"   Output directory: {viz_output_dir}")
+            self.logger.info(f"   RGB output: {rgb_output_dir}")
+            self.logger.info(f"   Indices output: {indices_output_dir}")
             
             return viz_results
             
