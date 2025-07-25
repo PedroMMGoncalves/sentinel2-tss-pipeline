@@ -1436,7 +1436,7 @@ class JiangTSSProcessor:
         return found_bands
  
     
-    def process_jiang_tss(self, c2rcc_path: str, output_folder: str, product_name: str) -> Dict[str, ProcessingResult]:
+    def process_jiang_tss(self, c2rcc_path: str, output_folder: str, product_name: str, intermediate_paths: Optional[Dict[str, str]] = None) -> Dict[str, ProcessingResult]:
         """
         Process Jiang TSS methodology from C2RCC outputs
         
