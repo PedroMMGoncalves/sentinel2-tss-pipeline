@@ -1545,6 +1545,19 @@ class JiangTSSProcessor:
                     c2rcc_path, jiang_results, converted_bands_data, product_name
                 )
                 logger.info(f"Advanced algorithms completed: {len(advanced_results)} additional products")
+
+                # WITH this FIXED version:
+
+                advanced_results = self._process_advanced_algorithms(
+                    c2rcc_path, jiang_results, converted_bands_data, product_name
+                )
+
+                # CRITICAL FIX: Check if advanced_results is None before using len()
+                if advanced_results is None:
+                    logger.warning("Advanced algorithms returned None, using empty dictionary")
+                    advanced_results = {}
+
+                logger.info(f"Advanced algorithms completed: {len(advanced_results)} additional products")
             
             # Combine all results including advanced algorithms
             all_algorithm_results = jiang_results.copy()
@@ -1628,7 +1641,7 @@ class JiangTSSProcessor:
 
         
     def _process_advanced_algorithms(self, c2rcc_path: str, jiang_results: Dict, 
-                                rrs_bands_data: Dict, product_name: str) -> Dict[str, ProcessingResult]:
+                                    rrs_bands_data: Dict, product_name: str) -> Dict[str, ProcessingResult]:
         """
         Process advanced algorithms with properly converted Rrs data
         
@@ -1638,7 +1651,9 @@ class JiangTSSProcessor:
         try:
             logger.info("Processing advanced algorithms with unit-converted data")
             
+            # CRITICAL FIX: Initialize advanced_results as empty dictionary
             advanced_results = {}
+            
             config = self.config.advanced_config
             
             if config is None:
@@ -1688,7 +1703,6 @@ class JiangTSSProcessor:
                                 output_path="",  # Will be set during save
                                 statistics=stats,
                                 error_message=None
-                                # ✅ No metadata or data parameters
                             )
                     
                     logger.info(f"Water clarity calculation completed: {len(clarity_results)} products")
@@ -1697,7 +1711,7 @@ class JiangTSSProcessor:
                     logger.error(f"Water clarity calculation failed: {e}")
             
             # =======================================================================
-            # 2. HAB DETECTION (Uses properly converted Rrs data)
+            # 2. HAB DETECTION CALCULATION - FIXED STRUCTURE
             # =======================================================================
             if config.enable_hab_detection and rrs_bands_data:
                 logger.info("Detecting harmful algal blooms using converted Rrs data")
@@ -1735,22 +1749,28 @@ class JiangTSSProcessor:
                                 output_path="",  # Will be set during save
                                 statistics=stats,
                                 error_message=None
-                                # No metadata or data parameters
                             )
                     
-                        logger.info(f"HAB detection completed: {len(hab_results)} products")
-                    else:
-                        logger.warning("No suitable converted spectral bands available for HAB detection")
+                    logger.info(f"HAB detection completed: {len(hab_results)} products")
                     
                 except Exception as e:
                     logger.error(f"HAB detection failed: {e}")
-        
+            
+            else:
+                # FIXED: This else is properly attached to the if statement
+                logger.warning("No suitable converted spectral bands available for HAB detection")
+            
+            logger.info(f"✅ Advanced algorithms completed: {len(advanced_results)} products generated")
+            
+            # CRITICAL FIX: Always return a dictionary, never None
+            return advanced_results
+            
         except Exception as e:
             logger.error(f"Error in advanced algorithms processing: {e}")
             import traceback
             traceback.print_exc()
+            # CRITICAL FIX: Return empty dictionary instead of None
             return {}
-
             
     # This method enables to extract SNAP chlorophyll
     def _extract_snap_chlorophyll(self, c2rcc_path: str) -> Optional[np.ndarray]:
