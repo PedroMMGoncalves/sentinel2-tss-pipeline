@@ -8785,7 +8785,7 @@ class UnifiedS2TSSGUI:
             
             # Limit products for test mode
             if config.test_mode:
-                products = products[:2]
+                products = products[:1]
                 logger.info(f"TEST MODE: Processing only {len(products)} products")
             
             # Process products
