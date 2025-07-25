@@ -7269,7 +7269,7 @@ class UnifiedS2TSSGUI:
         ttk.Checkbutton(left_options, text="Skip existing output files", 
                        variable=self.skip_existing_var).pack(anchor=tk.W, pady=2)
         
-        ttk.Checkbutton(left_options, text="Test mode (process only first 2 files)", 
+        ttk.Checkbutton(left_options, text="Test mode (process only first 1 files)", 
                        variable=self.test_mode_var).pack(anchor=tk.W, pady=2)
         
         # Right column - Memory and performance
@@ -9280,7 +9280,7 @@ Examples:
                        help="Disable ECMWF auxiliary data (reduces accuracy)")
     
     parser.add_argument("--test", action="store_true",
-                       help="Test mode (process only first 2 products)")
+                       help="Test mode (process only first 1 products)")
     
     parser.add_argument("--memory-limit", type=int, default=8,
                        help="Memory limit in GB (default: 8)")
