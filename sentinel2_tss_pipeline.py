@@ -1458,19 +1458,39 @@ class JiangTSSProcessor:
             # Create intermediate tracking
             intermediate_paths = {}
             
-            # Step 1: Validate C2RCC output
-            logger.info("🔍 Step 1: Validating C2RCC outputs")
-            c2rcc_stats = self._verify_c2rcc_output(c2rcc_path)
-            if not c2rcc_stats:
-                error_msg = "C2RCC validation failed"
-                logger.error(error_msg)
-                return {'error': ProcessingResult(False, "", None, error_msg)}
-            
-            # Step 2: Extract required bands
-            logger.info("📡 Step 2: Extracting spectral bands")
-            bands_data, band_paths = self._extract_required_bands(c2rcc_path)
+            # Step 1: Load spectral bands directly
+            logger.info("📡 Step 1: Loading spectral bands from C2RCC output")
+            data_folder = c2rcc_path.replace('.dim', '.data')
+
+            # Simple band mapping - RRS FIRST (Jiang algorithm native input)
+            band_files = {
+                443: ['rrs_B1.img', 'rhow_B1.img'],    # Try rrs first, fallback to rhow
+                490: ['rrs_B2.img', 'rhow_B2.img'],
+                560: ['rrs_B3.img', 'rhow_B3.img'],
+                665: ['rrs_B4.img', 'rhow_B4.img'],
+                705: ['rrs_B5.img', 'rhow_B5.img'],
+                740: ['rrs_B6.img', 'rhow_B6.img'],
+                783: ['rrs_B7.img', 'rhow_B7.img'],
+                865: ['rrs_B8A.img', 'rhow_B8A.img']
+            }
+
+            bands_data = {}
+            band_paths = {}
+            for wavelength, possible_files in band_files.items():
+                for filename in possible_files:
+                    file_path = os.path.join(data_folder, filename)
+                    if os.path.exists(file_path):
+                        try:
+                            data, _ = RasterIO.read_raster(file_path)
+                            bands_data[wavelength] = data
+                            band_paths[wavelength] = file_path
+                            logger.info(f"✓ Loaded {wavelength}nm: {filename}")
+                            break  # Found the band, stop looking
+                        except Exception as e:
+                            logger.error(f"Failed to load {wavelength}nm from {filename}: {e}")
+
             if not bands_data:
-                error_msg = "Failed to extract required bands"
+                error_msg = "No spectral bands found in C2RCC output"
                 logger.error(error_msg)
                 return {'error': ProcessingResult(False, "", None, error_msg)}
             
