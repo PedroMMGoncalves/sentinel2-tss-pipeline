@@ -586,18 +586,17 @@ class RasterIO:
             
             # Replace NaN with nodata value
             nan_mask = np.isnan(output_data)
-            output_data[nan_mask] = nodata
-            
-            # Create output raster
-            driver = gdal.GetDriverByName('GTiff')
+            width = metadata.get('width') or data.shape[1]
+            height = metadata.get('height') or data.shape[0]
+
             dataset = driver.Create(
                 output_path, 
-                int(metadata['width']), 
-                int(metadata['height']), 
+                int(width), 
+                int(height), 
                 1, 
                 gdal.GDT_Float32,
                 ['COMPRESS=LZW', 'PREDICTOR=2', 'TILED=YES']
-            )
+)
             
             if dataset is None:
                 logger.error(f"Failed to create GDAL dataset: {output_path}")
