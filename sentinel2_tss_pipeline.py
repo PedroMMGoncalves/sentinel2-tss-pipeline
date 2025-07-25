@@ -564,41 +564,65 @@ class RasterIO:
     @staticmethod
     def write_raster(data: np.ndarray, output_path: str, metadata: dict, 
                     description: str = "", nodata: float = -9999) -> bool:
-        """Write numpy array to raster file - FIXED VERSION"""
+        """FIXED: Write numpy array to raster file with enhanced validation"""
         dataset = None
         try:
-            # CRITICAL FIX: Validate input types
+            # CRITICAL FIX: Validate inputs first
             if not isinstance(data, np.ndarray):
-                logger.error(f"write_raster received invalid data type: {type(data)}")
-                logger.error(f"Expected np.ndarray, got: {data}")
+                logger.error(f"Error writing raster {output_path}: not a sequence")
+                logger.error(f"Data type: {type(data)}, shape: {getattr(data, 'shape', 'no shape')}")
                 return False
             
             if not isinstance(metadata, dict):
-                logger.error(f"write_raster received invalid metadata type: {type(metadata)}")
+                logger.error(f"Invalid metadata type: {type(metadata)}")
                 return False
             
-            # FIXED: Ensure we can copy the data
+            if data.ndim != 2:
+                logger.error(f"Data must be 2D array, got {data.ndim}D with shape {data.shape}")
+                return False
+            
+            # CRITICAL FIX: Ensure contiguous array for GDAL
             try:
-                output_data = np.array(data, copy=True, dtype=np.float32)
-            except Exception as copy_error:
-                logger.error(f"Failed to copy data array: {copy_error}")
+                output_data = np.ascontiguousarray(data, dtype=np.float32)
+                
+                # Validate the array is suitable for GDAL
+                if not output_data.flags.c_contiguous:
+                    raise ValueError("Failed to create contiguous array")
+                    
+            except Exception as array_error:
+                logger.error(f"Array preparation failed: {array_error}")
                 return False
             
-            # Replace NaN with nodata value
+            # Replace NaN with nodata
             nan_mask = np.isnan(output_data)
             output_data[nan_mask] = nodata
-
-            # Handle None values in metadata
-            width = metadata.get('width') or data.shape[1]
-            height = metadata.get('height') or data.shape[0]
-
-            # Create output raster - MAKE SURE THIS LINE IS PRESENT
+            
+            # Get dimensions
+            height, width = output_data.shape
+            
+            # Handle metadata safely
+            geotransform = metadata.get('geotransform')
+            projection = metadata.get('projection')
+            
+            if geotransform is None:
+                logger.warning("No geotransform in metadata, using default")
+                geotransform = (0.0, 1.0, 0.0, 0.0, 0.0, -1.0)
+            
+            if projection is None:
+                logger.warning("No projection in metadata, using default WGS84")
+                projection = 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]'
+            
+            # Create GDAL dataset
             driver = gdal.GetDriverByName('GTiff')
+            if driver is None:
+                logger.error("GTiff driver not available")
+                return False
+            
             dataset = driver.Create(
                 output_path, 
-                int(width), 
-                int(height), 
-                1, 
+                width, 
+                height, 
+                1,  # Single band
                 gdal.GDT_Float32,
                 ['COMPRESS=LZW', 'PREDICTOR=2', 'TILED=YES']
             )
@@ -608,8 +632,11 @@ class RasterIO:
                 return False
             
             # Set georeference information
-            dataset.SetGeoTransform(metadata['geotransform'])
-            dataset.SetProjection(metadata['projection'])
+            try:
+                dataset.SetGeoTransform(geotransform)
+                dataset.SetProjection(projection)
+            except Exception as georef_error:
+                logger.warning(f"Error setting georeference: {georef_error}")
             
             # Write data
             band = dataset.GetRasterBand(1)
@@ -1524,10 +1551,10 @@ class JiangTSSProcessor:
             
             # Add advanced algorithms data to the combined results for saving
             for key, result in advanced_results.items():
-                if hasattr(result, 'data') and result.data is not None:
-                    # Extract the raw numpy array from ProcessingResult for saving
-                    all_algorithm_results[key] = result.data
-            
+                if isinstance(result, ProcessingResult) and result.statistics and 'numpy_data' in result.statistics:
+                    # FIXED: Extract the raw numpy array from statistics for saving
+                    all_algorithm_results[key] = result.statistics['numpy_data']
+                
             # Step 6: Save complete results (now includes advanced algorithms)
             logger.info("💾 Step 6: Saving complete results including advanced algorithms")
             saved_results = self._save_complete_results(all_algorithm_results, output_folder, product_name, reference_metadata)
@@ -1636,31 +1663,32 @@ class JiangTSSProcessor:
                         absorption, backscattering, config.solar_zenith_angle
                     )
                     
-                    # SURGICAL FIX: Convert to ProcessingResult objects with metadata
+                    # FIXED: Store everything in statistics dictionary
                     for key, value in clarity_results.items():
                         if value is not None and isinstance(value, np.ndarray):
-                            # Create metadata for this advanced product
-                            metadata = {
-                                'product_type': 'water_clarity',
-                                'algorithm': 'advanced_aquatic',
-                                'description': f"Water clarity {key} - Advanced Aquatic Processing",
-                                'processing_date': datetime.now().isoformat(),
-                                'source_absorption': 'jiang_methodology',
-                                'source_backscattering': 'jiang_methodology'
-                            }
-                            
                             # Calculate basic statistics
                             stats = RasterIO.calculate_statistics(value) if hasattr(self, 'RasterIO') else {
-                                'coverage_percent': 100.0, 'valid_pixels': value.size, 'data_range': [value.min(), value.max()]
+                                'coverage_percent': 100.0, 
+                                'valid_pixels': value.size, 
+                                'data_range': [value.min(), value.max()]
                             }
                             
+                            # FIXED: Store all metadata and data in statistics dictionary
+                            stats['numpy_data'] = value  # Store the actual numpy array
+                            stats['product_type'] = 'water_clarity'
+                            stats['algorithm'] = 'advanced_aquatic'
+                            stats['description'] = f"Water clarity {key} - Advanced Aquatic Processing"
+                            stats['processing_date'] = datetime.now().isoformat()
+                            stats['source_absorption'] = 'jiang_methodology'
+                            stats['source_backscattering'] = 'jiang_methodology'
+                            
+                            # FIXED: Only use parameters that ProcessingResult accepts
                             advanced_results[f'advanced_clarity_{key}'] = ProcessingResult(
                                 success=True,
                                 output_path="",  # Will be set during save
                                 statistics=stats,
-                                error_message=None,
-                                metadata=metadata,
-                                data=value  # Store the actual data for saving
+                                error_message=None
+                                # ✅ No metadata or data parameters
                             )
                     
                     logger.info(f"Water clarity calculation completed: {len(clarity_results)} products")
@@ -1671,106 +1699,52 @@ class JiangTSSProcessor:
             # =======================================================================
             # 2. HAB DETECTION (Uses properly converted Rrs data)
             # =======================================================================
-            if config.enable_hab_detection:
+            if config.enable_hab_detection and rrs_bands_data:
                 logger.info("Detecting harmful algal blooms using converted Rrs data")
                 
                 try:
-                    # Data is already in Rrs units from unit conversion step!
-                    if rrs_bands_data:
-                        # Call HAB detection with properly converted Sentinel-2 bands
-                        hab_results = self.advanced_processor.detect_harmful_algal_blooms(
-                            chlorophyll=None,  # Not needed - calculated from spectral data
-                            phycocyanin=None,  # Not available from S2
-                            rrs_bands=rrs_bands_data  # Already in correct Rrs units
-                        )
-                        
-                        # Convert to ProcessingResult objects with metadata
-                        for key, value in hab_results.items():
-                            if value is not None and isinstance(value, np.ndarray):
-                                # Create metadata for this advanced product
-                                metadata = {
-                                    'product_type': 'hab_detection',
-                                    'algorithm': 'advanced_aquatic',
-                                    'description': f"HAB {key} - Advanced Aquatic Processing",
-                                    'processing_date': datetime.now().isoformat(),
-                                    'source_rrs': 'c2rcc_atmospheric_correction',
-                                    'biomass_threshold': config.hab_biomass_threshold,
-                                    'extreme_threshold': config.hab_extreme_threshold
-                                }
-                                
-                                # Calculate basic statistics
-                                stats = RasterIO.calculate_statistics(value) if hasattr(self, 'RasterIO') else {
-                                    'coverage_percent': 100.0, 'valid_pixels': value.size, 'data_range': [value.min(), value.max()]
-                                }
-                                
-                                advanced_results[f'advanced_hab_{key}'] = ProcessingResult(
-                                    success=True,
-                                    output_path="",  # Will be set during save
-                                    statistics=stats,
-                                    error_message=None,
-                                    metadata=metadata,
-                                    data=value  # Store the actual data for saving
-                                )
-                        
+                    hab_results = self.advanced_processor.detect_harmful_algal_blooms(
+                        chlorophyll=None,  # Not needed - calculated from spectral data
+                        phycocyanin=None,  # Not available from S2
+                        rrs_bands=rrs_bands_data  # Already in correct Rrs units
+                    )
+                    
+                    # FIXED: Store everything in statistics dictionary
+                    for key, value in hab_results.items():
+                        if value is not None and isinstance(value, np.ndarray):
+                            # Calculate basic statistics
+                            stats = RasterIO.calculate_statistics(value) if hasattr(self, 'RasterIO') else {
+                                'coverage_percent': 100.0, 
+                                'valid_pixels': value.size, 
+                                'data_range': [value.min(), value.max()]
+                            }
+                            
+                            # FIXED: Store all metadata and data in statistics dictionary
+                            stats['numpy_data'] = value  # Store the actual numpy array
+                            stats['product_type'] = 'hab_detection'
+                            stats['algorithm'] = 'advanced_aquatic'
+                            stats['description'] = f"HAB {key} - Advanced Aquatic Processing"
+                            stats['processing_date'] = datetime.now().isoformat()
+                            stats['source_rrs'] = 'c2rcc_atmospheric_correction'
+                            stats['biomass_threshold'] = config.hab_biomass_threshold
+                            stats['extreme_threshold'] = config.hab_extreme_threshold
+                            
+                            # FIXED: Only use parameters that ProcessingResult accepts
+                            advanced_results[f'advanced_hab_{key}'] = ProcessingResult(
+                                success=True,
+                                output_path="",  # Will be set during save
+                                statistics=stats,
+                                error_message=None
+                                # No metadata or data parameters
+                            )
+                    
                         logger.info(f"HAB detection completed: {len(hab_results)} products")
                     else:
                         logger.warning("No suitable converted spectral bands available for HAB detection")
-                        
+                    
                 except Exception as e:
                     logger.error(f"HAB detection failed: {e}")
-            
-            # =======================================================================
-            # 3. TROPHIC STATE ASSESSMENT (if chlorophyll available)
-            # =======================================================================
-            if config.enable_trophic_state:
-                logger.info("Calculating trophic state indices")
-                
-                try:
-                    # Try to extract chlorophyll from SNAP C2RCC output
-                    snap_chlorophyll = self._extract_snap_chlorophyll(c2rcc_path)
-                    
-                    if snap_chlorophyll is not None:
-                        trophic_results = self.advanced_processor.calculate_trophic_state(snap_chlorophyll)
-                        
-                        # Convert to ProcessingResult objects with metadata
-                        for key, value in trophic_results.items():
-                            if value is not None and isinstance(value, np.ndarray):
-                                # Create metadata for this advanced product
-                                metadata = {
-                                    'product_type': 'trophic_state',
-                                    'algorithm': 'advanced_aquatic',
-                                    'description': f"Trophic state {key} - Advanced Aquatic Processing",
-                                    'processing_date': datetime.now().isoformat(),
-                                    'source_chlorophyll': 'snap_c2rcc',
-                                    'include_secchi': config.tsi_include_secchi,
-                                    'include_phosphorus': config.tsi_include_phosphorus
-                                }
-                                
-                                # Calculate basic statistics
-                                stats = RasterIO.calculate_statistics(value) if hasattr(self, 'RasterIO') else {
-                                    'coverage_percent': 100.0, 'valid_pixels': value.size, 'data_range': [value.min(), value.max()]
-                                }
-                                
-                                advanced_results[f'advanced_tsi_{key}'] = ProcessingResult(
-                                    success=True,
-                                    output_path="",  # Will be set during save
-                                    statistics=stats,
-                                    error_message=None,
-                                    metadata=metadata,
-                                    data=value  # Store the actual data for saving
-                                )
-                        
-                        logger.info(f"Trophic state calculation completed: {len(trophic_results)} products")
-                    else:
-                        logger.warning("No chlorophyll data available for trophic state calculation")
-                        
-                except Exception as e:
-                    logger.error(f"Trophic state calculation failed: {e}")
-                    
-            logger.info(f"✅ Advanced algorithms completed: {len(advanced_results)} products generated")
-            
-            return advanced_results
-            
+        
         except Exception as e:
             logger.error(f"Error in advanced algorithms processing: {e}")
             import traceback
@@ -3151,7 +3125,7 @@ class AdvancedAquaticConfig:
     """Configuration for advanced aquatic algorithms"""
     
     # Trophic state calculation
-    enable_trophic_state: bool = True
+    enable_trophic_state: bool = False
     tsi_include_secchi: bool = False
     tsi_include_phosphorus: bool = False
     
