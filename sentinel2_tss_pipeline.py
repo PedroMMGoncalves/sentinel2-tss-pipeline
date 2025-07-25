@@ -1602,7 +1602,7 @@ class JiangTSSProcessor:
                 # We need to go up 2 levels to get to Results folder where Geometric_Products is located
                 
                 try:
-                    results_folder = os.path.dirname(os.path.dirname(output_folder))
+                    results_folder = os.path.dirname(output_folder)
                     geometric_folder = os.path.join(results_folder, "Geometric_Products")
                     
                     # Set up intermediate_paths with correct geometric location
