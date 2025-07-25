@@ -1436,98 +1436,111 @@ class JiangTSSProcessor:
         return found_bands
  
     
-    def process_jiang_tss(self, c2rcc_path: str, output_folder: str, 
-                        product_name: str, s2_result: Optional[ProcessingResult] = None) -> Dict[str, ProcessingResult]:
+    def process_jiang_tss(self, c2rcc_path: str, output_folder: str, product_name: str) -> Dict[str, ProcessingResult]:
         """
-        Complete TSS processing with automatic unit conversions and marine visualization
-        UPDATED: Now includes band scaling fix for marine visualization
+        Process Jiang TSS methodology from C2RCC outputs
+        
+        Advanced algorithms results are now properly passed to save method
+        Advanced results are integrated into the main results dictionary
         """
         try:
-            logger.info(f"🧮 Starting comprehensive TSS processing for {product_name}")
+            logger.info(f"Starting Jiang TSS processing for: {product_name}")
             
-            # Extract intermediate paths from S2 result for band scaling fix
-            intermediate_paths = {}
-            if s2_result and hasattr(s2_result, 'intermediate_paths') and s2_result.intermediate_paths:
-                intermediate_paths = s2_result.intermediate_paths
-                logger.info("✓ Received intermediate paths for band scaling fix:")
-                for key, path in intermediate_paths.items():
-                    logger.info(f"  {key}: {path}")
-            else:
-                logger.warning("No intermediate paths received - using C2RCC only approach")
-            
-            # Step 1: Load spectral bands using your current method
-            logger.info("🔍 Step 1: Loading water reflectance bands")
-            band_paths = self._update_band_mapping_for_mixed_types(c2rcc_path)
-            
-            if not band_paths:
-                return {'error': ProcessingResult(False, "", None, "No suitable water reflectance bands found")}
-            
-            # Check if we have enough bands (your method already logs detailed info)
-            if len(band_paths) < 8:
-                error_msg = f"Insufficient bands for Jiang algorithm: {len(band_paths)}/8 found"
-                logger.error(f"❌ {error_msg}")
+            # Extract product metadata
+            reference_metadata = self._extract_reference_metadata(c2rcc_path)
+            if not reference_metadata:
+                error_msg = "Could not extract spatial reference from C2RCC product"
+                logger.error(error_msg)
                 return {'error': ProcessingResult(False, "", None, error_msg)}
             
-            # Step 2: Load band data arrays
-            logger.info("📊 Step 2: Loading band data into memory")
-            bands_data, reference_metadata = self._load_bands_data(band_paths)
-            if bands_data is None:
-                return {'error': ProcessingResult(False, "", None, "Failed to load band data arrays")}
+            # Create intermediate tracking
+            intermediate_paths = {}
             
-            # Step 3: Apply unit conversions
-            logger.info("🔧 Step 3: Applying unit conversions")
+            # Step 1: Validate C2RCC output
+            logger.info("🔍 Step 1: Validating C2RCC outputs")
+            c2rcc_stats = self._verify_c2rcc_output(c2rcc_path)
+            if not c2rcc_stats:
+                error_msg = "C2RCC validation failed"
+                logger.error(error_msg)
+                return {'error': ProcessingResult(False, "", None, error_msg)}
+            
+            # Step 2: Extract required bands
+            logger.info("📡 Step 2: Extracting spectral bands")
+            bands_data, band_paths = self._extract_required_bands(c2rcc_path)
+            if not bands_data:
+                error_msg = "Failed to extract required bands"
+                logger.error(error_msg)
+                return {'error': ProcessingResult(False, "", None, error_msg)}
+            
+            # Step 3: Apply unit conversion 
+            logger.info("🔄 Step 3: Converting rhow to Rrs")
             converted_bands_data = self._apply_simple_unit_conversion(bands_data, band_paths)
             
             # Step 4: Apply Jiang methodology with converted data
             logger.info("🧮 Step 4: Applying Jiang TSS methodology")
             jiang_results = self._apply_full_jiang_methodology(converted_bands_data)
-            saved_results = self._save_complete_results(jiang_results, output_folder, product_name, reference_metadata)
             
-            # Step 5: Generate Jiang TSS outputs
-            logger.info("💾 Step 5: Preparing TSS results")
-            all_results = saved_results.copy()
-            
-            # Step 6: Advanced algorithms processing
+            # SURGICAL FIX: Process advanced algorithms BEFORE saving
+            advanced_results = {}
             if (hasattr(self.config, 'enable_advanced_algorithms') and 
                 self.config.enable_advanced_algorithms and 
                 hasattr(self, 'advanced_processor') and 
                 self.advanced_processor is not None):
                 
-                logger.info("🔬 Step 6: Processing advanced algorithms")
+                logger.info("🔬 Step 5: Processing advanced algorithms")
                 advanced_results = self._process_advanced_algorithms(
                     c2rcc_path, jiang_results, converted_bands_data, product_name
                 )
-                all_results.update(advanced_results)
                 logger.info(f"Advanced algorithms completed: {len(advanced_results)} additional products")
             
-            # Step 7: Marine visualization processing (WITH BAND SCALING FIX)
+            # Combine all results including advanced algorithms
+            all_algorithm_results = jiang_results.copy()
+            
+            # Add advanced algorithms data to the combined results for saving
+            for key, result in advanced_results.items():
+                if hasattr(result, 'data') and result.data is not None:
+                    # Extract the raw numpy array from ProcessingResult for saving
+                    all_algorithm_results[key] = result.data
+            
+            # Step 6: Save complete results (now includes advanced algorithms)
+            logger.info("💾 Step 6: Saving complete results including advanced algorithms")
+            saved_results = self._save_complete_results(all_algorithm_results, output_folder, product_name, reference_metadata)
+            
+            # Update ProcessingResult objects with actual file paths
+            final_results = saved_results.copy()
+            
+            # Update advanced algorithm results with actual output paths from saved_results
+            for key, advanced_result in advanced_results.items():
+                if key in saved_results:
+                    # Update the ProcessingResult with the actual saved path
+                    advanced_result.output_path = saved_results[key].output_path
+                    final_results[key] = advanced_result
+            
+            # Step 7: Marine visualization processing (if enabled)
             if (hasattr(self.config, 'enable_marine_visualization') and 
                 self.config.enable_marine_visualization and 
                 hasattr(self, 'marine_viz_processor') and 
                 self.marine_viz_processor is not None):
                 
-                logger.info("🌊 Step 7: Processing marine visualizations with band scaling fix")
-                
-                # CRITICAL: Pass intermediate_paths for band scaling fix
+                logger.info("🌊 Step 7: Processing marine visualizations")
                 viz_results = self.marine_viz_processor.process_marine_visualizations(
                     c2rcc_path, output_folder, product_name, intermediate_paths
                 )
-                all_results.update(viz_results)
+                final_results.update(viz_results)
                 
-                # Log visualization results
                 rgb_count = len([k for k in viz_results.keys() if k.startswith('rgb_')])
                 index_count = len([k for k in viz_results.keys() if k.startswith('index_')])
-                logger.info(f"Marine visualization completed: {rgb_count} RGB + {index_count} indices")            
-          
+                logger.info(f"Marine visualization completed: {rgb_count} RGB + {index_count} indices")
+        
             # Final validation and cleanup
             success_count = 0
-            for key, result in all_results.items():
+            for key, result in final_results.items():
                 if isinstance(result, ProcessingResult) and hasattr(result, 'success'):
                     if result.success:
                         success_count += 1
                 elif result is not None:
                     success_count += 1
-            total_count = len(all_results)
+            total_count = len(final_results)
 
             logger.info("=" * 80)
             logger.info(f"✅ COMPLETE TSS PROCESSING FINISHED: {product_name}")
@@ -1536,10 +1549,10 @@ class JiangTSSProcessor:
             
             # Log product breakdown
             if success_count > 0:
-                jiang_count = len([k for k in all_results.keys() if k.startswith('jiang_')])
-                advanced_count = len([k for k in all_results.keys() if k.startswith('advanced_')])
-                rgb_count = len([k for k in all_results.keys() if k.startswith('rgb_')])
-                index_count = len([k for k in all_results.keys() if k.startswith('index_')])
+                jiang_count = len([k for k in final_results.keys() if k.startswith('jiang_')])
+                advanced_count = len([k for k in final_results.keys() if k.startswith('advanced_')])
+                rgb_count = len([k for k in final_results.keys() if k.startswith('rgb_')])
+                index_count = len([k for k in final_results.keys() if k.startswith('index_')])
                 
                 logger.info(f"   Product breakdown:")
                 logger.info(f"     • Jiang TSS products: {jiang_count}")
@@ -1552,7 +1565,7 @@ class JiangTSSProcessor:
             
             logger.info("=" * 80)
             
-            return all_results
+            return final_results
             
         except Exception as e:
             error_msg = f"Jiang TSS processing failed: {str(e)}"
@@ -1562,8 +1575,13 @@ class JiangTSSProcessor:
 
         
     def _process_advanced_algorithms(self, c2rcc_path: str, jiang_results: Dict, 
-                                    rrs_bands_data: Dict, product_name: str) -> Dict[str, ProcessingResult]:
-        """Process advanced algorithms with properly converted Rrs data"""
+                                rrs_bands_data: Dict, product_name: str) -> Dict[str, ProcessingResult]:
+        """
+        Process advanced algorithms with properly converted Rrs data
+        
+        This method now returns ProcessingResults that can be saved properly
+        Returns ProcessingResult objects instead of raw numpy arrays
+        """
         try:
             logger.info("Processing advanced algorithms with unit-converted data")
             
@@ -1573,6 +1591,10 @@ class JiangTSSProcessor:
             if config is None:
                 logger.warning("No advanced config available, using defaults")
                 config = AdvancedAquaticConfig()
+            
+            # Get output folder for this product
+            output_folder = self.config.output_folder if hasattr(self.config, 'output_folder') else ""
+            clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
             
             # =======================================================================
             # 1. WATER CLARITY CALCULATION
@@ -1587,16 +1609,33 @@ class JiangTSSProcessor:
                     clarity_results = self.advanced_processor.calculate_water_clarity(
                         absorption, backscattering, config.solar_zenith_angle
                     )
-                    # Call existing save method for water clarity
-                    if hasattr(self, '_save_advanced_products'):
-                        clarity_saved = self._save_advanced_products(
-                            clarity_results, 'water_clarity', output_folder, product_name
-                        )
-                        advanced_results.update(clarity_saved)
-                    else:
-                        # Add clarity results with prefix
-                        for key, value in clarity_results.items():
-                            advanced_results[f'clarity_{key}'] = value
+                    
+                    # SURGICAL FIX: Convert to ProcessingResult objects with metadata
+                    for key, value in clarity_results.items():
+                        if value is not None and isinstance(value, np.ndarray):
+                            # Create metadata for this advanced product
+                            metadata = {
+                                'product_type': 'water_clarity',
+                                'algorithm': 'advanced_aquatic',
+                                'description': f"Water clarity {key} - Advanced Aquatic Processing",
+                                'processing_date': datetime.now().isoformat(),
+                                'source_absorption': 'jiang_methodology',
+                                'source_backscattering': 'jiang_methodology'
+                            }
+                            
+                            # Calculate basic statistics
+                            stats = RasterIO.calculate_statistics(value) if hasattr(self, 'RasterIO') else {
+                                'coverage_percent': 100.0, 'valid_pixels': value.size, 'data_range': [value.min(), value.max()]
+                            }
+                            
+                            advanced_results[f'advanced_clarity_{key}'] = ProcessingResult(
+                                success=True,
+                                output_path="",  # Will be set during save
+                                statistics=stats,
+                                error_message=None,
+                                metadata=metadata,
+                                data=value  # Store the actual data for saving
+                            )
                     
                     logger.info(f"Water clarity calculation completed: {len(clarity_results)} products")
                     
@@ -1618,16 +1657,34 @@ class JiangTSSProcessor:
                             phycocyanin=None,  # Not available from S2
                             rrs_bands=rrs_bands_data  # Already in correct Rrs units
                         )
-                        # SURGICAL FIX: Call existing save method for HAB detection
-                        if hasattr(self, '_save_advanced_products'):
-                            hab_saved = self._save_advanced_products(
-                                hab_results, 'hab_detection', output_folder, product_name
-                            )
-                            advanced_results.update(hab_saved)
-                        else:
-                            # Add HAB results with prefix
-                            for key, value in hab_results.items():
-                                advanced_results[f'hab_{key}'] = value
+                        
+                        # Convert to ProcessingResult objects with metadata
+                        for key, value in hab_results.items():
+                            if value is not None and isinstance(value, np.ndarray):
+                                # Create metadata for this advanced product
+                                metadata = {
+                                    'product_type': 'hab_detection',
+                                    'algorithm': 'advanced_aquatic',
+                                    'description': f"HAB {key} - Advanced Aquatic Processing",
+                                    'processing_date': datetime.now().isoformat(),
+                                    'source_rrs': 'c2rcc_atmospheric_correction',
+                                    'biomass_threshold': config.hab_biomass_threshold,
+                                    'extreme_threshold': config.hab_extreme_threshold
+                                }
+                                
+                                # Calculate basic statistics
+                                stats = RasterIO.calculate_statistics(value) if hasattr(self, 'RasterIO') else {
+                                    'coverage_percent': 100.0, 'valid_pixels': value.size, 'data_range': [value.min(), value.max()]
+                                }
+                                
+                                advanced_results[f'advanced_hab_{key}'] = ProcessingResult(
+                                    success=True,
+                                    output_path="",  # Will be set during save
+                                    statistics=stats,
+                                    error_message=None,
+                                    metadata=metadata,
+                                    data=value  # Store the actual data for saving
+                                )
                         
                         logger.info(f"HAB detection completed: {len(hab_results)} products")
                     else:
@@ -1635,6 +1692,54 @@ class JiangTSSProcessor:
                         
                 except Exception as e:
                     logger.error(f"HAB detection failed: {e}")
+            
+            # =======================================================================
+            # 3. TROPHIC STATE ASSESSMENT (if chlorophyll available)
+            # =======================================================================
+            if config.enable_trophic_state:
+                logger.info("Calculating trophic state indices")
+                
+                try:
+                    # Try to extract chlorophyll from SNAP C2RCC output
+                    snap_chlorophyll = self._extract_snap_chlorophyll(c2rcc_path)
+                    
+                    if snap_chlorophyll is not None:
+                        trophic_results = self.advanced_processor.calculate_trophic_state(snap_chlorophyll)
+                        
+                        # Convert to ProcessingResult objects with metadata
+                        for key, value in trophic_results.items():
+                            if value is not None and isinstance(value, np.ndarray):
+                                # Create metadata for this advanced product
+                                metadata = {
+                                    'product_type': 'trophic_state',
+                                    'algorithm': 'advanced_aquatic',
+                                    'description': f"Trophic state {key} - Advanced Aquatic Processing",
+                                    'processing_date': datetime.now().isoformat(),
+                                    'source_chlorophyll': 'snap_c2rcc',
+                                    'include_secchi': config.tsi_include_secchi,
+                                    'include_phosphorus': config.tsi_include_phosphorus
+                                }
+                                
+                                # Calculate basic statistics
+                                stats = RasterIO.calculate_statistics(value) if hasattr(self, 'RasterIO') else {
+                                    'coverage_percent': 100.0, 'valid_pixels': value.size, 'data_range': [value.min(), value.max()]
+                                }
+                                
+                                advanced_results[f'advanced_tsi_{key}'] = ProcessingResult(
+                                    success=True,
+                                    output_path="",  # Will be set during save
+                                    statistics=stats,
+                                    error_message=None,
+                                    metadata=metadata,
+                                    data=value  # Store the actual data for saving
+                                )
+                        
+                        logger.info(f"Trophic state calculation completed: {len(trophic_results)} products")
+                    else:
+                        logger.warning("No chlorophyll data available for trophic state calculation")
+                        
+                except Exception as e:
+                    logger.error(f"Trophic state calculation failed: {e}")
                     
             logger.info(f"✅ Advanced algorithms completed: {len(advanced_results)} products generated")
             
@@ -1645,6 +1750,7 @@ class JiangTSSProcessor:
             import traceback
             traceback.print_exc()
             return {}
+
             
     # This method enables to extract SNAP chlorophyll
     def _extract_snap_chlorophyll(self, c2rcc_path: str) -> Optional[np.ndarray]:
@@ -1803,58 +1909,72 @@ class JiangTSSProcessor:
         except Exception as e:
             logger.warning(f"Could not create visualization summary: {e}")
 
-    def _create_processing_summary(self, all_results: Dict[str, ProcessingResult], 
-                                  output_folder: str, product_name: str):
-        """Create comprehensive processing summary"""
+    def _create_processing_summary(self, output_results: Dict[str, ProcessingResult], 
+                                image_folder: str, product_name: str):
+        """Create a comprehensive processing summary file"""
         try:
-            summary_file = os.path.join(output_folder, f"{product_name}_Processing_Summary.txt")
+            summary_file = os.path.join(image_folder, f"{product_name}_ProcessingSummary.txt")
             
-            with open(summary_file, 'w') as f:
-                f.write(f"COMPREHENSIVE PROCESSING SUMMARY\n")
-                f.write(f"=" * 60 + "\n")
+            # Count products by category
+            categories = {
+                'TSS Products': [k for k in output_results.keys() if not k.startswith(('advanced_', 'rgb_', 'index_'))],
+                'Advanced Products': [k for k in output_results.keys() if k.startswith('advanced_')],
+                'RGB Composites': [k for k in output_results.keys() if k.startswith('rgb_')],
+                'Spectral Indices': [k for k in output_results.keys() if k.startswith('index_')]
+            }
+            
+            with open(summary_file, 'w', encoding='utf-8') as f:
+                f.write(f"SENTINEL-2 TSS PROCESSING SUMMARY\n")
+                f.write(f"{'='*50}\n")
                 f.write(f"Product: {product_name}\n")
-                f.write(f"Processing completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"Pipeline: Unified S2-TSS Processing with Marine Visualization\n\n")
+                f.write(f"Processing Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Pipeline: Unified S2-TSS Processing v1.0\n")
+                f.write(f"Structure: Scene-based organization\n\n")
                 
                 # Processing statistics
-                total_products = len(all_results)
-                successful_products = len([r for r in all_results.values() if r.success])
-                success_rate = (successful_products / total_products) * 100 if total_products > 0 else 0
+                total_products = len(output_results)
+                successful_products = len([r for r in output_results.values() if r.success])
                 
                 f.write(f"PROCESSING STATISTICS:\n")
-                f.write(f"  Total products attempted: {total_products}\n")
-                f.write(f"  Successfully generated: {successful_products}\n")
-                f.write(f"  Success rate: {success_rate:.1f}%\n\n")
+                f.write(f"{'-'*25}\n")
+                f.write(f"Total products generated: {total_products}\n")
+                f.write(f"Successfully saved: {successful_products}\n")
+                f.write(f"Success rate: {(successful_products/total_products)*100:.1f}%\n\n")
                 
-                # Product categories
-                categories = {
-                    'Jiang TSS Products': [k for k in all_results.keys() if k.startswith('jiang_')],
-                    'Advanced Algorithms': [k for k in all_results.keys() if k.startswith('advanced_')],
-                    'RGB Composites': [k for k in all_results.keys() if k.startswith('rgb_')],
-                    'Spectral Indices': [k for k in all_results.keys() if k.startswith('index_')]
-                }
-                
-                for category_name, products in categories.items():
+                # Product breakdown by category
+                for category, products in categories.items():
                     if products:
-                        successful = len([k for k in products if all_results[k].success])
-                        f.write(f"{category_name}: {successful}/{len(products)} successful\n")
+                        f.write(f"{category.upper()}:\n")
+                        f.write(f"{'-'*len(category)}\n")
+                        for product_key in products:
+                            if product_key in output_results:
+                                result = output_results[product_key]
+                                status = "✓" if result.success else "✗"
+                                f.write(f"{status} {os.path.basename(result.output_path)}\n")
+                        f.write(f"\n")
                 
-                # List all successful products
-                f.write(f"\nSUCCESSFUL PRODUCTS:\n")
-                f.write(f"{'-'*40}\n")
-                for product_key, result in all_results.items():
-                    if result.success:
-                        f.write(f"✓ {os.path.basename(result.output_path)}\n")
+                # Folder structure
+                f.write(f"FOLDER STRUCTURE:\n")
+                f.write(f"{'-'*17}\n")
+                f.write(f"{product_name}/\n")
+                f.write(f"├── TSS_Products/ ({len(categories['TSS Products'])} files)\n")
+                f.write(f"├── Advanced_Products/ ({len(categories['Advanced Products'])} files)\n")
+                f.write(f"├── RGB_Composites/ ({len(categories['RGB Composites'])} files)\n")
+                f.write(f"├── Spectral_Indices/ ({len(categories['Spectral Indices'])} files)\n")
+                f.write(f"└── Metadata files (*.txt)\n\n")
                 
-                # List failed products
-                failed_products = [k for k, r in all_results.items() if not r.success]
-                if failed_products:
-                    f.write(f"\nFAILED PRODUCTS:\n")
-                    f.write(f"{'-'*40}\n")
-                    for product_key in failed_products:
-                        f.write(f"✗ {product_key}: {all_results[product_key].error_message}\n")
+                # Algorithm information
+                f.write(f"ALGORITHMS APPLIED:\n")
+                f.write(f"{'-'*19}\n")
+                f.write(f"• Jiang et al. (2023) TSS methodology\n")
+                if categories['Advanced Products']:
+                    f.write(f"• Advanced aquatic algorithms\n")
+                if categories['RGB Composites']:
+                    f.write(f"• Marine visualization processing\n")
+                if categories['Spectral Indices']:
+                    f.write(f"• Spectral index calculations\n")
             
-            logger.info(f"Processing summary created: {os.path.basename(summary_file)}")
+            logger.info(f"✓ Processing summary created: {os.path.basename(summary_file)}")
             
         except Exception as e:
             logger.warning(f"Could not create processing summary: {e}")
@@ -2174,214 +2294,290 @@ class JiangTSSProcessor:
         }
     
     def _save_complete_results(self, results: Dict[str, np.ndarray], output_folder: str, 
-                        product_name: str, reference_metadata: Dict) -> Dict[str, ProcessingResult]:
-        """Save complete results - Core Jiang + Water Types + Advanced algorithms"""
-        try:
-            output_results = {}
+                            product_name: str, reference_metadata: Dict) -> Dict[str, ProcessingResult]:
+            """
+            Save complete results - Core Jiang + Water Types + Advanced algorithms
             
-            # Clean product name (remove .zip extension)
-            clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
-            
-            # Create main output structure with scene-based folders
-            scene_folder = os.path.join(output_folder, clean_product_name)
-            tss_folder = os.path.join(scene_folder, "TSS_Products") 
-            advanced_folder = os.path.join(scene_folder, "Advanced_Products")
-            os.makedirs(tss_folder, exist_ok=True)
-            os.makedirs(advanced_folder, exist_ok=True)
-            
-            # ========================================================================
-            # CORE JIANG PRODUCTS (TSS_Products folder) - INCLUDING WATER TYPES
-            # ========================================================================
-            jiang_products = {
-                'absorption': {
-                    'data': results.get('absorption'),
-                    'filename': f"{clean_product_name}_Jiang_Absorption.tif",
-                    'description': "Absorption coefficient (m⁻¹) - Jiang et al. 2023",
-                    'folder': tss_folder
-                },
-                'backscattering': {
-                    'data': results.get('backscattering'),
-                    'filename': f"{clean_product_name}_Jiang_Backscattering.tif", 
-                    'description': "Particulate backscattering coefficient (m⁻¹) - Jiang et al. 2023",
-                    'folder': tss_folder
-                },
-                'reference_band': {
-                    'data': results.get('reference_band'),
-                    'filename': f"{clean_product_name}_Jiang_ReferenceBand.tif",
-                    'description': "Reference wavelength used (nm) - Jiang et al. 2023",
-                    'folder': tss_folder
-                },
-                'tss': {
-                    'data': results.get('tss'),
-                    'filename': f"{clean_product_name}_Jiang_TSS.tif",
-                    'description': "Total Suspended Solids (g/m³) - Jiang et al. 2023",
-                    'folder': tss_folder
-                },
-                # NEW: Water Type Classification
-                'water_type_classification': {
-                    'data': results.get('water_type_classification'),
-                    'filename': f"{clean_product_name}_Jiang_WaterTypes.tif",
-                    'description': "Water Type Classification (0=Invalid, 1=Clear, 2=Moderate, 3=Highly turbid, 4=Extremely turbid) - Jiang et al. 2023",
-                    'folder': tss_folder
-                },
-                'valid_mask': {
-                    'data': results.get('valid_mask'),
-                    'filename': f"{clean_product_name}_Jiang_ValidMask.tif",
-                    'description': "Valid pixel mask - Jiang processing",
-                    'folder': tss_folder
+            """
+            try:
+                output_results = {}
+                
+                # Clean product name (remove .zip extension)
+                clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
+                
+                # Create main output structure with scene-based folders
+                scene_folder = os.path.join(output_folder, clean_product_name)
+                tss_folder = os.path.join(scene_folder, "TSS_Products") 
+                advanced_folder = os.path.join(scene_folder, "Advanced_Products")
+                # Create additional folders for RGB and spectral indices
+                rgb_folder = os.path.join(scene_folder, "RGB_Composites")
+                spectral_folder = os.path.join(scene_folder, "Spectral_Indices")
+                
+                os.makedirs(tss_folder, exist_ok=True)
+                os.makedirs(advanced_folder, exist_ok=True)
+                os.makedirs(rgb_folder, exist_ok=True)
+                os.makedirs(spectral_folder, exist_ok=True)
+                
+                # ========================================================================
+                # CORE JIANG PRODUCTS (TSS_Products folder) - INCLUDING WATER TYPES
+                # ========================================================================
+                jiang_products = {
+                    'absorption': {
+                        'data': results.get('absorption'),
+                        'filename': f"{clean_product_name}_Jiang_Absorption.tif",
+                        'description': "Absorption coefficient (m⁻¹) - Jiang et al. 2023",
+                        'folder': tss_folder
+                    },
+                    'backscattering': {
+                        'data': results.get('backscattering'),
+                        'filename': f"{clean_product_name}_Jiang_Backscattering.tif", 
+                        'description': "Particulate backscattering coefficient (m⁻¹) - Jiang et al. 2023",
+                        'folder': tss_folder
+                    },
+                    'reference_band': {
+                        'data': results.get('reference_band'),
+                        'filename': f"{clean_product_name}_Jiang_ReferenceBand.tif",
+                        'description': "Reference wavelength used (nm) - Jiang et al. 2023",
+                        'folder': tss_folder
+                    },
+                    'tss': {
+                        'data': results.get('tss'),
+                        'filename': f"{clean_product_name}_Jiang_TSS.tif",
+                        'description': "Total Suspended Solids (g/m³) - Jiang et al. 2023",
+                        'folder': tss_folder
+                    },
+                    # Water Type Classification
+                    'water_type_classification': {
+                        'data': results.get('water_type_classification'),
+                        'filename': f"{clean_product_name}_Jiang_WaterTypes.tif",
+                        'description': "Water Type Classification (0=Invalid, 1=Clear, 2=Moderate, 3=Highly turbid, 4=Extremely turbid) - Jiang et al. 2023",
+                        'folder': tss_folder
+                    },
+                    'valid_mask': {
+                        'data': results.get('valid_mask'),
+                        'filename': f"{clean_product_name}_Jiang_ValidMask.tif",
+                        'description': "Valid pixel mask - Jiang processing",
+                        'folder': tss_folder
+                    }
                 }
-            }
-            
-            # ========================================================================
-            # RELIABLE ADVANCED ALGORITHM PRODUCTS (Advanced_Products folder)
-            # ========================================================================
-            advanced_products = {}
-            
-            # WATER CLARITY products
-            clarity_products = {
-                'secchi_depth': ('clarity_secchi_depth', "Secchi Depth (m) - Tyler 1968"),
-                'clarity_index': ('clarity_clarity_index', "Water Clarity Index (0-1)"),
-                'euphotic_depth': ('clarity_euphotic_depth', "Euphotic Depth (m) - 1% light level"),
-                'diffuse_attenuation': ('clarity_diffuse_attenuation', "Diffuse Attenuation Coefficient (m⁻¹)"),
-                'beam_attenuation': ('clarity_beam_attenuation', "Beam Attenuation Coefficient (m⁻¹)"),
-                'turbidity_proxy': ('clarity_turbidity_proxy', "Turbidity Proxy (NTU equivalent)")
-            }
-            
-            for product_key, (result_key, description) in clarity_products.items():
-                if result_key in results:
-                    advanced_products[product_key] = {
-                        'data': results[result_key],
-                        'filename': f"{clean_product_name}_Clarity_{product_key.replace('_', '').title()}.tif",
-                        'description': description,
-                        'folder': advanced_folder
-                    }
-            
-            # HARMFUL ALGAL BLOOM products
-            hab_products = {
-                'hab_probability': ('hab_hab_probability', "Harmful Algal Bloom Probability (0-1)"),
-                'hab_risk_level': ('hab_hab_risk_level', "HAB Risk Level (0=None, 1=Low, 2=Medium, 3=High)"),
-                'high_biomass_alert': ('hab_high_biomass_alert', "High Biomass Alert (threshold > 0.6)"),
-                'extreme_biomass_alert': ('hab_extreme_biomass_alert', "Extreme Biomass Alert (threshold > 0.8)"),
-                'ndci_bloom': ('hab_ndci_bloom', "NDCI Bloom Detection (Mishra & Mishra 2012)"),
-                'flh_bloom': ('hab_flh_bloom', "Fluorescence Line Height Bloom (Gower et al. 1999)"),
-                'mci_bloom': ('hab_mci_bloom', "Maximum Chlorophyll Index Bloom (Gitelson et al. 2008)"),
-                'cyanobacteria_bloom': ('hab_cyanobacteria_bloom', "Cyanobacteria Bloom Detection"),
-                'ndci_values': ('hab_ndci_values', "NDCI Values"),
-                'flh_values': ('hab_flh_values', "Fluorescence Line Height Values"),
-                'mci_values': ('hab_mci_values', "Maximum Chlorophyll Index Values")
-            }
-            
-            for product_key, (result_key, description) in hab_products.items():
-                if result_key in results:
-                    advanced_products[product_key] = {
-                        'data': results[result_key],
-                        'filename': f"{clean_product_name}_HAB_{product_key.replace('hab_', '').title()}.tif",
-                        'description': description,
-                        'folder': advanced_folder
-                    }
-            
-            # ========================================================================
-            # SAVE ALL PRODUCTS WITH FIXED DATA TYPE HANDLING
-            # ========================================================================
-            all_products = {**jiang_products, **advanced_products}
-            
-            logger.info(f"Saving {len(all_products)} products:")
-            logger.info(f"  Core Jiang products: {len(jiang_products)}")
-            logger.info(f"  Advanced products: {len(advanced_products)}")
-            
-            # Define classification products that need uint8 and nodata=255
-            classification_product_keys = [
-                'hab_risk_level', 'reference_band', 'valid_mask', 'high_biomass_alert', 
-                'extreme_biomass_alert', 'ndci_bloom', 'flh_bloom', 'mci_bloom', 
-                'cyanobacteria_bloom', 'water_type_classification'  # NEW
-            ]
-            
-            # Save each product with FIXED data type handling
-            saved_count = 0
-            skipped_count = 0
-            
-            for product_key, product_info in all_products.items():
-                if product_info['data'] is not None:
-                    output_path = os.path.join(product_info['folder'], product_info['filename'])
-                    
-                    # FIXED: Determine appropriate nodata value and handle data types properly
-                    if any(class_key in product_key for class_key in classification_product_keys):
-                        # Classification products: use uint8 and nodata=255
-                        nodata_value = 255
+                
+                # ========================================================================
+                # ENHANCED ADVANCED ALGORITHM PRODUCTS HANDLING
+                # ========================================================================
+                advanced_products = {}
+                
+                # Handle all advanced products dynamically
+                for key, data in results.items():
+                    if key.startswith('advanced_'):
+                        # Determine product category and create appropriate filename
+                        if 'clarity' in key:
+                            category = 'WaterClarity'
+                            description = "Water clarity analysis - Advanced Aquatic Processing"
+                        elif 'hab' in key:
+                            category = 'HAB'
+                            description = "Harmful Algal Bloom detection - Advanced Aquatic Processing"
+                        elif 'tsi' in key:
+                            category = 'TrophicState'
+                            description = "Trophic state assessment - Advanced Aquatic Processing"
+                        else:
+                            category = 'General'
+                            description = "Advanced algorithm product"
                         
-                        # FIXED: Handle NaN values before casting to uint8
-                        data_to_save = product_info['data'].copy().astype(np.float64)
+                        # Create clean filename
+                        clean_key = key.replace('advanced_', '').replace('_', '').title()
+                        filename = f"{clean_product_name}_Advanced_{category}_{clean_key}.tif"
                         
-                        # Replace NaN with nodata value
-                        data_to_save[np.isnan(data_to_save)] = nodata_value
+                        advanced_products[key] = {
+                            'data': data,
+                            'filename': filename,
+                            'description': description,
+                            'folder': advanced_folder
+                        }
+                
+                # Keep existing reliable water clarity products if they exist
+                clarity_products = {
+                    'secchi_depth': ('clarity_secchi_depth', "Secchi Depth (m) - Tyler 1968"),
+                    'clarity_index': ('clarity_clarity_index', "Water Clarity Index (0-1)"),
+                    'euphotic_depth': ('clarity_euphotic_depth', "Euphotic Depth (m) - 1% light level"),
+                    'diffuse_attenuation': ('clarity_diffuse_attenuation', "Diffuse Attenuation Coefficient (m⁻¹)"),
+                    'beam_attenuation': ('clarity_beam_attenuation', "Beam Attenuation Coefficient (m⁻¹)"),
+                    'turbidity_proxy': ('clarity_turbidity_proxy', "Turbidity Proxy (NTU equivalent)")
+                }
+                
+                for product_key, (result_key, description) in clarity_products.items():
+                    if result_key in results:
+                        advanced_products[product_key] = {
+                            'data': results[result_key],
+                            'filename': f"{clean_product_name}_Clarity_{product_key.replace('_', '').title()}.tif",
+                            'description': description,
+                            'folder': advanced_folder
+                        }
+                
+                # Keep existing reliable HAB products if they exist
+                hab_products = {
+                    'hab_probability': ('hab_hab_probability', "Harmful Algal Bloom Probability (0-1)"),
+                    'hab_risk_level': ('hab_hab_risk_level', "HAB Risk Level (0=None, 1=Low, 2=Medium, 3=High)"),
+                    'high_biomass_alert': ('hab_high_biomass_alert', "High Biomass Alert (threshold > 0.6)"),
+                    'extreme_biomass_alert': ('hab_extreme_biomass_alert', "Extreme Biomass Alert (threshold > 0.8)"),
+                    'ndci_bloom': ('hab_ndci_bloom', "NDCI Bloom Detection (Mishra & Mishra 2012)"),
+                    'flh_bloom': ('hab_flh_bloom', "Fluorescence Line Height Bloom (Gower et al. 1999)"),
+                    'mci_bloom': ('hab_mci_bloom', "Maximum Chlorophyll Index Bloom (Gitelson et al. 2008)"),
+                    'cyanobacteria_bloom': ('hab_cyanobacteria_bloom', "Cyanobacteria Bloom Detection"),
+                    'ndci_values': ('hab_ndci_values', "NDCI Values"),
+                    'flh_values': ('hab_flh_values', "Fluorescence Line Height Values"),
+                    'mci_values': ('hab_mci_values', "Maximum Chlorophyll Index Values")
+                }
+                
+                for product_key, (result_key, description) in hab_products.items():
+                    if result_key in results:
+                        advanced_products[product_key] = {
+                            'data': results[result_key],
+                            'filename': f"{clean_product_name}_HAB_{product_key.replace('hab_', '').title()}.tif",
+                            'description': description,
+                            'folder': advanced_folder
+                        }
+                
+                # ========================================================================
+                # RGB COMPOSITES HANDLING
+                # ========================================================================
+                rgb_products = {}
+                for key, data in results.items():
+                    if key.startswith('rgb_'):
+                        rgb_name = key.replace('rgb_', '').replace('_', '').title()
+                        rgb_products[key] = {
+                            'data': data,
+                            'filename': f"{clean_product_name}_RGB_{rgb_name}.tif",
+                            'description': f"RGB composite - {rgb_name}",
+                            'folder': rgb_folder
+                        }
+                
+                # ========================================================================
+                # SPECTRAL INDICES HANDLING
+                # ========================================================================
+                spectral_products = {}
+                for key, data in results.items():
+                    if key.startswith('index_'):
+                        index_name = key.replace('index_', '').replace('_', '').upper()
+                        spectral_products[key] = {
+                            'data': data,
+                            'filename': f"{clean_product_name}_Index_{index_name}.tif",
+                            'description': f"Spectral index - {index_name}",
+                            'folder': spectral_folder
+                        }
+                
+                # ========================================================================
+                # SAVE ALL PRODUCTS WITH FIXED DATA TYPE HANDLING
+                # ========================================================================
+                all_products = {**jiang_products, **advanced_products, **rgb_products, **spectral_products}
+                
+                logger.info(f"Saving {len(all_products)} products:")
+                logger.info(f"  Core Jiang products: {len(jiang_products)}")
+                logger.info(f"  Advanced products: {len(advanced_products)}")
+                if rgb_products:
+                    logger.info(f"  RGB products: {len(rgb_products)}")
+                if spectral_products:
+                    logger.info(f"  Spectral products: {len(spectral_products)}")
+                
+                # Define classification products that need uint8 and nodata=255
+                classification_product_keys = [
+                    'hab_risk_level', 'reference_band', 'valid_mask', 'high_biomass_alert', 
+                    'extreme_biomass_alert', 'ndci_bloom', 'flh_bloom', 'mci_bloom', 
+                    'cyanobacteria_bloom', 'water_type_classification'
+                ]
+                
+                # Save each product with FIXED data type handling
+                saved_count = 0
+                skipped_count = 0
+                
+                for product_key, product_info in all_products.items():
+                    if product_info['data'] is not None:
+                        output_path = os.path.join(product_info['folder'], product_info['filename'])
                         
-                        # Ensure values are in valid uint8 range (0-254, reserve 255 for nodata)
-                        data_to_save = np.clip(data_to_save, 0, 254)
+                        # Determine appropriate nodata value and handle data types properly
+                        if any(class_key in product_key for class_key in classification_product_keys):
+                            # Classification products: use uint8 and nodata=255
+                            nodata_value = 255
+                            
+                            # Handle NaN values before casting to uint8
+                            data_to_save = product_info['data'].copy().astype(np.float64)
+                            
+                            # Replace NaN with nodata value
+                            data_to_save[np.isnan(data_to_save)] = nodata_value
+                            
+                            # Ensure values are in valid uint8 range (0-254, reserve 255 for nodata)
+                            data_to_save = np.clip(data_to_save, 0, 254)
+                            
+                            # Set nodata pixels back to 255
+                            original_data = product_info['data']
+                            data_to_save[np.isnan(original_data)] = 255
+                            
+                            # Now safe to cast to uint8
+                            data_to_save = data_to_save.astype(np.uint8)
+                        else:
+                            # Continuous products: use float32 and nodata=-9999
+                            nodata_value = -9999
+                            data_to_save = product_info['data'].astype(np.float32)
                         
-                        # Set nodata pixels back to 255
-                        original_data = product_info['data']
-                        data_to_save[np.isnan(original_data)] = 255
-                        
-                        # Now safe to cast to uint8
-                        data_to_save = data_to_save.astype(np.uint8)
-                    else:
-                        # Continuous products: use float32 and nodata=-9999
-                        nodata_value = -9999
-                        data_to_save = product_info['data'].astype(np.float32)
-                    
-                    success = RasterIO.write_raster(
-                        data_to_save, 
-                        output_path, 
-                        reference_metadata, 
-                        product_info['description'],
-                        nodata=nodata_value
-                    )
-                    
-                    if success:
-                        stats = RasterIO.calculate_statistics(product_info['data'])
-                        logger.debug(f"Saved {product_key}: {stats['coverage_percent']:.1f}% coverage")
-                        
-                        output_results[product_key] = ProcessingResult(
-                            True, output_path, stats, None
+                        success = RasterIO.write_raster(
+                            data_to_save, 
+                            output_path, 
+                            reference_metadata, 
+                            product_info['description'],
+                            nodata=nodata_value
                         )
-                        saved_count += 1
+                        
+                        if success:
+                            stats = RasterIO.calculate_statistics(product_info['data'])
+                            logger.debug(f"Saved {product_key}: {stats['coverage_percent']:.1f}% coverage")
+                            
+                            output_results[product_key] = ProcessingResult(
+                                True, output_path, stats, None
+                            )
+                            saved_count += 1
+                        else:
+                            logger.error(f"Failed to save {product_key}")
+                            output_results[product_key] = ProcessingResult(
+                                False, output_path, None, f"Failed to write {product_key}"
+                            )
                     else:
-                        logger.error(f"Failed to save {product_key}")
-                        output_results[product_key] = ProcessingResult(
-                            False, output_path, None, f"Failed to write {product_key}"
-                        )
-                else:
-                    logger.debug(f"Skipping {product_key}: no data available")
-                    skipped_count += 1
-            
-            # ========================================================================
-            # CREATE WATER TYPE LEGEND FILE
-            # ========================================================================
-            if 'water_type_classification' in results and results['water_type_classification'] is not None:
-                self._create_water_type_legend(scene_folder, clean_product_name)
-            
-            # ========================================================================
-            # FINAL SUMMARY
-            # ========================================================================
-            logger.info(f"Product saving completed:")
-            logger.info(f"  Successfully saved: {saved_count} products")
-            logger.info(f"  Skipped (no data): {skipped_count} products")
-            logger.info(f"  Total attempted: {len(all_products)} products")
-            logger.info(f"  Output folder: {scene_folder}")
-            
-            # Create processing summary
-            if 'tss' in output_results and output_results['tss'].success:
-                self._log_processing_summary(results, clean_product_name)
-            
-            # Create product index file
-            self._create_product_index(output_results, scene_folder, clean_product_name)
-            
-            return output_results
-            
-        except Exception as e:
-            error_msg = f"Error saving complete results: {str(e)}"
-            logger.error(error_msg)
-            return {'error': ProcessingResult(False, "", None, error_msg)}
+                        logger.debug(f"Skipping {product_key}: no data available")
+                        skipped_count += 1
+                
+                # ========================================================================
+                # CREATE WATER TYPE LEGEND FILE
+                # ========================================================================
+                if 'water_type_classification' in results and results['water_type_classification'] is not None:
+                    self._create_water_type_legend(scene_folder, clean_product_name)
+                
+                # ========================================================================
+                # FINAL SUMMARY
+                # ========================================================================
+                logger.info(f"Product saving completed:")
+                logger.info(f"  📁 Scene folder: {clean_product_name}/")
+                logger.info(f"     ├── TSS_Products/ ({len(jiang_products)} files)")
+                logger.info(f"     ├── Advanced_Products/ ({len(advanced_products)} files)")
+                if rgb_products:
+                    logger.info(f"     ├── RGB_Composites/ ({len(rgb_products)} files)")
+                if spectral_products:
+                    logger.info(f"     ├── Spectral_Indices/ ({len(spectral_products)} files)")
+                logger.info(f"  ✅ Successfully saved: {saved_count} products")
+                logger.info(f"  ⏭️  Skipped (no data): {skipped_count} products")
+                logger.info(f"  📊 Total attempted: {len(all_products)} products")
+                logger.info(f"  📂 Output folder: {scene_folder}")
+                
+                # Create processing summary
+                if 'tss' in output_results and output_results['tss'].success:
+                    self._log_processing_summary(results, clean_product_name)
+                
+                # Create product index file
+                self._create_product_index(output_results, scene_folder, clean_product_name)
+                
+                return output_results
+                
+            except Exception as e:
+                error_msg = f"Error saving complete results: {str(e)}"
+                logger.error(error_msg)
+                return {'error': ProcessingResult(False, "", None, error_msg)}
         
     def _create_water_type_legend(self, output_folder: str, product_name: str):
         """Create a legend file for water type classification"""
