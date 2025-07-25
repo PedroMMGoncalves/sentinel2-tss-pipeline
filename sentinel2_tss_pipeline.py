@@ -1477,15 +1477,27 @@ class JiangTSSProcessor:
         try:
             logger.info(f"Starting Jiang TSS processing for: {product_name}")
             
-            # Skip metadata extraction - not critical for TSS processing
-            reference_metadata = {
-                'geotransform': None,
-                'projection': None,
-                'width': None,
-                'height': None,
-                'nodata': -9999
-}
-            
+            # CRITICAL FIX: Extract proper georeference from C2RCC output
+            try:
+                # Get reference metadata from C2RCC data
+                data_folder = c2rcc_path.replace('.dim', '.data')
+                sample_band_path = os.path.join(data_folder, 'rrs_B4.img')  # Use red band as reference
+                
+                if os.path.exists(sample_band_path):
+                    _, reference_metadata = RasterIO.read_raster(sample_band_path)
+                    logger.info("✅ Using C2RCC georeference for proper geographic positioning")
+                else:
+                    logger.error("❌ Cannot find reference band for georeference - products will have incorrect coordinates")
+                    reference_metadata = {
+                        'geotransform': None,
+                        'projection': None,
+                        'width': None,
+                        'height': None,
+                        'nodata': -9999
+                    }
+            except Exception as e:
+                logger.error(f"Error extracting georeference: {e}")
+                    
             # Create intermediate tracking
             intermediate_paths = {}
             
@@ -1533,7 +1545,7 @@ class JiangTSSProcessor:
             logger.info("🧮 Step 4: Applying Jiang TSS methodology")
             jiang_results = self._apply_full_jiang_methodology(converted_bands_data)
             
-            # SURGICAL FIX: Process advanced algorithms BEFORE saving
+            # Step 5: Process advanced algorithms (ONLY ONCE)
             advanced_results = {}
             if (hasattr(self.config, 'enable_advanced_algorithms') and 
                 self.config.enable_advanced_algorithms and 
@@ -1541,27 +1553,22 @@ class JiangTSSProcessor:
                 self.advanced_processor is not None):
                 
                 logger.info("🔬 Step 5: Processing advanced algorithms")
+                
+                # SINGLE CALL to _process_advanced_algorithms
                 advanced_results = self._process_advanced_algorithms(
                     c2rcc_path, jiang_results, converted_bands_data, product_name
                 )
-                logger.info(f"Advanced algorithms completed: {len(advanced_results)} additional products")
-
-                # WITH this FIXED version:
-
-                advanced_results = self._process_advanced_algorithms(
-                    c2rcc_path, jiang_results, converted_bands_data, product_name
-                )
-
+                
                 # CRITICAL FIX: Check if advanced_results is None before using len()
                 if advanced_results is None:
                     logger.warning("Advanced algorithms returned None, using empty dictionary")
                     advanced_results = {}
-
+                
                 logger.info(f"Advanced algorithms completed: {len(advanced_results)} additional products")
-            
+
             # Combine all results including advanced algorithms
             all_algorithm_results = jiang_results.copy()
-            
+
             # Add advanced algorithms data to the combined results for saving
             for key, result in advanced_results.items():
                 if isinstance(result, ProcessingResult) and result.statistics and 'numpy_data' in result.statistics:
@@ -1589,14 +1596,89 @@ class JiangTSSProcessor:
                 self.marine_viz_processor is not None):
                 
                 logger.info("🌊 Step 7: Processing marine visualizations")
-                viz_results = self.marine_viz_processor.process_marine_visualizations(
-                    c2rcc_path, output_folder, product_name, intermediate_paths
-                )
-                final_results.update(viz_results)
                 
-                rgb_count = len([k for k in viz_results.keys() if k.startswith('rgb_')])
-                index_count = len([k for k in viz_results.keys() if k.startswith('index_')])
-                logger.info(f"Marine visualization completed: {rgb_count} RGB + {index_count} indices")
+                # CRITICAL FIX: Calculate correct paths based on actual folder structure
+                # Current output_folder points to: TSS_Products/SCENE_NAME/
+                # We need to go up 2 levels to get to Results folder where Geometric_Products is located
+                
+                try:
+                    results_folder = os.path.dirname(os.path.dirname(output_folder))
+                    geometric_folder = os.path.join(results_folder, "Geometric_Products")
+                    
+                    # Set up intermediate_paths with correct geometric location
+                    if intermediate_paths is None:
+                        intermediate_paths = {}
+                    
+                    # Find the geometric product file
+                    clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
+                    if 'MSIL1C' in clean_product_name:
+                        parts = clean_product_name.split('_')
+                        if len(parts) >= 6:
+                            clean_name = f"{parts[0]}_{parts[2]}_{parts[5]}"
+                        else:
+                            clean_name = clean_product_name.replace('MSIL1C_', '')
+                    else:
+                        clean_name = clean_product_name
+                    
+                    geometric_filename = f"Resampled_{clean_name}_Subset.dim"
+                    geometric_path = os.path.join(geometric_folder, geometric_filename)
+                    
+                    # FIXED: Set the correct geometric path
+                    intermediate_paths['geometric_path'] = geometric_path
+                    
+                    # Debug logging
+                    logger.info(f"Current output_folder: {output_folder}")
+                    logger.info(f"Results folder: {results_folder}")
+                    logger.info(f"Looking for geometric products: {geometric_path}")
+                    
+                    # Verify geometric products exist
+                    if os.path.exists(geometric_path):
+                        logger.info("✅ Geometric products found for marine visualization")
+                        
+                        # Call marine visualization with correct scene output folder
+                        # Marine viz will create RGB_Composites/ and Spectral_Indices/ in the scene folder
+                        viz_results = self.marine_viz_processor.process_marine_visualizations(
+                            c2rcc_path, output_folder, product_name, intermediate_paths
+                        )
+                        
+                        # Add visualization results to final results
+                        final_results.update(viz_results)
+                        
+                        # Count successful visualizations
+                        rgb_count = len([k for k in viz_results.keys() if k.startswith('rgb_')])
+                        index_count = len([k for k in viz_results.keys() if k.startswith('index_')])
+                        logger.info(f"Marine visualization completed: {rgb_count} RGB + {index_count} indices")
+                        
+                    else:
+                        logger.error(f"❌ Geometric products not found at: {geometric_path}")
+                        logger.error("Cannot proceed with marine visualization")
+                        
+                        # Add error to results
+                        final_results['visualization_error'] = ProcessingResult(
+                            success=False,
+                            output_path="",
+                            statistics=None,
+                            error_message="Geometric products not found for visualization"
+                        )
+                        
+                except Exception as viz_error:
+                    logger.error(f"Marine visualization processing failed: {viz_error}")
+                    import traceback
+                    logger.error(f"Visualization error traceback: {traceback.format_exc()}")
+                    
+                    # Add error to results
+                    final_results['visualization_error'] = ProcessingResult(
+                        success=False,
+                        output_path="",
+                        statistics=None,
+                        error_message=str(viz_error)
+                    )
+            
+            else:
+                if not getattr(self.config, 'enable_marine_visualization', False):
+                    logger.info("🌊 Marine visualization disabled in configuration")
+                else:
+                    logger.warning("🌊 Marine visualization processor not available")
         
             # Final validation and cleanup
             success_count = 0
