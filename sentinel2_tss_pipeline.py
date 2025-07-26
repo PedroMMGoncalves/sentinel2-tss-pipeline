@@ -3706,8 +3706,15 @@ class S2MarineVisualizationProcessor:
             # Create visualization output directories
             # =======================================================================
             # Create RGB_Composites and Spectral_Indices folders as expected
-            rgb_output_dir = os.path.join(output_folder, "RGB_Composites")
-            indices_output_dir = os.path.join(output_folder, "Spectral_Indices")
+            #rgb_output_dir = os.path.join(output_folder, "RGB_Composites")
+            #indices_output_dir = os.path.join(output_folder, "Spectral_Indices")
+            # Clean product name (remove .zip extension)
+            clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
+
+            # Create scene-specific folder structure (matching Jiang TSS processor)
+            scene_folder = os.path.join(output_folder, clean_product_name)
+            rgb_output_dir = os.path.join(scene_folder, "RGB_Composites")
+            indices_output_dir = os.path.join(scene_folder, "Spectral_Indices")
             
             os.makedirs(rgb_output_dir, exist_ok=True)
             os.makedirs(indices_output_dir, exist_ok=True)
