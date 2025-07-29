@@ -1649,6 +1649,17 @@ class JiangTSSProcessor:
                         index_count = len([k for k in viz_results.keys() if k.startswith('index_')])
                         logger.info(f"Marine visualization completed: {rgb_count} RGB + {index_count} indices")
                         
+                        # Cleanup geometric products after successful processing
+                        logger.info("🧹 Starting geometric products cleanup...")
+                        try:
+                            cleanup_success = self._cleanup_geometric_products(results_folder, product_name)
+                            if cleanup_success:
+                                logger.info("✅ Geometric products cleanup completed successfully")
+                            else:
+                                logger.warning("⚠️ Geometric products cleanup had issues")
+                        except Exception as cleanup_error:
+                            logger.error(f"❌ Geometric products cleanup failed: {cleanup_error}")
+                        
                     else:
                         logger.error(f"❌ Geometric products not found at: {geometric_path}")
                         logger.error("Cannot proceed with marine visualization")
@@ -1696,20 +1707,28 @@ class JiangTSSProcessor:
             logger.info(f"   Success rate: {(success_count/total_count)*100:.1f}%")
             
             # Log product breakdown
-            if success_count > 0:
-                jiang_count = len([k for k in final_results.keys() if k.startswith('jiang_')])
-                advanced_count = len([k for k in final_results.keys() if k.startswith('advanced_')])
-                rgb_count = len([k for k in final_results.keys() if k.startswith('rgb_')])
-                index_count = len([k for k in final_results.keys() if k.startswith('index_')])
-                
-                logger.info(f"   Product breakdown:")
-                logger.info(f"     • Jiang TSS products: {jiang_count}")
-                if advanced_count > 0:
-                    logger.info(f"     • Advanced algorithms: {advanced_count}")
-                if rgb_count > 0:
-                    logger.info(f"     • RGB composites: {rgb_count}")
-                if index_count > 0:
-                    logger.info(f"     • Spectral indices: {index_count}")
+            tss_products = [
+                'absorption', 'backscattering', 'reference_band', 
+                'tss_type_i', 'tss_type_ii', 'tss_type_iii', 'tss_type_iv', 
+                'tss_final', 'tss_uncertainty', 'water_type_classification',
+                'tss_jiang_final', 'tss_jiang_type_i', 'tss_jiang_type_ii', 
+                'tss_jiang_type_iii', 'tss_jiang_type_iv'
+            ]
+            
+            # Count actual TSS products
+            tss_count = len([k for k in final_results.keys() if k in tss_products])
+            advanced_count = len([k for k in final_results.keys() if k.startswith('advanced_')])
+            rgb_count = len([k for k in final_results.keys() if k.startswith('rgb_')])
+            index_count = len([k for k in final_results.keys() if k.startswith('index_')])
+            
+            logger.info(f"   Product breakdown:")
+            logger.info(f"     • Jiang TSS products: {tss_count}")  # FIXED: Use tss_count instead of jiang_count
+            if advanced_count > 0:
+                logger.info(f"     • Advanced algorithms: {advanced_count}")
+            if rgb_count > 0:
+                logger.info(f"     • RGB composites: {rgb_count}")
+            if index_count > 0:
+                logger.info(f"     • Spectral indices: {index_count}")
             
             logger.info("=" * 80)
             
@@ -5158,156 +5177,129 @@ class S2MarineVisualizationProcessor:
         except Exception as e:
             self.logger.warning(f"Could not create visualization summary: {e}")
 
-    def _cleanup_geometric_products(self, output_folder: str, product_name: str) -> bool:
-        """Clean up geometric products after processing - FIXED VERSION"""
+    def _cleanup_geometric_products(self, results_folder: str, product_name: str) -> bool:
+        """Clean up geometric products after marine visualization processing"""
         try:
-            geometric_folder = os.path.join(output_folder, "Geometric_Products")
+            geometric_folder = os.path.join(results_folder, "Geometric_Products")
             
-            self.logger.info(f"🔍 Starting cleanup for product: {product_name}")
+            logger.info(f"🧹 Cleaning geometric products in: {geometric_folder}")
             
             if not os.path.exists(geometric_folder):
-                self.logger.info(f"Geometric folder does not exist: {geometric_folder}")
+                logger.info("No geometric folder found - already cleaned or not created")
                 return True
             
-            # FIXED: Better product name extraction
-            # Your files are named like: Resampled_S2A_20191031T112441_T29TN...
-            # Extract the key parts that should match
-            clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
+            import shutil
+            import time
+            import stat
             
-            # Extract satellite, date, and tile info for matching
-            # Example: S2A_MSIL1C_20191031T112441_N0208_R037_T29TNE_20191031T114025
-            if '_' in clean_product_name:
-                parts = clean_product_name.split('_')
-                if len(parts) >= 6:
-                    # Build pattern: S2A_20191031T112441_T29TNE (satellite_datetime_tile)
-                    satellite = parts[0]  # S2A
-                    datetime_part = parts[2]  # 20191031T112441  
-                    tile_part = parts[5] if len(parts) > 5 else parts[-1]  # T29TNE
-                    
-                    # Create search pattern
-                    search_pattern = f"{satellite}_{datetime_part}_{tile_part}"
-                else:
-                    # Fallback: use the product name as-is
-                    search_pattern = clean_product_name
-            else:
-                search_pattern = clean_product_name
-            
-            self.logger.info(f"🔍 Looking for files containing pattern: '{search_pattern}'")
-            
-            files_to_delete = []
+            deleted_items = []
+            failed_items = []
             total_size = 0
             
-            # List all files first for debugging
-            all_files = os.listdir(geometric_folder)
-            self.logger.info(f"🔍 Files in geometric folder ({len(all_files)} total):")
-            for file in all_files:
-                self.logger.info(f"  - {file}")
+            # List all items
+            all_items = os.listdir(geometric_folder)
+            logger.info(f"Found {len(all_items)} items in geometric folder")
             
-            # FIXED: More flexible matching
-            for filename in os.listdir(geometric_folder):
-                # Match files that start with 'Resampled_' and contain our search pattern
-                if filename.startswith('Resampled_') and search_pattern in filename:
-                    file_path = os.path.join(geometric_folder, filename)
-                    files_to_delete.append(file_path)
-                    self.logger.info(f"✓ MATCH: {filename} -> will be deleted")
+            # Log what we found for debugging
+            for item in all_items:
+                logger.debug(f"  Found: {item}")
+            
+            for item in all_items:
+                # Only delete SNAP geometric products (start with 'Resampled_')
+                if item.startswith('Resampled_'):
+                    item_path = os.path.join(geometric_folder, item)
                     
-                    # Calculate size
-                    if os.path.isfile(file_path):
-                        size = os.path.getsize(file_path)
-                        total_size += size
-                    elif os.path.isdir(file_path):
-                        # Calculate folder size
-                        folder_size = 0
-                        for root, dirs, files in os.walk(file_path):
-                            for file in files:
-                                folder_size += os.path.getsize(os.path.join(root, file))
-                        total_size += folder_size
-                    
-                    # If it's a .dim file, also look for associated .data folder
-                    if filename.endswith('.dim'):
-                        data_folder = file_path.replace('.dim', '.data')
-                        if os.path.exists(data_folder):
-                            files_to_delete.append(data_folder)
-                            self.logger.info(f"✓ Found associated .data folder: {os.path.basename(data_folder)}")
-                            
-                            # Calculate folder size
-                            folder_size = 0
-                            for root, dirs, files in os.walk(data_folder):
+                    try:
+                        # Calculate size before deletion
+                        if os.path.isfile(item_path):
+                            total_size += os.path.getsize(item_path)
+                        elif os.path.isdir(item_path):
+                            for root, dirs, files in os.walk(item_path):
                                 for file in files:
-                                    folder_size += os.path.getsize(os.path.join(root, file))
-                            total_size += folder_size
-            
-            if not files_to_delete:
-                self.logger.warning(f"⚠️ NO FILES FOUND TO DELETE for pattern: '{search_pattern}'")
-                # ALTERNATIVE: Try simpler pattern matching
-                self.logger.info("🔍 Trying alternative matching...")
-                
-                # Extract just the date and tile for broader matching
-                if '_' in product_name:
-                    # Try to extract date (YYYYMMDD format)
-                    import re
-                    date_match = re.search(r'(\d{8})', product_name)
-                    if date_match:
-                        date_pattern = date_match.group(1)
-                        self.logger.info(f"🔍 Trying date pattern: '{date_pattern}'")
+                                    try:
+                                        total_size += os.path.getsize(os.path.join(root, file))
+                                    except:
+                                        pass
                         
-                        for filename in os.listdir(geometric_folder):
-                            if filename.startswith('Resampled_') and date_pattern in filename:
-                                file_path = os.path.join(geometric_folder, filename)
-                                files_to_delete.append(file_path)
-                                self.logger.info(f"✓ DATE MATCH: {filename}")
-                
-                if not files_to_delete:
-                    return False
-            
-            # Delete files with proper error handling
-            import shutil
-            deleted_count = 0
-            failed_deletions = []
-            
-            for file_path in files_to_delete:
-                try:
-                    if os.path.isfile(file_path):
-                        os.remove(file_path)
-                        self.logger.debug(f"✓ Deleted file: {os.path.basename(file_path)}")
-                    elif os.path.isdir(file_path):
-                        shutil.rmtree(file_path)
-                        self.logger.debug(f"✓ Deleted folder: {os.path.basename(file_path)}")
-                    else:
-                        self.logger.warning(f"⚠️ Path not found: {file_path}")
-                        continue
+                        # Make writable and delete
+                        def make_writable_and_delete(path):
+                            """Force delete with permission changes"""
+                            if os.path.isfile(path):
+                                try:
+                                    os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+                                    os.remove(path)
+                                    return True
+                                except:
+                                    return False
+                            elif os.path.isdir(path):
+                                try:
+                                    # Make all files in directory writable
+                                    for root, dirs, files in os.walk(path):
+                                        for file in files:
+                                            try:
+                                                file_path = os.path.join(root, file)
+                                                os.chmod(file_path, stat.S_IWRITE | stat.S_IREAD)
+                                            except:
+                                                pass
+                                        for dir_name in dirs:
+                                            try:
+                                                dir_path = os.path.join(root, dir_name)
+                                                os.chmod(dir_path, stat.S_IWRITE | stat.S_IREAD)
+                                            except:
+                                                pass
+                                    
+                                    shutil.rmtree(path, ignore_errors=True)
+                                    return not os.path.exists(path)
+                                except:
+                                    return False
+                            return False
                         
-                    deleted_count += 1
-                    
-                except PermissionError as e:
-                    error_msg = f"Permission denied: {os.path.basename(file_path)}"
-                    self.logger.error(f"❌ {error_msg}")
-                    failed_deletions.append(error_msg)
-                    
-                except Exception as e:
-                    error_msg = f"Deletion failed: {os.path.basename(file_path)} - {e}"
-                    self.logger.error(f"❌ {error_msg}")
-                    failed_deletions.append(error_msg)
+                        # Try deletion with retries
+                        success = False
+                        for attempt in range(3):
+                            if make_writable_and_delete(item_path):
+                                success = True
+                                deleted_items.append(item)
+                                logger.debug(f"✅ Deleted: {item}")
+                                break
+                            else:
+                                logger.warning(f"Delete attempt {attempt + 1}/3 failed for: {item}")
+                                time.sleep(0.5)
+                        
+                        if not success:
+                            failed_items.append(item)
+                            logger.error(f"❌ Failed to delete after 3 attempts: {item}")
+                            
+                    except Exception as e:
+                        failed_items.append(item)
+                        logger.error(f"❌ Error processing {item}: {e}")
+                else:
+                    logger.debug(f"Skipping non-geometric item: {item}")
             
+            # Report results
             total_size_mb = total_size / (1024 * 1024)
             
-            if deleted_count > 0:
-                self.logger.info(f"🧹 Successfully cleaned up {deleted_count} items ({total_size_mb:.1f} MB freed)")
+            if deleted_items:
+                logger.info(f"🧹 Successfully deleted {len(deleted_items)} geometric products ({total_size_mb:.1f} MB freed)")
                 
-                if failed_deletions:
-                    self.logger.warning(f"⚠️ {len(failed_deletions)} items could not be deleted")
-                    for error in failed_deletions:
-                        self.logger.warning(f"  - {error}")
-            else:
-                self.logger.error("❌ No files were actually deleted!")
-                return False
+            if failed_items:
+                logger.warning(f"⚠️ Could not delete {len(failed_items)} items: {failed_items}")
             
-            return True
+            # Try to remove empty geometric folder
+            try:
+                remaining_items = [f for f in os.listdir(geometric_folder) if f.startswith('Resampled_')]
+                if not remaining_items:  # Only Resampled_ items matter
+                    # Don't delete the folder, just report it's clean
+                    logger.info("🧹 All geometric products cleaned - folder is now clean")
+            except:
+                pass
+            
+            return len(deleted_items) > 0 or len(failed_items) == 0
             
         except Exception as e:
-            self.logger.error(f"❌ Cleanup error: {e}")
+            logger.error(f"❌ Cleanup error: {e}")
             import traceback
-            self.logger.error(f"Full traceback: {traceback.format_exc()}")
+            logger.error(f"Cleanup traceback: {traceback.format_exc()}")
             return False
 
 
