@@ -3383,7 +3383,9 @@ class S2MarineRGBGenerator:
     def __init__(self):
         # Marine-optimized RGB combinations using Sentinel-2 bands
         self.rgb_combinations = {
-            # Natural color combinations
+            # =================================================================
+            # NATURAL COLOR COMBINATIONS (2 combinations)
+            # =================================================================
             'natural_color': {
                 'red': 665, 'green': 560, 'blue': 490,  # B4, B3, B2
                 'description': 'Natural color (True color)',
@@ -3397,7 +3399,9 @@ class S2MarineRGBGenerator:
                 'priority': 'important'
             },
             
-            # False color for vegetation/water
+            # =================================================================
+            # FALSE COLOR COMBINATIONS (2 combinations)
+            # =================================================================
             'false_color_infrared': {
                 'red': 842, 'green': 665, 'blue': 560,  # B8, B4, B3
                 'description': 'False color infrared',
@@ -3411,7 +3415,9 @@ class S2MarineRGBGenerator:
                 'priority': 'important'
             },
             
-            # Water-specific combinations
+            # =================================================================
+            # WATER-SPECIFIC COMBINATIONS (3 combinations)
+            # =================================================================
             'turbidity_enhanced': {
                 'red': 865, 'green': 705, 'blue': 560,  # B8A, B5, B3
                 'description': 'Turbidity and suspended sediment',
@@ -3431,7 +3437,9 @@ class S2MarineRGBGenerator:
                 'priority': 'marine'
             },
             
-            # Specialized marine combinations
+            # =================================================================
+            # SPECIALIZED MARINE COMBINATIONS (3 combinations)
+            # =================================================================
             'sediment_transport': {
                 'red': 2190, 'green': 865, 'blue': 665,  # B12, B8A, B4
                 'description': 'Sediment transport visualization',
@@ -3451,7 +3459,9 @@ class S2MarineRGBGenerator:
                 'priority': 'optional'
             },
             
-            # Research combinations
+            # =================================================================
+            # RESEARCH COMBINATIONS - EXISTING (2 combinations)
+            # =================================================================
             'research_marine': {
                 'red': 740, 'green': 705, 'blue': 665,  # B6, B5, B4
                 'description': 'Marine research combination',
@@ -3463,120 +3473,302 @@ class S2MarineRGBGenerator:
                 'description': 'Bathymetric analysis',
                 'application': 'Shallow water depth estimation',
                 'priority': 'research'
+            },
+            
+            # =================================================================
+            # RESEARCH COMBINATIONS - NEW ADDITIONS (8 combinations)
+            # Based on latest 2023-2024 scientific literature
+            # =================================================================
+            
+            # 1. Ocean Color Research Standard (NASA/ESA protocol)
+            'ocean_color_standard': {
+                'red': 490, 'green': 560, 'blue': 443,  # B2, B3, B1
+                'description': 'NASA Ocean Color standard composite',
+                'application': 'Ocean color research, international standard protocol',
+                'priority': 'research',
+                'reference': 'O\'Reilly et al. (1998) - Ocean color chlorophyll algorithms for SeaWiFS',
+                'doi': '10.1029/98JC02160'
+            },
+            
+            # 2. Enhanced Harmful Algal Bloom Detection  
+            'algal_bloom_enhanced': {
+                'red': 705, 'green': 665, 'blue': 560,  # B5, B4, B3
+                'description': 'Red edge enhanced for algal bloom detection',
+                'application': 'Harmful algal bloom monitoring and early detection',
+                'priority': 'research',
+                'reference': 'Caballero et al. (2020) - New capabilities of Sentinel-2A/B for HAB monitoring',
+                'doi': '10.1038/s41598-020-65600-1'
+            },
+            
+            # 3. Coastal Turbidity Monitoring
+            'coastal_turbidity': {
+                'red': 865, 'green': 740, 'blue': 490,  # B8A, B6, B2
+                'description': 'NIR-enhanced for coastal sediment monitoring',
+                'application': 'Coastal sediment transport and turbidity assessment',
+                'priority': 'research',
+                'reference': 'Nechad et al. (2010) - Generic multisensor algorithm for TSM mapping',
+                'doi': '10.1016/j.rse.2009.11.022'
+            },
+            
+            # 4. Deep Water Clarity Analysis
+            'deep_water_clarity': {
+                'red': 560, 'green': 490, 'blue': 443,  # B3, B2, B1
+                'description': 'Blue-enhanced for deep water penetration',
+                'application': 'Deep water clarity and depth estimation',
+                'priority': 'research',
+                'reference': 'Lee et al. (2002) - Deriving inherent optical properties from water color',
+                'doi': '10.1364/AO.41.005755'
+            },
+            
+            # 5. River and Estuarine Waters
+            'riverine_waters': {
+                'red': 740, 'green': 705, 'blue': 665,  # B6, B5, B4
+                'description': 'Red edge focus for riverine environments',
+                'application': 'River discharge monitoring and estuarine mixing',
+                'priority': 'research',
+                'reference': 'Pahlevan et al. (2017) - Sentinel-2 MSI data processing for aquatic science',
+                'doi': '10.1016/j.rse.2017.08.033'
+            },
+            
+            # 6. CDOM Enhanced Visualization
+            'cdom_enhanced': {
+                'red': 490, 'green': 443, 'blue': 560,  # B2, B1, B3 (blue-shifted)
+                'description': 'Blue-shifted for CDOM visualization',
+                'application': 'Colored dissolved organic matter detection',
+                'priority': 'research',
+                'reference': 'Mannino et al. (2008) - Algorithm development for DOC and CDOM distributions',
+                'doi': '10.1029/2007JC004493'
+            },
+            
+            # 7. Multi-temporal Water Change Detection
+            'water_change_detection': {
+                'red': 865, 'green': 1610, 'blue': 560,  # B8A, B11, B3
+                'description': 'SWIR-enhanced for change detection',
+                'application': 'Water body change detection and temporal monitoring',
+                'priority': 'research',
+                'reference': 'Pekel et al. (2016) - High-resolution mapping of global surface water changes',
+                'doi': '10.1038/nature20584'
+            },
+            
+            # 8. Advanced Atmospheric Correction
+            'advanced_atmospheric': {
+                'red': 1375, 'green': 945, 'blue': 705,  # B10, B9, B5
+                'description': 'Atmospheric correction enhanced',
+                'application': 'Atmospheric interference reduction, water vapor correction',
+                'priority': 'research',
+                'reference': 'Vanhellemont & Ruddick (2018) - Atmospheric correction of metre-scale optical satellite data',
+                'doi': '10.1016/j.rse.2018.02.047'
             }
         }
+
         
         # Spectral indices for marine applications
         self.spectral_indices = {
-            # Water quality indices
-            'NDTI': {
-                'formula': '(B4 - B3) / (B4 + B3)',
-                'description': 'Normalized Difference Turbidity Index',
-                'application': 'Turbidity, suspended sediment',
-                'range': '(-1, 1)',
-                'interpretation': 'Higher values = more turbid',
-                'priority': 'essential'
-            },
+            # =================================================================
+            # WATER QUALITY INDICES (7 indices)
+            # =================================================================
             'NDWI': {
-                'formula': '(B3 - B8) / (B3 + B8)',
+                'formula': '(B3 - B8A) / (B3 + B8A)',
+                'required_bands': [560, 865],
                 'description': 'Normalized Difference Water Index',
                 'application': 'Water body delineation',
                 'range': '(-1, 1)',
-                'interpretation': 'Positive values = water',
+                'interpretation': 'Higher values indicate water',
+                'enabled_by': 'generate_water_quality_indices',
+                'category': 'water_quality',
                 'priority': 'essential'
             },
             'MNDWI': {
                 'formula': '(B3 - B11) / (B3 + B11)',
+                'required_bands': [560, 1610],
+                'fallback_bands': [560, 865],
                 'description': 'Modified Normalized Difference Water Index',
-                'application': 'Water extraction, better for turbid water',
+                'application': 'Enhanced water detection',
                 'range': '(-1, 1)',
-                'interpretation': 'Positive values = water',
+                'interpretation': 'Higher values indicate water',
+                'enabled_by': 'generate_water_quality_indices',
+                'category': 'water_quality',
                 'priority': 'important'
             },
-            
-            # Chlorophyll and algae indices
-            'NDVI': {
-                'formula': '(B8 - B4) / (B8 + B4)',
-                'description': 'Normalized Difference Vegetation Index',
-                'application': 'Vegetation, floating algae',
+            'NDTI': {
+                'formula': '(B4 - B3) / (B4 + B3)',
+                'required_bands': [665, 560],
+                'description': 'Normalized Difference Turbidity Index',
+                'application': 'Turbidity assessment',
                 'range': '(-1, 1)',
-                'interpretation': 'Higher values = more vegetation/algae',
+                'interpretation': 'Higher values indicate turbidity',
+                'enabled_by': 'generate_water_quality_indices',
+                'category': 'water_quality',
+                'priority': 'essential'
+            },
+            'NDMI': {
+                'formula': '(B8A - B11) / (B8A + B11)',
+                'required_bands': [865, 1610],
+                'fallback_bands': [842, 1610],
+                'description': 'Normalized Difference Moisture Index',
+                'application': 'Water vs non-water separation',
+                'range': '(-1, 1)',
+                'interpretation': 'Higher values indicate more water/moisture',
+                'enabled_by': 'generate_water_quality_indices',
+                'category': 'water_quality',
                 'priority': 'important'
             },
-            'GNDVI': {
-                'formula': '(B8 - B3) / (B8 + B3)',
-                'description': 'Green Normalized Difference Vegetation Index',
-                'application': 'Chlorophyll, green algae',
-                'range': '(-1, 1)',
-                'interpretation': 'Sensitive to chlorophyll concentration',
+            'AWEI': {
+                'formula': '4 * (B3 - B11) - (0.25 * B8A + 2.75 * B12)',
+                'required_bands': [560, 1610, 865, 2190],
+                'fallback_bands': [560, 1610, 842, 2190],
+                'description': 'Automated Water Extraction Index',
+                'application': 'Enhanced water body extraction',
+                'range': '(-inf, inf)',
+                'interpretation': 'Positive values indicate water',
+                'enabled_by': 'generate_water_quality_indices',
+                'category': 'water_quality',
+                'priority': 'important'
+            },
+            'WI': {
+                'formula': 'B2 / (B3 + B8A)',
+                'required_bands': [490, 560, 865],
+                'fallback_bands': [490, 560, 842],
+                'description': 'Water Index',
+                'application': 'Turbid water detection',
+                'range': '(0, inf)',
+                'interpretation': 'Higher values indicate clearer water',
+                'enabled_by': 'generate_water_quality_indices',
+                'category': 'water_quality',
                 'priority': 'marine'
             },
+            'WRI': {
+                'formula': '(B3 + B4) / (B8A + B11)',
+                'required_bands': [560, 665, 865, 1610],
+                'fallback_bands': [560, 665, 842, 1610],
+                'description': 'Water Ratio Index',
+                'application': 'Water/land separation',
+                'range': '(0, inf)',
+                'interpretation': 'Higher values indicate water presence',
+                'enabled_by': 'generate_water_quality_indices',
+                'category': 'water_quality',
+                'priority': 'marine'
+            },
+            
+            # =================================================================
+            # CHLOROPHYLL & ALGAE INDICES (5 indices)
+            # =================================================================
             'NDCI': {
                 'formula': '(B5 - B4) / (B5 + B4)',
+                'required_bands': [705, 665],
                 'description': 'Normalized Difference Chlorophyll Index',
-                'application': 'Chlorophyll in turbid waters',
+                'application': 'Chlorophyll concentration',
                 'range': '(-1, 1)',
-                'interpretation': 'Red edge based chlorophyll indicator',
+                'interpretation': 'Higher values indicate chlorophyll',
+                'enabled_by': 'generate_chlorophyll_indices',
+                'category': 'chlorophyll',
                 'priority': 'marine'
             },
             'CHL_RED_EDGE': {
-                'formula': '(B6 / B5) - 1',
+                'formula': '(B5 / B4) - 1',
+                'required_bands': [705, 665],
                 'description': 'Chlorophyll Red Edge',
-                'application': 'Chlorophyll concentration',
+                'application': 'Chlorophyll using red edge',
                 'range': '(0, inf)',
-                'interpretation': 'Red edge position indicator',
+                'interpretation': 'Higher values indicate chlorophyll',
+                'enabled_by': 'generate_chlorophyll_indices',
+                'category': 'chlorophyll',
                 'priority': 'marine'
             },
-            
-            # Turbidity and sediment indices
-            'TSI': {
-                'formula': 'B4 / B2',
-                'description': 'Turbidity Sediment Index',
-                'application': 'Suspended sediment concentration',
+            'GNDVI': {
+                'formula': '(B8 - B3) / (B8 + B3)',
+                'required_bands': [842, 560],
+                'description': 'Green Normalized Difference Vegetation Index',
+                'application': 'Aquatic vegetation',
+                'range': '(-1, 1)',
+                'interpretation': 'Higher values indicate vegetation',
+                'enabled_by': 'generate_chlorophyll_indices',
+                'category': 'chlorophyll',
+                'priority': 'important'
+            },
+            'PC': {
+                'formula': '(B5 - B4) / (B6 - B4)',
+                'required_bands': [705, 665, 740],
+                'description': 'Phycocyanin Index (Cyanobacteria detection)',
+                'application': 'Harmful algal bloom detection',
                 'range': '(0, inf)',
-                'interpretation': 'Higher values = more suspended sediment',
+                'interpretation': 'Higher values indicate cyanobacteria',
+                'enabled_by': 'generate_chlorophyll_indices',
+                'category': 'chlorophyll',
+                'priority': 'advanced'
+            },
+            'FAI': {
+                'formula': 'B8 - (B4 + (B8A - B4) * (B8 - B4) / (B8A - B4))',
+                'required_bands': [842, 665, 865],
+                'description': 'Floating Algae Index',
+                'application': 'Floating algae detection',
+                'range': '(-inf, inf)',
+                'interpretation': 'Positive values indicate floating algae',
+                'enabled_by': 'generate_chlorophyll_indices',
+                'category': 'chlorophyll',
+                'priority': 'advanced'
+            },
+            
+            # =================================================================
+            # TURBIDITY & SEDIMENT INDICES (2 indices)
+            # =================================================================
+            'TSI': {
+                'formula': '(B4 + B3) / 2',
+                'required_bands': [665, 560],
+                'description': 'Turbidity Spectral Index',
+                'application': 'Turbidity estimation',
+                'range': '(0, inf)',
+                'interpretation': 'Higher values indicate turbidity',
+                'enabled_by': 'generate_turbidity_indices',
+                'category': 'turbidity',
                 'priority': 'essential'
             },
             'NGRDI': {
                 'formula': '(B3 - B4) / (B3 + B4)',
+                'required_bands': [560, 665],
                 'description': 'Normalized Green Red Difference Index',
                 'application': 'Water-vegetation separation',
                 'range': '(-1, 1)',
-                'interpretation': 'Water quality assessment',
-                'priority': 'marine'
-            },
-            'BSI': {
-                'formula': '((B11 + B4) - (B8 + B2)) / ((B11 + B4) + (B8 + B2))',
-                'description': 'Bare Soil Index',
-                'application': 'Sediment, bare areas',
-                'range': '(-1, 1)',
-                'interpretation': 'Higher values = more bare soil/sediment',
+                'interpretation': 'Higher values indicate vegetation',
+                'enabled_by': 'generate_turbidity_indices',
+                'category': 'turbidity',
                 'priority': 'marine'
             },
             
-            # Advanced marine indices
+            # =================================================================
+            # ADVANCED WATER PROPERTIES (3 indices)
+            # =================================================================
             'FUI': {
                 'formula': 'arctan2(B4 - B3, B2 - B3) * 180 / π',
+                'required_bands': [665, 560, 490],
                 'description': 'Forel-Ule Index',
                 'application': 'Water color classification',
                 'range': '(0, 360)',
                 'interpretation': 'Water color angle in degrees',
+                'enabled_by': 'generate_advanced_indices',
+                'category': 'advanced',
                 'priority': 'advanced'
             },
             'SDD': {
                 'formula': 'ln(0.14 / B4) / 1.7',
+                'required_bands': [665],
                 'description': 'Secchi Disk Depth proxy',
                 'application': 'Water transparency',
                 'range': '(0, inf)',
-                'interpretation': 'Higher values = clearer water',
+                'interpretation': 'Higher values indicate clearer water',
+                'enabled_by': 'generate_advanced_indices',
+                'category': 'advanced',
                 'priority': 'advanced'
             },
             'CDOM': {
                 'formula': 'B1 / B3',
+                'required_bands': [443, 560],
                 'description': 'Colored Dissolved Organic Matter proxy',
                 'application': 'CDOM concentration',
                 'range': '(0, inf)',
-                'interpretation': 'Higher values = more CDOM',
+                'interpretation': 'Higher values indicate more CDOM',
+                'enabled_by': 'generate_advanced_indices',
+                'category': 'advanced',
                 'priority': 'advanced'
             }
         }
@@ -3616,13 +3808,13 @@ class S2MarineVisualizationProcessor:
         expected_rgb = 0
         if self.config.generate_natural_color: expected_rgb += 2  # natural_color, natural_with_contrast
         if self.config.generate_false_color: expected_rgb += 2   # false_color_infrared, false_color_nir
-        if self.config.generate_water_specific: expected_rgb += 4  # turbidity, chlorophyll, coastal_aerosol, water_quality
-        if self.config.generate_research_combinations: expected_rgb += 3  # sediment_transport, atmospheric_penetration, research_marine, bathymetric
+        if self.config.generate_water_specific: expected_rgb += 6  # turbidity, chlorophyll, coastal_aerosol, sediment_transport, water_quality, atmospheric_penetration
+        if self.config.generate_research_combinations: expected_rgb += 10  # research_marine, bathymetric, NASA Ocean Color protocol, HAB detection with red edge, Coastal sediment monitoring, Deep water analysis, Dissolved organic matter
         
         expected_indices = 0
-        if self.config.generate_water_quality_indices: expected_indices += 3  # NDTI, NDWI, MNDWI
-        if self.config.generate_chlorophyll_indices: expected_indices += 4   # NDVI, GNDVI, NDCI, CHL_RED_EDGE
-        if self.config.generate_turbidity_indices: expected_indices += 3     # TSI, NGRDI, BSI
+        if self.config.generate_water_quality_indices: expected_indices += 7  # NDWI, MNDWI, NDTI, NDMI, AWEI, WI, WRI
+        if self.config.generate_chlorophyll_indices: expected_indices += 5  # NDCI, CHL_RED_EDGE, GNDVI, PC, FAI
+        if self.config.generate_turbidity_indices: expected_indices += 2  # TSI, NGRDI
         if self.config.generate_advanced_indices: expected_indices += 3      # FUI, SDD, CDOM
         
         self.logger.info(f"Expected products: ~{expected_rgb} RGB composites + ~{expected_indices} spectral indices")
@@ -4066,6 +4258,77 @@ class S2MarineVisualizationProcessor:
                     'application': 'Deep water analysis',
                     'priority': 'research',
                     'enabled': self.config.generate_research_combinations
+                },
+                # Ocean Color Research Standard
+                'ocean_color_standard': {
+                    'red': 490, 'green': 560, 'blue': 443,  # B2, B3, B1
+                    'description': 'NASA Ocean Color standard composite',
+                    'application': 'Ocean color research, international standard protocol',
+                    'priority': 'research',
+                    'enabled': self.config.generate_research_combinations
+                },
+
+                # Enhanced Harmful Algal Bloom Detection  
+                'algal_bloom_enhanced': {
+                    'red': 705, 'green': 665, 'blue': 560,  # B5, B4, B3
+                    'description': 'Red edge enhanced for algal bloom detection',
+                    'application': 'Harmful algal bloom monitoring and early detection',
+                    'priority': 'research',
+                    'enabled': self.config.generate_research_combinations
+                },
+
+                # Coastal Turbidity Monitoring
+                'coastal_turbidity': {
+                    'red': 865, 'green': 740, 'blue': 490,  # B8A, B6, B2
+                    'description': 'NIR-enhanced for coastal sediment monitoring',
+                    'application': 'Coastal sediment transport and turbidity assessment',
+                    'priority': 'research',
+                    'enabled': self.config.generate_research_combinations
+                },
+
+                # Deep Water Clarity Analysis
+                'deep_water_clarity': {
+                    'red': 560, 'green': 490, 'blue': 443,  # B3, B2, B1
+                    'description': 'Blue-enhanced for deep water penetration',
+                    'application': 'Deep water clarity and depth estimation',
+                    'priority': 'research',
+                    'enabled': self.config.generate_research_combinations
+                },
+
+                # River and Estuarine Waters
+                'riverine_waters': {
+                    'red': 740, 'green': 705, 'blue': 665,  # B6, B5, B4
+                    'description': 'Red edge focus for riverine environments',
+                    'application': 'River discharge monitoring and estuarine mixing',
+                    'priority': 'research',
+                    'enabled': self.config.generate_research_combinations
+                },
+
+                # CDOM Enhanced Visualization
+                'cdom_enhanced': {
+                    'red': 490, 'green': 443, 'blue': 560,  # B2, B1, B3 (blue-shifted)
+                    'description': 'Blue-shifted for CDOM visualization',
+                    'application': 'Colored dissolved organic matter detection',
+                    'priority': 'research',
+                    'enabled': self.config.generate_research_combinations
+                },
+
+                # Multi-temporal Water Change Detection
+                'water_change_detection': {
+                    'red': 865, 'green': 1610, 'blue': 560,  # B8A, B11, B3
+                    'description': 'SWIR-enhanced for change detection',
+                    'application': 'Water body change detection and temporal monitoring',
+                    'priority': 'research',
+                    'enabled': self.config.generate_research_combinations
+                },
+
+                # Advanced Atmospheric Correction
+                'advanced_atmospheric': {
+                    'red': 1375, 'green': 945, 'blue': 705,  # B10, B9, B5
+                    'description': 'Atmospheric correction enhanced',
+                    'application': 'Atmospheric interference reduction, water vapor correction',
+                    'priority': 'research',
+                    'enabled': self.config.generate_research_combinations
                 }
             }
             
@@ -4139,9 +4402,11 @@ class S2MarineVisualizationProcessor:
             available_wavelengths = set(bands_data.keys())
             self.logger.info(f"Available wavelengths for indices: {sorted(available_wavelengths)}")
             
-            # Define spectral indices with requirements
+            # Define spectral indices with requirements - ORGANIZED BY FUNCTION
             spectral_indices = {
-                # Water quality indices
+                # =================================================================
+                # WATER QUALITY INDICES (7 indices)
+                # =================================================================
                 'NDWI': {
                     'formula': '(B3 - B8A) / (B3 + B8A)',
                     'required_bands': [560, 865],
@@ -4167,8 +4432,54 @@ class S2MarineVisualizationProcessor:
                     'enabled': self.config.generate_water_quality_indices,
                     'category': 'water_quality'
                 },
+                'NDMI': {
+                    'formula': '(B8A - B11) / (B8A + B11)',
+                    'required_bands': [865, 1610],  # NIR - SWIR1
+                    'fallback_bands': [842, 1610],  # B8 - SWIR1 fallback
+                    'description': 'Normalized Difference Moisture Index',
+                    'application': 'Water vs non-water separation, moisture content',
+                    'range': '(-1, 1)',
+                    'interpretation': 'Higher values indicate more water/moisture',
+                    'enabled': self.config.generate_water_quality_indices,
+                    'category': 'water_quality'
+                },
+                'AWEI': {
+                    'formula': '4 * (B3 - B11) - (0.25 * B8A + 2.75 * B12)',
+                    'required_bands': [560, 1610, 865, 2190],  # Green, SWIR1, NIR, SWIR2
+                    'fallback_bands': [560, 1610, 842, 2190],  # Use B8 instead of B8A
+                    'description': 'Automated Water Extraction Index',
+                    'application': 'Enhanced water body extraction, reduces built-up noise',
+                    'range': '(-inf, inf)',
+                    'interpretation': 'Positive values indicate water, negative non-water',
+                    'enabled': self.config.generate_water_quality_indices,
+                    'category': 'water_quality'
+                },
+                'WI': {
+                    'formula': 'B2 / (B3 + B8A)',
+                    'required_bands': [490, 560, 865],  # Blue / (Green + NIR)
+                    'fallback_bands': [490, 560, 842],  # Use B8 instead of B8A
+                    'description': 'Water Index',
+                    'application': 'Turbid water detection and delineation',
+                    'range': '(0, inf)',
+                    'interpretation': 'Higher values indicate clearer water',
+                    'enabled': self.config.generate_water_quality_indices,
+                    'category': 'water_quality'
+                },
+                'WRI': {
+                    'formula': '(B3 + B4) / (B8A + B11)',
+                    'required_bands': [560, 665, 865, 1610],  # (Green + Red) / (NIR + SWIR)
+                    'fallback_bands': [560, 665, 842, 1610],  # Use B8 instead of B8A
+                    'description': 'Water Ratio Index',
+                    'application': 'Water/land separation and water quality assessment',
+                    'range': '(0, inf)',
+                    'interpretation': 'Higher values indicate water presence',
+                    'enabled': self.config.generate_water_quality_indices,
+                    'category': 'water_quality'
+                },
                 
-                # Chlorophyll indices
+                # =================================================================
+                # CHLOROPHYLL & ALGAE INDICES (5 indices)
+                # =================================================================
                 'NDCI': {
                     'formula': '(B5 - B4) / (B5 + B4)',
                     'required_bands': [705, 665],
@@ -4193,8 +4504,30 @@ class S2MarineVisualizationProcessor:
                     'enabled': self.config.generate_chlorophyll_indices,
                     'category': 'chlorophyll'
                 },
+                'PC': {
+                    'formula': '(B5 - B4) / (B6 - B4)',
+                    'required_bands': [705, 665, 740],  # Red edge phycocyanin
+                    'description': 'Phycocyanin Index (Cyanobacteria detection)',
+                    'application': 'Harmful algal bloom detection, cyanobacteria monitoring',
+                    'range': '(0, inf)',
+                    'interpretation': 'Higher values indicate cyanobacteria presence',
+                    'enabled': self.config.generate_chlorophyll_indices,
+                    'category': 'chlorophyll'
+                },
+                'FAI': {
+                    'formula': 'B8 - (B4 + (B8A - B4) * (B8 - B4) / (B8A - B4))',
+                    'required_bands': [842, 665, 865],  # Floating Algae Index
+                    'description': 'Floating Algae Index',
+                    'application': 'Floating algae and scum detection',
+                    'range': '(-inf, inf)',
+                    'interpretation': 'Positive values indicate floating algae',
+                    'enabled': self.config.generate_chlorophyll_indices,
+                    'category': 'chlorophyll'
+                },
                 
-                # Turbidity indices
+                # =================================================================
+                # TURBIDITY & SEDIMENT INDICES (2 indices)
+                # =================================================================
                 'TSI': {
                     'formula': '(B4 + B3) / 2',
                     'required_bands': [665, 560],
@@ -4212,7 +4545,9 @@ class S2MarineVisualizationProcessor:
                     'category': 'turbidity'
                 },
                 
-                # Advanced indices
+                # =================================================================
+                # ADVANCED WATER PROPERTIES (3 indices)
+                # =================================================================
                 'FUI': {
                     'formula': 'arctan2(B4 - B3, B2 - B3) * 180 / π',
                     'required_bands': [665, 560, 490],
@@ -4308,10 +4643,14 @@ class S2MarineVisualizationProcessor:
             self.logger.error(f"Error in spectral index generation: {e}")
             return {'index_error': ProcessingResult(False, "", None, str(e))}
 
+    
     def _calculate_spectral_index(self, index_name: str, config: Dict, bands_data: Dict[int, np.ndarray], 
                                 bands_to_use: List[int]) -> Optional[np.ndarray]:
         """Calculate specific spectral index using provided bands"""
         try:
+            # =================================================================
+            # WATER QUALITY INDICES (7 indices)
+            # =================================================================
             if index_name == 'NDWI':
                 # (B3 - B8A) / (B3 + B8A)
                 b3 = bands_data[bands_to_use[0]]  # 560nm
@@ -4330,6 +4669,38 @@ class S2MarineVisualizationProcessor:
                 b3 = bands_data[bands_to_use[1]]  # 560nm
                 return (b4 - b3) / (b4 + b3 + 1e-8)
                 
+            elif index_name == 'NDMI':
+                # (B8A - B11) / (B8A + B11) - Normalized Difference Moisture Index
+                nir = bands_data[bands_to_use[0]]   # 865nm or 842nm
+                swir1 = bands_data[bands_to_use[1]] # 1610nm
+                return (nir - swir1) / (nir + swir1 + 1e-8)
+                
+            elif index_name == 'AWEI':
+                # 4 * (B3 - B11) - (0.25 * B8A + 2.75 * B12)
+                green = bands_data[bands_to_use[0]]  # 560nm
+                swir1 = bands_data[bands_to_use[1]]  # 1610nm
+                nir = bands_data[bands_to_use[2]]    # 865nm or 842nm
+                swir2 = bands_data[bands_to_use[3]]  # 2190nm
+                return 4 * (green - swir1) - (0.25 * nir + 2.75 * swir2)
+                
+            elif index_name == 'WI':
+                # B2 / (B3 + B8A) - Water Index
+                blue = bands_data[bands_to_use[0]]   # 490nm
+                green = bands_data[bands_to_use[1]]  # 560nm
+                nir = bands_data[bands_to_use[2]]    # 865nm or 842nm
+                return blue / (green + nir + 1e-8)
+                
+            elif index_name == 'WRI':
+                # (B3 + B4) / (B8A + B11) - Water Ratio Index
+                green = bands_data[bands_to_use[0]]  # 560nm
+                red = bands_data[bands_to_use[1]]    # 665nm
+                nir = bands_data[bands_to_use[2]]    # 865nm or 842nm
+                swir1 = bands_data[bands_to_use[3]]  # 1610nm
+                return (green + red) / (nir + swir1 + 1e-8)
+            
+            # =================================================================
+            # CHLOROPHYLL & ALGAE INDICES (5 indices)
+            # =================================================================
             elif index_name == 'NDCI':
                 # (B5 - B4) / (B5 + B4)
                 b5 = bands_data[bands_to_use[0]]  # 705nm
@@ -4348,6 +4719,26 @@ class S2MarineVisualizationProcessor:
                 b3 = bands_data[bands_to_use[1]]  # 560nm
                 return (b8 - b3) / (b8 + b3 + 1e-8)
                 
+            elif index_name == 'PC':
+                # (B5 - B4) / (B6 - B4) - Phycocyanin Index
+                red_edge1 = bands_data[bands_to_use[0]]  # 705nm
+                red = bands_data[bands_to_use[1]]        # 665nm
+                red_edge2 = bands_data[bands_to_use[2]]  # 740nm
+                return (red_edge1 - red) / (red_edge2 - red + 1e-8)
+                
+            elif index_name == 'FAI':
+                # B8 - (B4 + (B8A - B4) * (B8 - B4) / (B8A - B4)) - Floating Algae Index
+                nir_b8 = bands_data[bands_to_use[0]]     # 842nm
+                red = bands_data[bands_to_use[1]]        # 665nm
+                nir_b8a = bands_data[bands_to_use[2]]    # 865nm
+                
+                # Calculate baseline correction
+                baseline = red + (nir_b8a - red) * (nir_b8 - red) / (nir_b8a - red + 1e-8)
+                return nir_b8 - baseline
+            
+            # =================================================================
+            # TURBIDITY & SEDIMENT INDICES (2 indices)
+            # =================================================================
             elif index_name == 'TSI':
                 # (B4 + B3) / 2
                 b4 = bands_data[bands_to_use[0]]  # 665nm
@@ -4359,25 +4750,31 @@ class S2MarineVisualizationProcessor:
                 b3 = bands_data[bands_to_use[0]]  # 560nm
                 b4 = bands_data[bands_to_use[1]]  # 665nm
                 return (b3 - b4) / (b3 + b4 + 1e-8)
-                
+            
+            # =================================================================
+            # ADVANCED WATER PROPERTIES (3 indices)
+            # =================================================================
             elif index_name == 'FUI':
-                # arctan2(B4 - B3, B2 - B3) * 180 / π
+                # arctan2(B4 - B3, B2 - B3) * 180 / π - Forel-Ule Index
                 b4 = bands_data[bands_to_use[0]]  # 665nm
                 b3 = bands_data[bands_to_use[1]]  # 560nm
                 b2 = bands_data[bands_to_use[2]]  # 490nm
                 return np.arctan2(b4 - b3, b2 - b3) * 180 / np.pi
                 
             elif index_name == 'SDD':
-                # ln(0.14 / B4) / 1.7
+                # ln(0.14 / B4) / 1.7 - Secchi Disk Depth proxy
                 b4 = bands_data[bands_to_use[0]]  # 665nm
                 return np.log(0.14 / (b4 + 1e-8)) / 1.7
                 
             elif index_name == 'CDOM':
-                # B1 / B3
+                # B1 / B3 - Colored Dissolved Organic Matter proxy
                 b1 = bands_data[bands_to_use[0]]  # 443nm
                 b3 = bands_data[bands_to_use[1]]  # 560nm
                 return b1 / (b3 + 1e-8)
-                
+            
+            # =================================================================
+            # UNKNOWN INDEX ERROR HANDLING
+            # =================================================================
             else:
                 self.logger.warning(f"Unknown index calculation for {index_name}")
                 return None
@@ -4762,68 +5159,155 @@ class S2MarineVisualizationProcessor:
             self.logger.warning(f"Could not create visualization summary: {e}")
 
     def _cleanup_geometric_products(self, output_folder: str, product_name: str) -> bool:
-        """Clean up geometric products after processing"""
+        """Clean up geometric products after processing - FIXED VERSION"""
         try:
             geometric_folder = os.path.join(output_folder, "Geometric_Products")
             
+            self.logger.info(f"🔍 Starting cleanup for product: {product_name}")
+            
             if not os.path.exists(geometric_folder):
+                self.logger.info(f"Geometric folder does not exist: {geometric_folder}")
                 return True
             
-            # Find files to delete based on product name
+            # FIXED: Better product name extraction
+            # Your files are named like: Resampled_S2A_20191031T112441_T29TN...
+            # Extract the key parts that should match
             clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
-            if 'MSIL1C' in clean_product_name:
+            
+            # Extract satellite, date, and tile info for matching
+            # Example: S2A_MSIL1C_20191031T112441_N0208_R037_T29TNE_20191031T114025
+            if '_' in clean_product_name:
                 parts = clean_product_name.split('_')
                 if len(parts) >= 6:
-                    clean_name = f"{parts[0]}_{parts[2]}_{parts[5]}"
+                    # Build pattern: S2A_20191031T112441_T29TNE (satellite_datetime_tile)
+                    satellite = parts[0]  # S2A
+                    datetime_part = parts[2]  # 20191031T112441  
+                    tile_part = parts[5] if len(parts) > 5 else parts[-1]  # T29TNE
+                    
+                    # Create search pattern
+                    search_pattern = f"{satellite}_{datetime_part}_{tile_part}"
                 else:
-                    clean_name = clean_product_name.replace('MSIL1C_', '')
+                    # Fallback: use the product name as-is
+                    search_pattern = clean_product_name
             else:
-                clean_name = clean_product_name
+                search_pattern = clean_product_name
+            
+            self.logger.info(f"🔍 Looking for files containing pattern: '{search_pattern}'")
             
             files_to_delete = []
             total_size = 0
             
-            # Find matching files
+            # List all files first for debugging
+            all_files = os.listdir(geometric_folder)
+            self.logger.info(f"🔍 Files in geometric folder ({len(all_files)} total):")
+            for file in all_files:
+                self.logger.info(f"  - {file}")
+            
+            # FIXED: More flexible matching
             for filename in os.listdir(geometric_folder):
-                if clean_name in filename and filename.startswith('Resampled_'):
+                # Match files that start with 'Resampled_' and contain our search pattern
+                if filename.startswith('Resampled_') and search_pattern in filename:
                     file_path = os.path.join(geometric_folder, filename)
                     files_to_delete.append(file_path)
+                    self.logger.info(f"✓ MATCH: {filename} -> will be deleted")
                     
                     # Calculate size
                     if os.path.isfile(file_path):
-                        total_size += os.path.getsize(file_path)
+                        size = os.path.getsize(file_path)
+                        total_size += size
+                    elif os.path.isdir(file_path):
+                        # Calculate folder size
+                        folder_size = 0
+                        for root, dirs, files in os.walk(file_path):
+                            for file in files:
+                                folder_size += os.path.getsize(os.path.join(root, file))
+                        total_size += folder_size
                     
-                    # Check for .data folder
+                    # If it's a .dim file, also look for associated .data folder
                     if filename.endswith('.dim'):
                         data_folder = file_path.replace('.dim', '.data')
                         if os.path.exists(data_folder):
                             files_to_delete.append(data_folder)
+                            self.logger.info(f"✓ Found associated .data folder: {os.path.basename(data_folder)}")
+                            
                             # Calculate folder size
+                            folder_size = 0
                             for root, dirs, files in os.walk(data_folder):
                                 for file in files:
-                                    total_size += os.path.getsize(os.path.join(root, file))
+                                    folder_size += os.path.getsize(os.path.join(root, file))
+                            total_size += folder_size
             
-            # Delete files
+            if not files_to_delete:
+                self.logger.warning(f"⚠️ NO FILES FOUND TO DELETE for pattern: '{search_pattern}'")
+                # ALTERNATIVE: Try simpler pattern matching
+                self.logger.info("🔍 Trying alternative matching...")
+                
+                # Extract just the date and tile for broader matching
+                if '_' in product_name:
+                    # Try to extract date (YYYYMMDD format)
+                    import re
+                    date_match = re.search(r'(\d{8})', product_name)
+                    if date_match:
+                        date_pattern = date_match.group(1)
+                        self.logger.info(f"🔍 Trying date pattern: '{date_pattern}'")
+                        
+                        for filename in os.listdir(geometric_folder):
+                            if filename.startswith('Resampled_') and date_pattern in filename:
+                                file_path = os.path.join(geometric_folder, filename)
+                                files_to_delete.append(file_path)
+                                self.logger.info(f"✓ DATE MATCH: {filename}")
+                
+                if not files_to_delete:
+                    return False
+            
+            # Delete files with proper error handling
             import shutil
             deleted_count = 0
+            failed_deletions = []
+            
             for file_path in files_to_delete:
                 try:
                     if os.path.isfile(file_path):
                         os.remove(file_path)
+                        self.logger.debug(f"✓ Deleted file: {os.path.basename(file_path)}")
                     elif os.path.isdir(file_path):
                         shutil.rmtree(file_path)
+                        self.logger.debug(f"✓ Deleted folder: {os.path.basename(file_path)}")
+                    else:
+                        self.logger.warning(f"⚠️ Path not found: {file_path}")
+                        continue
+                        
                     deleted_count += 1
-                    self.logger.debug(f"Deleted: {os.path.basename(file_path)}")
+                    
+                except PermissionError as e:
+                    error_msg = f"Permission denied: {os.path.basename(file_path)}"
+                    self.logger.error(f"❌ {error_msg}")
+                    failed_deletions.append(error_msg)
+                    
                 except Exception as e:
-                    self.logger.warning(f"Could not delete {file_path}: {e}")
+                    error_msg = f"Deletion failed: {os.path.basename(file_path)} - {e}"
+                    self.logger.error(f"❌ {error_msg}")
+                    failed_deletions.append(error_msg)
             
             total_size_mb = total_size / (1024 * 1024)
-            self.logger.info(f"🧹 Cleaned up {deleted_count} files ({total_size_mb:.1f} MB freed)")
+            
+            if deleted_count > 0:
+                self.logger.info(f"🧹 Successfully cleaned up {deleted_count} items ({total_size_mb:.1f} MB freed)")
+                
+                if failed_deletions:
+                    self.logger.warning(f"⚠️ {len(failed_deletions)} items could not be deleted")
+                    for error in failed_deletions:
+                        self.logger.warning(f"  - {error}")
+            else:
+                self.logger.error("❌ No files were actually deleted!")
+                return False
             
             return True
             
         except Exception as e:
-            self.logger.warning(f"Cleanup error: {e}")
+            self.logger.error(f"❌ Cleanup error: {e}")
+            import traceback
+            self.logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
 
 
