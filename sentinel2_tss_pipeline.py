@@ -1652,7 +1652,7 @@ class JiangTSSProcessor:
                         # Cleanup geometric products after successful processing
                         logger.info("🧹 Starting geometric products cleanup...")
                         try:
-                            cleanup_success = self._cleanup_geometric_products(results_folder, product_name)
+                            cleanup_success = self.marine_viz_processor._cleanup_geometric_products(results_folder, product_name)
                             if cleanup_success:
                                 logger.info("✅ Geometric products cleanup completed successfully")
                             else:
