@@ -5177,40 +5177,38 @@ class S2MarineVisualizationProcessor:
         except Exception as e:
             self.logger.warning(f"Could not create visualization summary: {e}")
 
+
     def _cleanup_geometric_products(self, results_folder: str, product_name: str) -> bool:
-        """Clean up geometric products after marine visualization processing"""
+        """Clean up geometric products after processing - NUCLEAR VERSION"""
         try:
             geometric_folder = os.path.join(results_folder, "Geometric_Products")
             
-            logger.info(f"🧹 Cleaning geometric products in: {geometric_folder}")
-            
             if not os.path.exists(geometric_folder):
-                logger.info("No geometric folder found - already cleaned or not created")
+                logger.info("No geometric folder to delete")
                 return True
             
+            logger.info("🧹 NUCLEAR CLEANUP: Attempting brute force deletion of geometric products")
+            
             import shutil
-            import time
-            import stat
+            import subprocess
+            import platform
             
-            deleted_items = []
-            failed_items = []
-            total_size = 0
-            
-            # List all items
-            all_items = os.listdir(geometric_folder)
-            logger.info(f"Found {len(all_items)} items in geometric folder")
-            
-            # Log what we found for debugging
-            for item in all_items:
-                logger.debug(f"  Found: {item}")
-            
-            for item in all_items:
-                # Only delete SNAP geometric products (start with 'Resampled_')
-                if item.startswith('Resampled_'):
-                    item_path = os.path.join(geometric_folder, item)
+            # Get list of Resampled items before deletion
+            try:
+                original_items = os.listdir(geometric_folder)
+                resampled_items = [item for item in original_items if item.startswith('Resampled_')]
+                
+                if not resampled_items:
+                    logger.info("No Resampled_ items found to delete")
+                    return True
                     
+                logger.info(f"Nuclear target: {len(resampled_items)} Resampled items")
+                
+                # Calculate total size before deletion
+                total_size = 0
+                for item in resampled_items:
+                    item_path = os.path.join(geometric_folder, item)
                     try:
-                        # Calculate size before deletion
                         if os.path.isfile(item_path):
                             total_size += os.path.getsize(item_path)
                         elif os.path.isdir(item_path):
@@ -5220,86 +5218,106 @@ class S2MarineVisualizationProcessor:
                                         total_size += os.path.getsize(os.path.join(root, file))
                                     except:
                                         pass
-                        
-                        # Make writable and delete
-                        def make_writable_and_delete(path):
-                            """Force delete with permission changes"""
-                            if os.path.isfile(path):
-                                try:
-                                    os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
-                                    os.remove(path)
-                                    return True
-                                except:
-                                    return False
-                            elif os.path.isdir(path):
-                                try:
-                                    # Make all files in directory writable
-                                    for root, dirs, files in os.walk(path):
-                                        for file in files:
-                                            try:
-                                                file_path = os.path.join(root, file)
-                                                os.chmod(file_path, stat.S_IWRITE | stat.S_IREAD)
-                                            except:
-                                                pass
-                                        for dir_name in dirs:
-                                            try:
-                                                dir_path = os.path.join(root, dir_name)
-                                                os.chmod(dir_path, stat.S_IWRITE | stat.S_IREAD)
-                                            except:
-                                                pass
-                                    
-                                    shutil.rmtree(path, ignore_errors=True)
-                                    return not os.path.exists(path)
-                                except:
-                                    return False
-                            return False
-                        
-                        # Try deletion with retries
-                        success = False
-                        for attempt in range(3):
-                            if make_writable_and_delete(item_path):
-                                success = True
-                                deleted_items.append(item)
-                                logger.debug(f"✅ Deleted: {item}")
-                                break
-                            else:
-                                logger.warning(f"Delete attempt {attempt + 1}/3 failed for: {item}")
-                                time.sleep(0.5)
-                        
-                        if not success:
-                            failed_items.append(item)
-                            logger.error(f"❌ Failed to delete after 3 attempts: {item}")
-                            
-                    except Exception as e:
-                        failed_items.append(item)
-                        logger.error(f"❌ Error processing {item}: {e}")
-                else:
-                    logger.debug(f"Skipping non-geometric item: {item}")
-            
-            # Report results
-            total_size_mb = total_size / (1024 * 1024)
-            
-            if deleted_items:
-                logger.info(f"🧹 Successfully deleted {len(deleted_items)} geometric products ({total_size_mb:.1f} MB freed)")
+                    except:
+                        pass
                 
-            if failed_items:
-                logger.warning(f"⚠️ Could not delete {len(failed_items)} items: {failed_items}")
+                total_size_mb = total_size / (1024 * 1024)
+                logger.info(f"Total size to delete: {total_size_mb:.1f} MB")
+                
+            except Exception as e:
+                logger.warning(f"Could not analyze items: {e}")
+                resampled_items = []
+                total_size_mb = 0
             
-            # Try to remove empty geometric folder
+            # Method 1: Try shutil.rmtree with ignore_errors
             try:
-                remaining_items = [f for f in os.listdir(geometric_folder) if f.startswith('Resampled_')]
-                if not remaining_items:  # Only Resampled_ items matter
-                    # Don't delete the folder, just report it's clean
-                    logger.info("🧹 All geometric products cleaned - folder is now clean")
-            except:
-                pass
+                logger.info("🔥 Method 1: Using shutil.rmtree...")
+                
+                for item in resampled_items:
+                    item_path = os.path.join(geometric_folder, item)
+                    if os.path.exists(item_path):
+                        if os.path.isdir(item_path):
+                            shutil.rmtree(item_path, ignore_errors=True)
+                        elif os.path.isfile(item_path):
+                            try:
+                                os.remove(item_path)
+                            except:
+                                pass  # Ignore errors
+                
+                # Check what's left after method 1
+                remaining_items = os.listdir(geometric_folder) if os.path.exists(geometric_folder) else []
+                remaining_resampled = [item for item in remaining_items if item.startswith('Resampled_')]
+                
+                if not remaining_resampled:
+                    logger.info(f"✅ NUCLEAR SUCCESS (Method 1): Deleted all geometric products ({total_size_mb:.1f} MB freed)")
+                    return True
+                else:
+                    logger.warning(f"Method 1 partial success: {len(remaining_resampled)} items remain")
+                    
+            except Exception as e:
+                logger.warning(f"Method 1 (shutil) failed: {e}")
             
-            return len(deleted_items) > 0 or len(failed_items) == 0
+            # Method 2: System commands for remaining items
+            try:
+                logger.info("🔥 Method 2: Using system commands...")
+                
+                # Get current remaining items
+                current_items = os.listdir(geometric_folder) if os.path.exists(geometric_folder) else []
+                current_resampled = [item for item in current_items if item.startswith('Resampled_')]
+                
+                if platform.system() == "Windows":
+                    # Windows cmd approach
+                    for item in current_resampled:
+                        item_path = os.path.join(geometric_folder, item)
+                        if os.path.exists(item_path):
+                            try:
+                                if os.path.isdir(item_path):
+                                    subprocess.run(['rmdir', '/s', '/q', f'"{item_path}"'], 
+                                                shell=True, capture_output=True, timeout=30)
+                                else:
+                                    subprocess.run(['del', '/f', '/q', f'"{item_path}"'], 
+                                                shell=True, capture_output=True, timeout=30)
+                            except subprocess.TimeoutExpired:
+                                logger.warning(f"Timeout deleting {item}")
+                            except Exception as e:
+                                logger.warning(f"Command failed for {item}: {e}")
+                else:
+                    # Unix/Linux approach
+                    for item in current_resampled:
+                        item_path = os.path.join(geometric_folder, item)
+                        if os.path.exists(item_path):
+                            try:
+                                subprocess.run(['rm', '-rf', item_path], 
+                                            capture_output=True, timeout=30)
+                            except subprocess.TimeoutExpired:
+                                logger.warning(f"Timeout deleting {item}")
+                            except Exception as e:
+                                logger.warning(f"Command failed for {item}: {e}")
+                
+                # Final check
+                final_remaining = os.listdir(geometric_folder) if os.path.exists(geometric_folder) else []
+                final_resampled = [item for item in final_remaining if item.startswith('Resampled_')]
+                
+                if not final_resampled:
+                    logger.info(f"✅ NUCLEAR SUCCESS (Method 2): All geometric products deleted ({total_size_mb:.1f} MB freed)")
+                    return True
+                else:
+                    logger.error(f"❌ NUCLEAR FAILURE: {len(final_resampled)} items still remain: {final_resampled}")
+                    logger.error("These files may be:")
+                    logger.error("  • Locked by running processes")
+                    logger.error("  • In use by SNAP")
+                    logger.error("  • Have permission restrictions")
+                    logger.error("  • On network drives with issues")
+                    return False
+                    
+            except Exception as e:
+                logger.error(f"Method 2 (system commands) failed: {e}")
+                return False
             
         except Exception as e:
-            logger.error(f"❌ Cleanup error: {e}")
+            logger.error(f"❌ Nuclear cleanup error: {e}")
             import traceback
-            logger.error(f"Cleanup traceback: {traceback.format_exc()}")
+            logger.error(f"Nuclear cleanup traceback: {traceback.format_exc()}")
             return False
 
 
