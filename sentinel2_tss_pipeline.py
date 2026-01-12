@@ -359,7 +359,7 @@ class JiangTSSConfig:
     
     # Advanced algorithms configuration
     enable_advanced_algorithms: bool = True
-    advanced_config: Optional['AdvancedAquaticConfig'] = None
+    water_quality_config: Optional['WaterQualityConfig'] = None
     
     # NEW: Marine visualization configuration
     enable_marine_visualization: bool = True  # ENABLED BY DEFAULT
@@ -367,28 +367,57 @@ class JiangTSSConfig:
     
     def __post_init__(self):
         """Initialize advanced and marine visualization configs"""
-        if self.enable_advanced_algorithms and self.advanced_config is None:
-            self.advanced_config = AdvancedAquaticConfig()
+        if self.enable_advanced_algorithms and self.water_quality_config is None:
+            self.water_quality_config = WaterQualityConfig()
             
         if self.enable_marine_visualization and self.marine_viz_config is None:
             self.marine_viz_config = MarineVisualizationConfig()
 
 @dataclass
-class AdvancedAquaticConfig:
+class WaterQualityConfig:
     """Configuration for advanced aquatic algorithms"""
-    
-    # WORKING ALGORITHMS ONLY
+
+    # Trophic state calculation
+    enable_trophic_state: bool = False
+    tsi_include_secchi: bool = False
+    tsi_include_phosphorus: bool = False
+
+    # Water clarity calculation
     enable_water_clarity: bool = True
     solar_zenith_angle: float = 30.0
-    
+
+    # HAB detection
     enable_hab_detection: bool = True
     hab_biomass_threshold: float = 20.0
     hab_extreme_threshold: float = 100.0
-    
+
+    # Upwelling detection
+    enable_upwelling_detection: bool = True
+    upwelling_chl_threshold: float = 10.0
+
+    # River plume tracking
+    enable_river_plume_tracking: bool = True
+    plume_tss_threshold: float = 15.0
+    plume_distance_threshold: float = 10000
+
+    # Particle size estimation
+    enable_particle_size: bool = True
+    particle_size_wavelengths: List[int] = None
+
+    # Primary productivity
+    enable_primary_productivity: bool = True
+    productivity_model: str = 'vgpm'
+    day_length: float = 12.0
+
     # Output options
     save_intermediate_products: bool = True
     create_classification_maps: bool = True
     generate_statistics: bool = True
+
+    def __post_init__(self):
+        if self.particle_size_wavelengths is None:
+            self.particle_size_wavelengths = [443, 490, 560, 665, 705]
+
 @dataclass
 class ProcessingConfig:
     """Complete processing configuration"""
@@ -1125,9 +1154,24 @@ class SNAPTSMCHLCalculator:
             
 # ===== JIANG TSS PROCESSOR =====
 
-@dataclass  
+@dataclass
 class JiangTSSConstants:
-    """Complete TSS configuration constants from Jiang et al. (2023) - FULL IMPLEMENTATION"""
+    """
+    Complete TSS configuration constants from Jiang et al. (2021).
+
+    Reference:
+        Jiang, D., Matsushita, B., Pahlevan, N., et al. (2021).
+        "Remotely Estimating Total Suspended Solids Concentration in Clear to
+        Extremely Turbid Waters Using a Novel Semi-Analytical Method."
+        Remote Sensing of Environment, 258, 112386.
+        DOI: https://doi.org/10.1016/j.rse.2021.112386
+
+    Water Type Classification:
+        Type I (Clear): Rrs(490) > Rrs(560) - uses 560nm
+        Type II (Moderately turbid): Rrs(490) > Rrs(620) - uses 665nm
+        Type III (Highly turbid): Default - uses 740nm
+        Type IV (Extremely turbid): Rrs(740) > Rrs(490) AND Rrs(740) > 0.010 - uses 865nm
+    """
     
     # Pure water absorption coefficients (aw) in m^-1 - FROM ORIGINAL R CODE
     PURE_WATER_ABSORPTION = {
@@ -1153,7 +1197,7 @@ class JiangTSSConstants:
         865: 0.00012066     # Band B8A (Type IV)
     }
     
-    # TSS conversion factors from Jiang et al. (2023) - FROM ORIGINAL R CODE
+    # TSS conversion factors from Jiang et al. (2021) - FROM ORIGINAL R CODE
     TSS_CONVERSION_FACTORS = {
         560: 94.48785,      # Type I: Clear water
         665: 113.87498,     # Type II: Moderately turbid
@@ -1169,26 +1213,8 @@ class JiangTSSConstants:
         'd': 1.484814e-04   # d <- 1.484814e-04
     }
 
-@dataclass
-class JiangTSSConfig:
-    """Jiang TSS methodology configuration - CLEAN VERSION"""
-    enable_jiang_tss: bool = True  # ENABLED BY DEFAULT
-    output_intermediates: bool = True
-    water_mask_threshold: float = 0.01
-    tss_valid_range: tuple = (0.01, 10000)  # g/m³
-    output_comparison_stats: bool = True
-    
-    # Advanced algorithms configuration - SIMPLIFIED
-    enable_advanced_algorithms: bool = True
-    advanced_config: Optional['AdvancedAquaticConfig'] = None
-    
-    def __post_init__(self):
-        """Initialize advanced config with only working algorithms"""
-        if self.enable_advanced_algorithms and self.advanced_config is None:
-            self.advanced_config = AdvancedAquaticConfig()
-            
 class JiangTSSProcessor:
-    """Complete implementation of Jiang et al. 2023 TSS methodology - FULL VERSION"""
+    """Complete implementation of Jiang et al. 2021 TSS methodology - FULL VERSION"""
     
     def __init__(self, config: JiangTSSConfig):
         """Initialize Jiang TSS Processor with clean configuration and marine visualization"""
@@ -1206,9 +1232,9 @@ class JiangTSSProcessor:
         
         # Initialize advanced processor if enabled
         if self.config.enable_advanced_algorithms:
-            self.advanced_processor = AdvancedAquaticProcessor()
-            if self.config.advanced_config is None:
-                self.config.advanced_config = AdvancedAquaticConfig()
+            self.advanced_processor = WaterQualityProcessor()
+            if self.config.water_quality_config is None:
+                self.config.water_quality_config = WaterQualityConfig()
         else:
             self.advanced_processor = None
             
@@ -1219,10 +1245,10 @@ class JiangTSSProcessor:
         logger.info(f"Advanced algorithms enabled: {self.config.enable_advanced_algorithms}")
         logger.info(f"Marine visualization enabled: {getattr(self.config, 'enable_marine_visualization', False)}")
         
-        if self.config.enable_advanced_algorithms and self.config.advanced_config:
+        if self.config.enable_advanced_algorithms and self.config.water_quality_config:
             logger.info("Working algorithms available:")
-            logger.info(f"  ✓ Water Clarity: {self.config.advanced_config.enable_water_clarity}")
-            logger.info(f"  ✓ HAB Detection: {self.config.advanced_config.enable_hab_detection}")
+            logger.info(f"  ✓ Water Clarity: {self.config.water_quality_config.enable_water_clarity}")
+            logger.info(f"  ✓ HAB Detection: {self.config.water_quality_config.enable_hab_detection}")
             logger.info("Note: Only Sentinel-2 compatible algorithms included")
         
         # Marine visualization configuration details
@@ -1755,11 +1781,11 @@ class JiangTSSProcessor:
             # CRITICAL FIX: Initialize advanced_results as empty dictionary
             advanced_results = {}
             
-            config = self.config.advanced_config
+            config = self.config.water_quality_config
             
             if config is None:
                 logger.warning("No advanced config available, using defaults")
-                config = AdvancedAquaticConfig()
+                config = WaterQualityConfig()
             
             # Get output folder for this product
             output_folder = self.config.output_folder if hasattr(self.config, 'output_folder') else ""
@@ -2087,7 +2113,7 @@ class JiangTSSProcessor:
                 # Algorithm information
                 f.write(f"ALGORITHMS APPLIED:\n")
                 f.write(f"{'-'*19}\n")
-                f.write(f"• Jiang et al. (2023) TSS methodology\n")
+                f.write(f"• Jiang et al. (2021) TSS methodology\n")
                 if categories['Advanced Products']:
                     f.write(f"• Advanced aquatic algorithms\n")
                 if categories['RGB Composites']:
@@ -2447,32 +2473,32 @@ class JiangTSSProcessor:
                 'absorption': {
                     'data': results.get('absorption'),
                     'filename': f"{clean_product_name}_Jiang_Absorption.tif",
-                    'description': "Absorption coefficient (m⁻¹) - Jiang et al. 2023",
+                    'description': "Absorption coefficient (m⁻¹) - Jiang et al. 2021",
                     'folder': tss_folder
                 },
                 'backscattering': {
                     'data': results.get('backscattering'),
                     'filename': f"{clean_product_name}_Jiang_Backscattering.tif", 
-                    'description': "Particulate backscattering coefficient (m⁻¹) - Jiang et al. 2023",
+                    'description': "Particulate backscattering coefficient (m⁻¹) - Jiang et al. 2021",
                     'folder': tss_folder
                 },
                 'reference_band': {
                     'data': results.get('reference_band'),
                     'filename': f"{clean_product_name}_Jiang_ReferenceBand.tif",
-                    'description': "Reference wavelength used (nm) - Jiang et al. 2023",
+                    'description': "Reference wavelength used (nm) - Jiang et al. 2021",
                     'folder': tss_folder
                 },
                 'tss': {
                     'data': results.get('tss'),
                     'filename': f"{clean_product_name}_Jiang_TSS.tif",
-                    'description': "Total Suspended Solids (g/m³) - Jiang et al. 2023",
+                    'description': "Total Suspended Solids (g/m³) - Jiang et al. 2021",
                     'folder': tss_folder
                 },
                 # Water Type Classification
                 'water_type_classification': {
                     'data': results.get('water_type_classification'),
                     'filename': f"{clean_product_name}_Jiang_WaterTypes.tif",
-                    'description': "Water Type Classification (0=Invalid, 1=Clear, 2=Moderate, 3=Highly turbid, 4=Extremely turbid) - Jiang et al. 2023",
+                    'description': "Water Type Classification (0=Invalid, 1=Clear, 2=Moderate, 3=Highly turbid, 4=Extremely turbid) - Jiang et al. 2021",
                     'folder': tss_folder
                 },
                 'valid_mask': {
@@ -2523,7 +2549,7 @@ class JiangTSSProcessor:
                 'euphotic_depth': ('clarity_euphotic_depth', "Euphotic Depth (m) - 1% light level"),
                 'diffuse_attenuation': ('clarity_diffuse_attenuation', "Diffuse Attenuation Coefficient (m⁻¹)"),
                 'beam_attenuation': ('clarity_beam_attenuation', "Beam Attenuation Coefficient (m⁻¹)"),
-                'turbidity_proxy': ('clarity_turbidity_proxy', "Turbidity Proxy (NTU equivalent)")
+                'relative_turbidity_index': ('clarity_relative_turbidity_index', "Relative Turbidity Index (0-1 scale, dimensionless)")
             }
             
             for product_key, (result_key, description) in clarity_products.items():
@@ -2744,7 +2770,7 @@ class JiangTSSProcessor:
     3   | Highly Turbid      | QAA-740        | High suspended matter concentration
     4   | Extremely Turbid   | QAA-865        | Very high turbidity, possible algal blooms
 
-    ALGORITHM SELECTION CRITERIA (Jiang et al. 2023):
+    ALGORITHM SELECTION CRITERIA (Jiang et al. 2021):
     ================================================
 
     Type I (Clear Water - 560nm):
@@ -2949,7 +2975,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 @dataclass
-class AdvancedAlgorithmConstants:
+class WaterQualityConstants:
     """Constants for advanced aquatic algorithms based on scientific literature"""
     
         
@@ -2967,13 +2993,13 @@ class AdvancedAlgorithmConstants:
         'large': 0.0     # η < 0.5: Large particles (>20 µm)
     }
 
-class AdvancedAquaticProcessor:
+class WaterQualityProcessor:
     """
     Advanced aquatic algorithms processor with complete scientific implementations
     """
     
     def __init__(self):
-        self.constants = AdvancedAlgorithmConstants()
+        self.constants = WaterQualityConstants()
         logger.info("Initialized Advanced Aquatic Processor with scientific algorithms")
     
         
@@ -3019,16 +3045,17 @@ class AdvancedAquaticProcessor:
             # Beam attenuation coefficient (approximate)
             beam_attenuation = absorption + backscattering
             
-            # Turbidity proxy (NTU approximation)
-            turbidity_proxy = backscattering * 1000  # Rough conversion
-            
+            # Relative turbidity index (dimensionless, 0-1 scale)
+            # Note: This is NOT calibrated NTU - use for relative comparison only
+            relative_turbidity_index = np.clip(backscattering * 100, 0, 1)
+
             results = {
                 'diffuse_attenuation': kd,
                 'secchi_depth': secchi_depth,
                 'clarity_index': clarity_index,
                 'euphotic_depth': euphotic_depth,
                 'beam_attenuation': beam_attenuation,
-                'turbidity_proxy': turbidity_proxy
+                'relative_turbidity_index': relative_turbidity_index
             }
             
             # Calculate statistics
@@ -3239,54 +3266,93 @@ class AdvancedAquaticProcessor:
             import traceback
             traceback.print_exc()
             return {}
-              
-    
-@dataclass
-class AdvancedAquaticConfig:
-    """Configuration for advanced aquatic algorithms"""
-    
-    # Trophic state calculation
-    enable_trophic_state: bool = False
-    tsi_include_secchi: bool = False
-    tsi_include_phosphorus: bool = False
-    
-    # Water clarity calculation
-    enable_water_clarity: bool = True
-    solar_zenith_angle: float = 30.0
-    
-    # HAB detection
-    enable_hab_detection: bool = True
-    hab_biomass_threshold: float = 20.0
-    hab_extreme_threshold: float = 100.0
-    
-    # Upwelling detection
-    enable_upwelling_detection: bool = True
-    upwelling_chl_threshold: float = 10.0
-    
-    # River plume tracking
-    enable_river_plume_tracking: bool = True
-    plume_tss_threshold: float = 15.0
-    plume_distance_threshold: float = 10000
-    
-    # Particle size estimation
-    enable_particle_size: bool = True
-    particle_size_wavelengths: List[int] = None
-    
-    # Primary productivity
-    enable_primary_productivity: bool = True
-    productivity_model: str = 'vgpm'
-    day_length: float = 12.0
-    
-    # Output options
-    save_intermediate_products: bool = True
-    create_classification_maps: bool = True
-    generate_statistics: bool = True
-    
-    def __post_init__(self):
-        if self.particle_size_wavelengths is None:
-            self.particle_size_wavelengths = [443, 490, 560, 665, 705]
 
-def create_advanced_processor(config: AdvancedAquaticConfig = None) -> AdvancedAquaticProcessor:
+    def calculate_trophic_state(self, chlorophyll: np.ndarray,
+                                secchi_depth: Optional[np.ndarray] = None) -> Dict[str, np.ndarray]:
+        """
+        Calculate Trophic State Index (TSI) using Carlson (1977) methodology.
+
+        Reference:
+            Carlson, R.E. (1977). A trophic state index for lakes.
+            Limnology and Oceanography, 22(2), 361-369.
+
+        TSI Scale Interpretation:
+            < 40: Oligotrophic (clear, low productivity)
+            40-50: Mesotrophic (moderate productivity)
+            50-70: Eutrophic (high productivity, algae-rich)
+            > 70: Hypereutrophic (very high productivity)
+
+        Args:
+            chlorophyll: Chlorophyll-a concentration in µg/L (mg/m³)
+            secchi_depth: Optional Secchi disk depth in meters
+
+        Returns:
+            Dictionary with TSI values and trophic classification
+        """
+        try:
+            logger.info("Calculating Trophic State Index (Carlson 1977)")
+
+            results = {}
+            shape = chlorophyll.shape
+
+            # TSI from chlorophyll-a: TSI(CHL) = 9.81 × ln(CHL) + 30.6
+            # Valid for CHL > 0
+            valid_chl = (chlorophyll > 0) & (~np.isnan(chlorophyll))
+
+            tsi_chl = np.full(shape, np.nan, dtype=np.float32)
+            if np.any(valid_chl):
+                tsi_chl[valid_chl] = 9.81 * np.log(chlorophyll[valid_chl]) + 30.6
+                results['tsi_chlorophyll'] = tsi_chl
+                logger.info(f"TSI(CHL) calculated for {np.sum(valid_chl)} pixels")
+
+            # TSI from Secchi depth if available: TSI(SD) = 60 - 14.41 × ln(SD)
+            if secchi_depth is not None:
+                valid_sd = (secchi_depth > 0) & (~np.isnan(secchi_depth))
+                tsi_sd = np.full(shape, np.nan, dtype=np.float32)
+                if np.any(valid_sd):
+                    tsi_sd[valid_sd] = 60.0 - 14.41 * np.log(secchi_depth[valid_sd])
+                    results['tsi_secchi'] = tsi_sd
+                    logger.info(f"TSI(SD) calculated for {np.sum(valid_sd)} pixels")
+
+            # Use TSI(CHL) as primary TSI
+            tsi_primary = tsi_chl.copy()
+            results['tsi'] = tsi_primary
+
+            # Trophic state classification
+            trophic_class = np.full(shape, 0, dtype=np.uint8)  # 0 = No data
+            trophic_class[tsi_primary < 40] = 1   # Oligotrophic
+            trophic_class[(tsi_primary >= 40) & (tsi_primary < 50)] = 2  # Mesotrophic
+            trophic_class[(tsi_primary >= 50) & (tsi_primary < 70)] = 3  # Eutrophic
+            trophic_class[tsi_primary >= 70] = 4  # Hypereutrophic
+
+            results['trophic_class'] = trophic_class
+
+            # Calculate statistics
+            valid_tsi = ~np.isnan(tsi_primary)
+            if np.any(valid_tsi):
+                oligotrophic = np.sum(trophic_class == 1)
+                mesotrophic = np.sum(trophic_class == 2)
+                eutrophic = np.sum(trophic_class == 3)
+                hypereutrophic = np.sum(trophic_class == 4)
+                total = np.sum(valid_tsi)
+
+                logger.info(f"Trophic state classification completed:")
+                logger.info(f"  Mean TSI: {np.nanmean(tsi_primary):.1f}")
+                logger.info(f"  Oligotrophic (<40): {oligotrophic} pixels ({100*oligotrophic/total:.1f}%)")
+                logger.info(f"  Mesotrophic (40-50): {mesotrophic} pixels ({100*mesotrophic/total:.1f}%)")
+                logger.info(f"  Eutrophic (50-70): {eutrophic} pixels ({100*eutrophic/total:.1f}%)")
+                logger.info(f"  Hypereutrophic (>70): {hypereutrophic} pixels ({100*hypereutrophic/total:.1f}%)")
+
+            return results
+
+        except Exception as e:
+            logger.error(f"Error calculating trophic state: {e}")
+            import traceback
+            traceback.print_exc()
+            return {}
+
+
+def create_advanced_processor(config: WaterQualityConfig = None) -> WaterQualityProcessor:
     """
     Factory function to create advanced aquatic processor
     
@@ -3294,12 +3360,12 @@ def create_advanced_processor(config: AdvancedAquaticConfig = None) -> AdvancedA
         config: Advanced aquatic configuration
         
     Returns:
-        Configured AdvancedAquaticProcessor instance
+        Configured WaterQualityProcessor instance
     """
     if config is None:
-        config = AdvancedAquaticConfig()
+        config = WaterQualityConfig()
     
-    processor = AdvancedAquaticProcessor()
+    processor = WaterQualityProcessor()
     processor.config = config
     
     return processor
@@ -3307,14 +3373,14 @@ def create_advanced_processor(config: AdvancedAquaticConfig = None) -> AdvancedA
 # Integration helper functions
 def integrate_with_existing_pipeline(c2rcc_results: Dict, 
                                    jiang_results: Dict,
-                                   advanced_config: AdvancedAquaticConfig) -> Dict:
+                                   water_quality_config: WaterQualityConfig) -> Dict:
     """
     Integrate advanced algorithms with existing TSS pipeline
     
     Args:
         c2rcc_results: Results from C2RCC processing
         jiang_results: Results from Jiang TSS processing
-        advanced_config: Configuration for advanced algorithms
+        water_quality_config: Configuration for advanced algorithms
         
     Returns:
         Dictionary with all advanced algorithm results
@@ -3322,7 +3388,7 @@ def integrate_with_existing_pipeline(c2rcc_results: Dict,
     try:
         logger.info("Integrating advanced algorithms with existing pipeline")
         
-        processor = create_advanced_processor(advanced_config)
+        processor = create_advanced_processor(water_quality_config)
         advanced_results = {}
         
         # Extract required data from existing results
@@ -3330,12 +3396,12 @@ def integrate_with_existing_pipeline(c2rcc_results: Dict,
             chlorophyll = c2rcc_results['chlorophyll']
             
             # Trophic state index
-            if advanced_config.enable_trophic_state:
+            if water_quality_config.enable_trophic_state:
                 tsi_results = processor.calculate_trophic_state(chlorophyll)
                 advanced_results.update({f'tsi_{k}': v for k, v in tsi_results.items()})
             
             # HAB detection
-            if advanced_config.enable_hab_detection:
+            if water_quality_config.enable_hab_detection:
                 rrs_bands = c2rcc_results.get('rrs_bands', {})
                 phycocyanin = c2rcc_results.get('phycocyanin', None)
                 hab_results = processor.detect_harmful_algal_blooms(chlorophyll, phycocyanin, rrs_bands)
@@ -3347,15 +3413,15 @@ def integrate_with_existing_pipeline(c2rcc_results: Dict,
             backscattering = jiang_results['backscattering']
             
             # Water clarity
-            if advanced_config.enable_water_clarity:
+            if water_quality_config.enable_water_clarity:
                 clarity_results = processor.calculate_water_clarity(absorption, backscattering)
                 advanced_results.update({f'clarity_{k}': v for k, v in clarity_results.items()})
             
             # Particle size estimation
-            if advanced_config.enable_particle_size:
+            if water_quality_config.enable_particle_size:
                 # Create backscattering spectrum from available bands
                 backscattering_spectrum = {}
-                for wl in advanced_config.particle_size_wavelengths:
+                for wl in water_quality_config.particle_size_wavelengths:
                     if f'backscattering_{wl}' in jiang_results:
                         backscattering_spectrum[wl] = jiang_results[f'backscattering_{wl}']
                 
@@ -7556,61 +7622,26 @@ class UnifiedS2TSSGUI:
 
         # Step 2: Create MarineVisualizationConfig with full functionality
         if self.jiang_config.enable_marine_visualization and self.jiang_config.marine_viz_config is None:
-            try:
-                # Import the class if it exists
-                self.jiang_config.marine_viz_config = MarineVisualizationConfig()
-                logger.info("✓ Marine visualization fully initialized and OPERATIONAL")
-            except NameError:
-                # Create a complete MarineVisualizationConfig class if it doesn't exist
-                logger.info("Creating MarineVisualizationConfig class for full functionality...")
-                
-                @dataclass
-                class MarineVisualizationConfig:
-                    """Configuration for marine visualization products - FULL OPERATIONAL VERSION"""
-                    
-                    # RGB options - ALL ENABLED for maximum output
-                    generate_natural_color: bool = True
-                    generate_false_color: bool = True
-                    generate_water_specific: bool = True
-                    generate_research_combinations: bool = True  # Enable research combos too
-                    
-                    # Spectral indices options - ALL ENABLED
-                    generate_water_quality_indices: bool = True
-                    generate_chlorophyll_indices: bool = True
-                    generate_turbidity_indices: bool = True
-                    generate_advanced_indices: bool = True
-                    
-                    # Output format options
-                    rgb_format: str = 'GeoTIFF'
-                    export_metadata: bool = True
-                    create_overview_images: bool = True
-                    
-                    # Enhancement options for better visualization
-                    apply_contrast_enhancement: bool = True
-                    contrast_method: str = 'percentile_stretch'
-                    percentile_range: tuple = (2, 98)
-                
-                # Create the config with all features enabled
-                self.jiang_config.marine_viz_config = MarineVisualizationConfig()
-                logger.info("✓ Created complete MarineVisualizationConfig - ALL FEATURES ENABLED")
+            self.jiang_config.marine_viz_config = MarineVisualizationConfig()
+            logger.info("Marine visualization fully initialized and OPERATIONAL")
 
         # Step 3: Ensure advanced algorithms are also operational
         if not hasattr(self.jiang_config, 'enable_advanced_algorithms'):
             self.jiang_config.enable_advanced_algorithms = True
             logger.info("Added enable_advanced_algorithms attribute (ENABLED)")
 
-        if not hasattr(self.jiang_config, 'advanced_config'):
-            self.jiang_config.advanced_config = None
-            logger.info("Added advanced_config attribute")
+        if not hasattr(self.jiang_config, 'water_quality_config'):
+            self.jiang_config.water_quality_config = None
+            logger.info("Added water_quality_config attribute")
 
-        if self.jiang_config.enable_advanced_algorithms and self.jiang_config.advanced_config is None:
+        if self.jiang_config.enable_advanced_algorithms and self.jiang_config.water_quality_config is None:
             try:
-                self.jiang_config.advanced_config = AdvancedAquaticConfig()
+                self.jiang_config.water_quality_config = WaterQualityConfig()
                 logger.info("✓ Advanced algorithms initialized and OPERATIONAL")
             except NameError:
-                # Create AdvancedAquaticConfig if it doesn't exist
+                # Create WaterQualityConfig if it doesn't exist
                 @dataclass
-                class AdvancedAquaticConfig:
+                class WaterQualityConfig:
                     """Configuration for advanced aquatic algorithms - OPERATIONAL VERSION"""
                     
                     # Working algorithms
@@ -7626,8 +7657,8 @@ class UnifiedS2TSSGUI:
                     create_classification_maps: bool = True
                     generate_statistics: bool = True
                 
-                self.jiang_config.advanced_config = AdvancedAquaticConfig()
-                logger.info("✓ Created complete AdvancedAquaticConfig - ALL FEATURES ENABLED")
+                self.jiang_config.water_quality_config = WaterQualityConfig()
+                logger.info("✓ Created complete WaterQualityConfig - ALL FEATURES ENABLED")
 
         # Step 4: Log the complete configuration status
         logger.info("=" * 60)
@@ -7648,7 +7679,7 @@ class UnifiedS2TSSGUI:
             logger.info(f"  ✓ Contrast enhancement: {self.jiang_config.marine_viz_config.apply_contrast_enhancement}")
 
         logger.info(f"✓ Advanced algorithms enabled: {self.jiang_config.enable_advanced_algorithms}")
-        logger.info(f"✓ Advanced config created: {self.jiang_config.advanced_config is not None}")
+        logger.info(f"✓ Advanced config created: {self.jiang_config.water_quality_config is not None}")
         logger.info("=" * 60)
         logger.info("🎨 MARINE VISUALIZATION SYSTEM READY FOR PRODUCTION! 🎨")
         logger.info("Expected outputs per product:")
@@ -8272,7 +8303,7 @@ class UnifiedS2TSSGUI:
         snap_note_label.pack()
         
         # Jiang TSS Configuration (unchanged)
-        jiang_frame = ttk.LabelFrame(scrollable_frame, text="Jiang et al. 2023 TSS Methodology (Optional)", padding="10")
+        jiang_frame = ttk.LabelFrame(scrollable_frame, text="Jiang et al. 2021 TSS Methodology (Optional)", padding="10")
         jiang_frame.pack(fill=tk.X, padx=10, pady=5)
         
         ttk.Checkbutton(jiang_frame, text="✓ Enable Jiang TSS processing", 
@@ -8931,36 +8962,8 @@ class UnifiedS2TSSGUI:
             # Ensure marine_viz_config is created and operational
             if self.jiang_config.enable_marine_visualization:
                 if self.jiang_config.marine_viz_config is None:
-                    # Create a complete operational marine visualization config
-                    logger.info("Creating operational marine visualization configuration...")
-                    
-                    @dataclass
-                    class MarineVisualizationConfig:
-                        """Complete operational marine visualization configuration"""
-                        # RGB options - FULLY ENABLED
-                        generate_natural_color: bool = True
-                        generate_false_color: bool = True
-                        generate_water_specific: bool = True
-                        generate_research_combinations: bool = True
-                        
-                        # Spectral indices - FULLY ENABLED
-                        generate_water_quality_indices: bool = True
-                        generate_chlorophyll_indices: bool = True
-                        generate_turbidity_indices: bool = True
-                        generate_advanced_indices: bool = True
-                        
-                        # Output format
-                        rgb_format: str = 'GeoTIFF'
-                        export_metadata: bool = True
-                        create_overview_images: bool = True
-                        
-                        # Enhancement
-                        apply_contrast_enhancement: bool = True
-                        contrast_method: str = 'percentile_stretch'
-                        percentile_range: tuple = (2, 98)
-                    
                     self.jiang_config.marine_viz_config = MarineVisualizationConfig()
-                    logger.info("✓ Operational marine visualization config created with ALL FEATURES ENABLED")
+                    logger.info("Operational marine visualization config created")
                 
                 # Update settings from GUI variables if they exist
                 if hasattr(self, 'natural_color_var'):
@@ -8996,9 +8999,9 @@ class UnifiedS2TSSGUI:
                 
             # Configure advanced algorithms
             if self.jiang_config.enable_advanced_algorithms:
-                if not hasattr(self.jiang_config, 'advanced_config') or self.jiang_config.advanced_config is None:
+                if not hasattr(self.jiang_config, 'water_quality_config') or self.jiang_config.water_quality_config is None:
                     @dataclass
-                    class AdvancedAquaticConfig:
+                    class WaterQualityConfig:
                         """Operational advanced aquatic algorithms configuration"""
                         enable_water_clarity: bool = True
                         solar_zenith_angle: float = 30.0
@@ -9009,16 +9012,16 @@ class UnifiedS2TSSGUI:
                         create_classification_maps: bool = True
                         generate_statistics: bool = True
                     
-                    self.jiang_config.advanced_config = AdvancedAquaticConfig()
+                    self.jiang_config.water_quality_config = WaterQualityConfig()
                     logger.info("✓ Operational advanced algorithms config created")
                 
                 # Update from GUI if variables exist
                 if hasattr(self, 'water_clarity_var'):
-                    self.jiang_config.advanced_config.enable_water_clarity = self.water_clarity_var.get()
+                    self.jiang_config.water_quality_config.enable_water_clarity = self.water_clarity_var.get()
                 if hasattr(self, 'hab_detection_var'):
-                    self.jiang_config.advanced_config.enable_hab_detection = self.hab_detection_var.get()
+                    self.jiang_config.water_quality_config.enable_hab_detection = self.hab_detection_var.get()
             else:
-                self.jiang_config.advanced_config = None
+                self.jiang_config.water_quality_config = None
             
             # Log final configuration status
             logger.info("Configuration update completed - Marine visualization OPERATIONAL!")
@@ -9123,14 +9126,14 @@ class UnifiedS2TSSGUI:
                     jiang_config.marine_viz_config = None
                     
             # Ensure advanced config is also properly initialized
-            if jiang_config.enable_advanced_algorithms and jiang_config.advanced_config is None:
+            if jiang_config.enable_advanced_algorithms and jiang_config.water_quality_config is None:
                 try:
-                    jiang_config.advanced_config = AdvancedAquaticConfig()
-                    logger.info("Initialized JiangTSSConfig with AdvancedAquaticConfig")
+                    jiang_config.water_quality_config = WaterQualityConfig()
+                    logger.info("Initialized JiangTSSConfig with WaterQualityConfig")
                 except NameError:
-                    logger.warning("AdvancedAquaticConfig class not found, disabling advanced algorithms")
+                    logger.warning("WaterQualityConfig class not found, disabling advanced algorithms")
                     jiang_config.enable_advanced_algorithms = False
-                    jiang_config.advanced_config = None
+                    jiang_config.water_quality_config = None
                     
             return jiang_config
             
@@ -9320,10 +9323,10 @@ class UnifiedS2TSSGUI:
                 if not hasattr(self.jiang_config, 'marine_viz_config'):
                     self.jiang_config.marine_viz_config = None
                 
-                # STEP 3: Reconstruct advanced_config if present
-                if jiang_data.get('advanced_config') and self.jiang_config.enable_advanced_algorithms:
-                    adv_data = jiang_data['advanced_config']
-                    self.jiang_config.advanced_config = AdvancedAquaticConfig(
+                # STEP 3: Reconstruct water_quality_config if present
+                if jiang_data.get('water_quality_config') and self.jiang_config.enable_advanced_algorithms:
+                    adv_data = jiang_data['water_quality_config']
+                    self.jiang_config.water_quality_config = WaterQualityConfig(
                         enable_water_clarity=adv_data.get('enable_water_clarity', True),
                         solar_zenith_angle=adv_data.get('solar_zenith_angle', 30.0),
                         enable_hab_detection=adv_data.get('enable_hab_detection', True),
@@ -9511,8 +9514,8 @@ class UnifiedS2TSSGUI:
                     self.advanced_indices_var.set(viz_config.generate_advanced_indices)
             
             # Advanced algorithms options
-            if self.jiang_config.advanced_config:
-                adv_config = self.jiang_config.advanced_config
+            if self.jiang_config.water_quality_config:
+                adv_config = self.jiang_config.water_quality_config
                 if hasattr(self, 'water_clarity_var'):
                     self.water_clarity_var.set(adv_config.enable_water_clarity)
                 if hasattr(self, 'hab_detection_var'):
@@ -9864,7 +9867,7 @@ def create_default_config(input_folder: str, output_folder: str,
     c2rcc_config = C2RCCConfig()  # ECMWF enabled by default
     jiang_config = JiangTSSConfig()
     jiang_config.enable_advanced_algorithms = True  # Ensure this is set
-    jiang_config.advanced_config = AdvancedAquaticConfig()  # Ensure this is set
+    jiang_config.water_quality_config = WaterQualityConfig()  # Ensure this is set
     
     return ProcessingConfig(
         processing_mode=mode,
