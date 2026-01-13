@@ -1,70 +1,115 @@
-Unified S2 Processing & TSS Estimation Pipeline
+# Sentinel-2 TSS Pipeline
 
-A comprehensive Python pipeline for processing Sentinel-2 data and estimating Total Suspended Solids (TSS) in aquatic environments. This professional-grade tool combines atmospheric correction using C2RCC with advanced TSS estimation methodologies.
-🌟 Features
-Complete Processing Pipeline
+A comprehensive Python pipeline for processing Sentinel-2 imagery and estimating Total Suspended Solids (TSS) in aquatic environments using the Jiang et al. (2021) semi-analytical methodology.
 
-L1C → C2RCC Processing: Atmospheric correction with ECMWF integration
-Automatic SNAP Products: TSM, CHL concentrations with uncertainty maps
-Advanced TSS Estimation: Optional Jiang et al. 2023 methodology
-Quality Assessment: Comprehensive validation and statistics
+**Version:** 2.0.0
+**Author:** Pedro Goncalves
+**License:** Research use
 
-Professional GUI Interface
+## Features
 
-Tabbed Configuration: Organized parameter management
-Real-time Monitoring: System resources and processing status
-Progress Tracking: ETA calculations and detailed statistics
-Configuration Management: Save/load processing settings
+### Complete Processing Pipeline
+- **L1C to C2RCC Processing**: Atmospheric correction with ECMWF integration
+- **Automatic SNAP Products**: TSM, CHL concentrations with uncertainty maps
+- **Advanced TSS Estimation**: Jiang et al. (2021) semi-analytical methodology
+- **Water Type Classification**: Adaptive processing for 4 water turbidity classes
+- **Quality Assessment**: Comprehensive validation and statistics
 
-Scientific Accuracy
+### Comprehensive Output Products
+- **18 RGB Composite Variants**: Natural color, false color, and water-specific visualizations
+- **17+ Spectral Indices**: NDWI, NDTI, NDCI, FLH, MCI, TSI, and more
+- **Water Quality Parameters**: TSM, CHL, TSS, absorption, backscattering
+- **Trophic State Index (TSI)**: Carlson (1977) methodology
 
-ECMWF Integration: Real-time atmospheric data for superior accuracy
-Uncertainty Quantification: Statistical uncertainty maps included
-Water Type Classification: Adaptive processing for different water bodies
-Validation Tools: Quality control and comparison statistics
+### Professional GUI Interface
+- **Tabbed Configuration**: Organized parameter management
+- **Real-time Monitoring**: System resources and processing status
+- **Progress Tracking**: ETA calculations and detailed statistics
+- **Configuration Management**: Save/load processing settings
 
-Production-Ready Features
+### Production-Ready Features
+- **Batch Processing**: Handle multiple products efficiently
+- **Memory Management**: Automatic cleanup and monitoring (optimized for 256GB RAM)
+- **Error Recovery**: Graceful handling of processing failures
+- **Comprehensive Logging**: Detailed processing logs and statistics
 
-Batch Processing: Handle multiple products efficiently
-Memory Management: Automatic cleanup and monitoring
-Error Recovery: Graceful handling of processing failures
-Comprehensive Logging: Detailed processing logs and statistics
+## Scientific References
 
-📋 Requirements
-System Requirements
+### Primary TSS Algorithm
+```
+Jiang, D., Matsushita, B., Pahlevan, N., et al. (2021).
+"Remotely Estimating Total Suspended Solids Concentration in Clear to
+Extremely Turbid Waters Using a Novel Semi-Analytical Method."
+Remote Sensing of Environment, 258, 112386.
+DOI: https://doi.org/10.1016/j.rse.2021.112386
+```
 
-Operating System: Windows 10/11, Linux, or macOS
-RAM: Minimum 8GB (16GB+ recommended)
-Storage: 50GB+ free space for processing
-CPU: Multi-core processor recommended
+### Water Type Classification
+| Type | Condition | Reference Band | TSS Range |
+|------|-----------|----------------|-----------|
+| Type I (Clear) | Rrs(490) > Rrs(560) | 560nm | < 10 g/m³ |
+| Type II (Moderate) | Rrs(490) > Rrs(620) | 665nm | 10-50 g/m³ |
+| Type III (Turbid) | Default | 740nm | 50-200 g/m³ |
+| Type IV (Extreme) | Rrs(740) > Rrs(490) AND Rrs(740) > 0.010 | 865nm | > 200 g/m³ |
 
-Software Dependencies
+### Additional Scientific Basis
+- **C2RCC**: Brockmann et al. (2016) - Atmospheric correction
+- **QAA v6.0**: Lee et al. - Quasi-Analytical Algorithm
+- **TSI**: Carlson (1977) - Trophic State Index
+- **NDCI**: Mishra & Mishra (2012) - Harmful Algal Bloom detection
+- **FLH**: Gower et al. (1999) - Fluorescence Line Height
+- **MCI**: Gitelson et al. (2008) - Maximum Chlorophyll Index
+- **Pure Water Constants**: Pope & Fry (1997)
 
-Python: 3.7 or higher
-SNAP: Version 9.0 or higher
-Anaconda: For environment management
-Spyder: For development and execution
+## Requirements
 
-🚀 Installation
-Step 1: Install SNAP
+### System Requirements
+- **Operating System**: Windows 10/11, Linux, or macOS
+- **RAM**: Minimum 16GB (256GB recommended for large datasets)
+- **Storage**: 50GB+ free space for processing
+- **CPU**: Multi-core processor recommended
+
+### Software Dependencies
+
+#### Required
+- Python 3.8+
+- numpy
+- GDAL (osgeo)
+- tkinter (GUI)
+- psutil (system monitoring)
+
+#### Required for Processing
+- SNAP GPT (ESA SNAP Graph Processing Tool) v9.0+
+- SNAP C2RCC module
+
+#### Optional
+- geopandas (geometry loading)
+- fiona (shapefile support)
+- shapely (geometry operations)
+- tqdm (progress bars)
+
+## Installation
+
+### Step 1: Install SNAP
+
 Download and install SNAP from the official ESA website:
+- **Download**: https://step.esa.int/main/download/snap-download/
 
-Download: https://step.esa.int/main/download/snap-download/
-Installation Guide: https://step.esa.int/main/download/snap-download/
+Important: Install SNAP in the default location and note the installation path.
 
-Important: Make sure to install SNAP in the default location and note the installation path.
-Step 2: Create Anaconda Environment
-Open Anaconda Prompt (Windows) or Terminal (Linux/macOS) and create a new environment:
+### Step 2: Create Conda Environment
 
-# Create new environment named 'snap-c2rcc'
+```bash
+# Create new environment
 conda create -n snap-c2rcc python=3.9
 
 # Activate the environment
 conda activate snap-c2rcc
-Step 3: Install Dependencies
+```
 
-Install required packages in the activated environment:
+### Step 3: Install Dependencies
 
+```bash
 # Install core scientific packages
 conda install numpy pandas scipy matplotlib
 
@@ -74,368 +119,362 @@ conda install -c conda-forge gdal rasterio pyproj
 # Install GUI and system packages
 conda install -c conda-forge psutil tqdm
 
-# Install additional packages via pip
-pip install tkinter-tooltip
-
 # Verify GDAL installation
 python -c "from osgeo import gdal; print('GDAL version:', gdal.__version__)"
-Step 4: Install Spyder
+```
 
-# Install Spyder IDE
-conda install spyder
+### Step 4: Configure SNAP Environment
 
-# Install additional Spyder plugins (optional)
-conda install spyder-kernels
-Step 5: Configure SNAP Environment
-Set the SNAP_HOME environment variable:
-Windows (in Anaconda Prompt):
-
-# Set SNAP_HOME (adjust path if different)
+**Windows (in Anaconda Prompt):**
+```bash
 set SNAP_HOME=C:\Program Files\esa-snap
-
-# Make it permanent (optional)
 setx SNAP_HOME "C:\Program Files\esa-snap"
-Linux/macOS (in Terminal):
+```
 
-# Add to your shell profile (.bashrc, .zshrc, etc.)
+**Linux/macOS:**
+```bash
 export SNAP_HOME=/usr/local/snap
+```
 
-# Or set temporarily
-export SNAP_HOME=/path/to/your/snap/installation
-Step 6: Verify Installation
-Test your installation:
+### Step 5: Clone Repository
 
+```bash
+git clone https://github.com/PedroMMGoncalves/sentinel2-tss-pipeline.git
+cd sentinel2-tss-pipeline
+```
+
+### Step 6: Verify Installation
+
+```bash
+# Test package imports
+python -c "from sentinel2_tss_pipeline import UnifiedS2TSSProcessor, S2Processor, JiangTSSProcessor; print('All imports OK')"
+
+# Test CLI
+python -m sentinel2_tss_pipeline --help
+```
+
+## Project Structure
+
+```
+sentinel2-tss-pipeline/
+├── README.md                        # This file
+│
+├── sentinel2_tss_pipeline/          # Main modular package (v2.0)
+│   ├── __init__.py                  # Package exports
+│   ├── __main__.py                  # Entry point for python -m
+│   ├── main.py                      # CLI and GUI entry points
+│   │
+│   ├── config/                      # Configuration dataclasses
+│   │   ├── enums.py                 # ProcessingMode, ProductType
+│   │   ├── s2_config.py             # ResamplingConfig, SubsetConfig, C2RCCConfig
+│   │   ├── jiang_config.py          # JiangTSSConfig
+│   │   ├── water_quality_config.py  # WaterQualityConfig
+│   │   ├── marine_config.py         # MarineVisualizationConfig
+│   │   └── processing_config.py     # ProcessingConfig
+│   │
+│   ├── utils/                       # Utility modules
+│   │   ├── logging_utils.py         # ColoredFormatter, setup_enhanced_logging
+│   │   ├── math_utils.py            # SafeMathNumPy
+│   │   ├── memory_manager.py        # MemoryManager
+│   │   ├── raster_io.py             # RasterIO (GDAL wrapper)
+│   │   └── product_detector.py      # ProductDetector, SystemMonitor
+│   │
+│   ├── processors/                  # Processing modules
+│   │   ├── snap_calculator.py       # SNAPTSMCHLCalculator
+│   │   ├── jiang_processor.py       # JiangTSSProcessor
+│   │   ├── water_quality_processor.py # WaterQualityProcessor
+│   │   ├── marine_viz.py            # S2MarineVisualizationProcessor
+│   │   └── s2_processor.py          # S2Processor
+│   │
+│   ├── core/                        # Core processing
+│   │   └── unified_processor.py     # UnifiedS2TSSProcessor
+│   │
+│   └── gui/                         # GUI module
+│       └── unified_gui.py           # UnifiedS2TSSGUI
+│
+└── legacy/                          # Original monolithic implementation
+    ├── sentinel2_tss_pipeline.py    # Original single-file version
+    └── snap_diagnostics.py          # SNAP diagnostic tool
+```
+
+## Usage
+
+### Method 1: GUI (Recommended)
+
+```bash
 # Activate environment
 conda activate snap-c2rcc
 
-# Test Python imports
-python -c "import numpy, gdal, psutil; print('All imports successful!')"
+# Launch GUI
+python -m sentinel2_tss_pipeline
+```
 
-# Test SNAP GPT
-gpt -h
-🔧 SNAP Diagnostics & Troubleshooting
-Running SNAP Diagnostics
-If you encounter SNAP-related issues, use the diagnostic script:
+### Method 2: Command Line Interface
 
-# Activate environment
-conda activate snap-c2rcc
+```bash
+# Basic usage
+python -m sentinel2_tss_pipeline -i /path/to/L1C -o /path/to/results
 
-# Run SNAP diagnostics
-python snap_diagnostics.py
-The diagnostic script will:
-
-✅ Verify SNAP installation
-✅ Check GPT executable
-✅ Test available operators
-✅ Detect plugin conflicts
-✅ Suggest specific fixes
-
-Common SNAP Issues & Solutions
-🚨 Plugin Conflicts (Most Common)
-Error: NoClassDefFoundError in GPT output
-Solution:
-
-Start SNAP Desktop: "C:\Program Files\esa-snap\bin\snap64.exe"
-Go to: Tools → Plugins → Installed
-Disable/Uninstall: ASTER, EOMTBX, or other problematic plugins
-Restart SNAP Desktop
-
-🚨 SNAP_HOME Issues
-Error: SNAP_HOME not set or GPT not found
-Solution:
-bash# Windows
-set SNAP_HOME=C:\Program Files\esa-snap
-setx SNAP_HOME "C:\Program Files\esa-snap"
-
-# Linux/macOS
-export SNAP_HOME=/usr/local/snap
-🚨 Java Configuration
-Error: Java-related errors in GPT
-Solution:
-
-Check Java version: java -version (should be Java 8 or 11)
-Reset SNAP user directory:
-
-Windows: rmdir /s "%USERPROFILE%\.snap"
-Linux/macOS: rm -rf ~/.snap
-
-
-
-🚨 Memory Issues
-Error: OutOfMemoryError
-Solution:
-
-Reduce memory limit in processing settings
-Close other applications
-Process fewer products simultaneously
-
-Advanced Diagnostics
-bash# Run comprehensive SNAP test
-python snap_diagnostics.py
-
-# Test with sample data
-python snap_diagnostics.py --test-processing /path/to/sample.zip /path/to/output
-📁 Project Setup
-Clone Repository
-bashgit clone https://github.com/yourusername/unified-s2-tss-pipeline.git
-cd unified-s2-tss-pipeline
-Directory Structure
-unified-s2-tss-pipeline/
-├── unified_s2_tss_pipeline.py    # Main pipeline script
-├── snap_diagnostics.py           # SNAP diagnostic tool
-├── README.md                     # This file
-├── requirements.txt              # Python dependencies
-├── examples/                     # Example configurations
-│   ├── config_complete.json      # Complete pipeline config
-│   ├── config_s2_only.json       # S2 processing only
-│   └── config_tss_only.json      # TSS processing only
-├── docs/                         # Documentation
-│   ├── user_guide.md             # Detailed user guide
-│   ├── api_reference.md          # API documentation
-│   └── troubleshooting.md        # Common issues and solutions
-└── tests/                        # Unit tests
-    ├── test_processors.py        # Test processing components
-    └── test_configurations.py    # Test configuration handling
-
-🎯 Quick Start
-Method 1: Using Spyder IDE (Recommended)
-
-Launch Spyder:
-bashconda activate snap-c2rcc
-spyder
-
-Open the Script:
-
-In Spyder: File → Open → unified_s2_tss_pipeline.py
-
-
-Run the Script:
-
-Click the Run button (▶️) or press F5
-The GUI will launch automatically
-
-
-
-Method 2: Command Line
-bash# Activate environment
-conda activate snap-c2rcc
-
-# Run with GUI
-python unified_s2_tss_pipeline.py
-
-# Run with command line arguments
-python unified_s2_tss_pipeline.py -i /path/to/input -o /path/to/output --mode complete_pipeline
-🔧 Configuration
-Processing Modes
-ModeInputOutputDescriptionComplete PipelineL1C ProductsC2RCC + TSSFull processing chainS2 Processing OnlyL1C ProductsC2RCCAtmospheric correction onlyTSS Processing OnlyC2RCC ProductsTSSTSS estimation only
-Essential Settings
-Input Data
-
-L1C Products: .zip or .SAFE format
-C2RCC Products: .dim format (for TSS-only mode)
-
-C2RCC Configuration
-
-ECMWF: Enabled by default (recommended)
-Water Properties: Salinity, temperature
-Output Products: TSM, CHL, uncertainties
-
-TSS Options
-
-SNAP TSM/CHL: Automatically generated
-Jiang Methodology: Optional advanced TSS estimation
-
-📊 Usage Examples
-Example 1: Complete Pipeline
-python# Through GUI
-1. Select "Complete Pipeline" mode
-2. Set input folder containing L1C products
-3. Set output folder
-4. Configure C2RCC parameters
-5. Click "Start Processing"
-
-# Through command line
-python unified_s2_tss_pipeline.py \
+# Complete pipeline with all options
+python -m sentinel2_tss_pipeline \
     -i /path/to/L1C_products \
     -o /path/to/results \
     --mode complete_pipeline \
     --enable-jiang
-Example 2: Coastal Water Processing
-python# Optimized for coastal environments
-1. Mode: Complete Pipeline
-2. Water Properties:
-   - Salinity: 35.0 PSU
-   - Temperature: 15.0°C
-3. ECMWF: Enabled
-4. Resolution: 10m
-5. Enable Jiang TSS: Yes
-Example 3: Inland Water Processing
-python# Optimized for lakes and rivers
-1. Mode: Complete Pipeline
-2. Water Properties:
-   - Salinity: 0.1 PSU
-   - Temperature: 20.0°C
-3. ECMWF: Enabled
-4. Resolution: 20m
-5. Enable Jiang TSS: Yes
-📈 Output Products
-Directory Structure
+
+# Show help
+python -m sentinel2_tss_pipeline --help
+```
+
+### Method 3: Python API
+
+```python
+from sentinel2_tss_pipeline import UnifiedS2TSSProcessor
+from sentinel2_tss_pipeline.config import ProcessingConfig, ProcessingMode
+
+# Create configuration
+config = ProcessingConfig(
+    input_folder="/path/to/L1C",
+    output_folder="/path/to/results",
+    processing_mode=ProcessingMode.COMPLETE_PIPELINE,
+    enable_jiang_tss=True
+)
+
+# Run processing
+processor = UnifiedS2TSSProcessor(config)
+processor.process()
+```
+
+## Processing Modes
+
+| Mode | Input | Output | Description |
+|------|-------|--------|-------------|
+| Complete Pipeline | L1C .SAFE/.zip | C2RCC + TSS + Visualizations | Full processing chain |
+| S2 Processing Only | L1C .SAFE/.zip | C2RCC products | Atmospheric correction only |
+| TSS Processing Only | C2RCC .dim | TSS + Visualizations | TSS estimation only |
+
+## Output Products
+
+### Directory Structure
+
+```
 output_folder/
-├── Geometric_Products/           # Resampled S2 products
-├── C2RCC_Products/              # Atmospheric correction results
-│   ├── *.dim                    # BEAM-DIMAP format
-│   └── *.data/                  # Associated data folders
-│       ├── conc_tsm.img         # TSM concentration
-│       ├── conc_chl.img         # CHL concentration
-│       ├── unc_tsm.img          # TSM uncertainty
-│       ├── unc_chl.img          # CHL uncertainty
-│       └── rhow_*.img           # Water-leaving reflectance
-├── TSS_Products/                # TSS estimation results
-│   └── *_Jiang_TSS.tif         # Jiang methodology TSS
-└── Logs/                        # Processing logs
-    └── unified_s2_tss_*.log     # Detailed processing logs
-Product Descriptions
-ProductDescriptionUnitsTypical Rangeconc_tsm.imgSNAP TSM concentrationg/m³0.1 - 100conc_chl.imgSNAP CHL concentrationmg/m³0.1 - 50unc_tsm.imgTSM uncertaintyg/m³0.01 - 10unc_chl.imgCHL uncertaintymg/m³0.01 - 5Jiang_TSS.tifJiang TSS estimationg/m³0.1 - 1000
-🛠️ Troubleshooting
-Step 1: Run Diagnostics
-Always start with the diagnostic script:
-bashpython snap_diagnostics.py
-This will identify 90% of common issues automatically.
-Step 2: Check Common Issues
-SNAP Not Found
-ERROR: SNAP_HOME not set and SNAP installation not found!
-Solution:
+├── Geometric_Products/              # Resampled S2 products
+├── C2RCC_Products/                  # Atmospheric correction results
+│   ├── *.dim                        # BEAM-DIMAP format
+│   └── *.data/                      # Associated data folders
+│       ├── rrs_B1-B8A.img           # Remote sensing reflectance
+│       ├── rhow_*.img               # Water-leaving reflectance
+│       ├── iop_*.img                # Inherent optical properties
+│       ├── conc_tsm.img             # TSM concentration
+│       ├── conc_chl.img             # CHL concentration
+│       ├── unc_tsm.img              # TSM uncertainty
+│       └── unc_chl.img              # CHL uncertainty
+├── TSS_Products/                    # TSS estimation results
+│   ├── *_Jiang_TSS.tif              # Jiang TSS estimation
+│   ├── *_Absorption.tif             # Absorption coefficient
+│   ├── *_Backscattering.tif         # Backscattering coefficient
+│   └── *_WaterTypes.tif             # Water type classification
+├── RGB_Composites/                  # Visualization products
+│   ├── *_NaturalColor.tif           # True color composite
+│   ├── *_FalseColor.tif             # False color composite
+│   └── *_Water_*.tif                # 18 water-specific variants
+├── Spectral_Indices/                # Water quality indices
+│   ├── *_NDWI.tif                   # Normalized Difference Water Index
+│   ├── *_NDTI.tif                   # Normalized Difference Turbidity Index
+│   ├── *_NDCI.tif                   # Normalized Difference Chlorophyll Index
+│   ├── *_FLH.tif                    # Fluorescence Line Height
+│   ├── *_MCI.tif                    # Maximum Chlorophyll Index
+│   ├── *_TSI.tif                    # Trophic State Index
+│   └── *_SecchiDepth.tif            # Secchi Disk Depth
+└── Logs/                            # Processing logs
+    └── unified_s2_tss_*.log         # Detailed processing logs
+```
 
-Verify SNAP installation
-Set SNAP_HOME environment variable
-Restart terminal/Spyder
+### Product Descriptions
 
-Plugin Conflicts
-ERROR: NoClassDefFoundError in GPT output
-Solution:
+| Product | Description | Units | Typical Range |
+|---------|-------------|-------|---------------|
+| conc_tsm | SNAP TSM concentration | g/m³ | 0.1 - 100 |
+| conc_chl | SNAP CHL concentration | mg/m³ | 0.1 - 50 |
+| Jiang_TSS | Jiang TSS estimation | g/m³ | 0.1 - 1000 |
+| WaterTypes | Water type classification | Class 1-4 | 1 - 4 |
+| TSI | Trophic State Index | Index | 0 - 100 |
+| NDWI | Water index | Index | -1 to 1 |
+| SecchiDepth | Water transparency | meters | 0.1 - 30 |
 
-Run diagnostic script: python snap_diagnostics.py
-Follow plugin cleanup instructions
-Restart SNAP Desktop
+### Trophic State Index (TSI) Classification
 
-Memory Issues
-ERROR: High memory usage detected
-Solution:
+| TSI Value | Trophic State | Description |
+|-----------|---------------|-------------|
+| < 40 | Oligotrophic | Clear water, low productivity |
+| 40-50 | Mesotrophic | Moderate productivity |
+| 50-70 | Eutrophic | High productivity, potential algal blooms |
+| > 70 | Hypereutrophic | Very high productivity, frequent blooms |
 
-Reduce memory limit in settings
-Process fewer products simultaneously
-Close other applications
+## SNAP Diagnostics & Troubleshooting
 
-Processing Failures
-ERROR: GPT processing failed
-Solution:
+### Running SNAP Diagnostics
 
-Run diagnostic script first
-Check input product integrity
-Verify sufficient disk space
-Check SNAP GPT configuration
+```bash
+# Run SNAP diagnostics (from legacy folder)
+python legacy/snap_diagnostics.py
+```
 
-Step 3: Advanced Troubleshooting
-Environment Issues
-python# Test imports
-python -c "import numpy; print('NumPy OK')"
-python -c "from osgeo import gdal; print('GDAL OK')"
-python -c "import psutil; print('psutil OK')"
-GDAL Configuration
-bash# Check GDAL installation
-gdalinfo --version
+The diagnostic script will:
+- Verify SNAP installation
+- Check GPT executable
+- Test available operators
+- Detect plugin conflicts
+- Suggest specific fixes
 
-# Test GDAL Python bindings
-python -c "from osgeo import gdal; print(gdal.VersionInfo())"
-SNAP Reset (Last Resort)
-bash# Windows
-rmdir /s "%USERPROFILE%\.snap"
+### Common Issues & Solutions
+
+#### SNAP Not Found
+```
+ERROR: SNAP_HOME not set
+```
+**Solution:**
+```bash
+# Windows
+setx SNAP_HOME "C:\Program Files\esa-snap"
 
 # Linux/macOS
-rm -rf ~/.snap
-📚 Documentation
-User Guides
+export SNAP_HOME=/usr/local/snap
+```
 
-User Guide: Comprehensive usage instructions
-API Reference: Technical API documentation
-Troubleshooting: Common issues and solutions
+#### Plugin Conflicts
+```
+ERROR: NoClassDefFoundError in GPT output
+```
+**Solution:**
+1. Start SNAP Desktop
+2. Go to: Tools > Plugins > Installed
+3. Disable/Uninstall: ASTER, EOMTBX, or other problematic plugins
+4. Restart SNAP Desktop
 
-Scientific Background
+#### Memory Issues
+```
+ERROR: OutOfMemoryError
+```
+**Solution:**
+- Reduce memory limit in processing settings
+- Close other applications
+- Process fewer products simultaneously
 
-C2RCC Algorithm: Brockmann et al., 2016
-Jiang TSS Methodology: Jiang et al., 2023
-SNAP Documentation: Official SNAP Docs
+#### Java Configuration
+**Solution:**
+1. Check Java version: `java -version` (should be Java 8 or 11)
+2. Reset SNAP user directory:
+   - Windows: `rmdir /s "%USERPROFILE%\.snap"`
+   - Linux/macOS: `rm -rf ~/.snap`
 
-🤝 Contributing
-Development Setup
-bash# Clone repository
-git clone https://github.com/yourusername/unified-s2-tss-pipeline.git
-cd unified-s2-tss-pipeline
+## Configuration Examples
 
-# Create development environment
-conda create -n snap-c2rcc-dev python=3.9
-conda activate snap-c2rcc-dev
+### Coastal Water Processing
 
-# Install development dependencies
-conda install numpy pandas scipy matplotlib gdal rasterio pyproj psutil tqdm spyder
-pip install pytest black flake8
+```python
+# Optimized for coastal environments
+config = ProcessingConfig(
+    input_folder="/path/to/L1C",
+    output_folder="/path/to/results",
+    processing_mode=ProcessingMode.COMPLETE_PIPELINE,
+    salinity=35.0,      # PSU
+    temperature=15.0,   # Celsius
+    enable_jiang_tss=True,
+    target_resolution=10  # meters
+)
+```
 
-# Run tests
-pytest tests/
-Code Style
+### Inland Water Processing
 
-PEP 8: Follow Python style guidelines
-Type Hints: Use type annotations
-Documentation: Comprehensive docstrings
-Testing: Unit tests for new features
+```python
+# Optimized for lakes and rivers
+config = ProcessingConfig(
+    input_folder="/path/to/L1C",
+    output_folder="/path/to/results",
+    processing_mode=ProcessingMode.COMPLETE_PIPELINE,
+    salinity=0.1,       # PSU (freshwater)
+    temperature=20.0,   # Celsius
+    enable_jiang_tss=True,
+    target_resolution=20  # meters
+)
+```
 
-📄 License
-This project is licensed under the MIT License - see the LICENSE file for details.
-🙏 Acknowledgments
+## Data Storage Formats
 
-ESA SNAP Team: For the excellent SNAP software
-C2RCC Developers: For the atmospheric correction algorithm
-Jiang et al.: For the advanced TSS methodology
-Python Community: For the amazing scientific libraries
+| Format | Extension | Usage |
+|--------|-----------|-------|
+| BEAM-DIMAP | .dim/.data | SNAP intermediate products |
+| ENVI | .img | IOPs, TSM/CHL from SNAP |
+| GeoTIFF | .tif | Final products (LZW compressed) |
+| PNG | .png | Quick preview images |
 
-📞 Support
-Getting Help
+## Citation
 
-Issues: GitHub Issues
-Discussions: GitHub Discussions
-Email: your.email@example.com
-
-Before Reporting Issues
-
-Run diagnostics: python snap_diagnostics.py
-Check logs: Review processing log files
-Search existing issues: Check if problem already reported
-
-Citation
 If you use this pipeline in your research, please cite:
+
+```bibtex
 @software{sentinel2-tss-pipeline,
-  title={S2 Processing & TSS Estimation Pipeline},
-  author={Pedro Gonçalves},
+  title={Sentinel-2 TSS Pipeline},
+  author={Goncalves, Pedro},
   year={2025},
+  version={2.0.0},
   url={https://github.com/PedroMMGoncalves/sentinel2-tss-pipeline}
 }
+```
 
-🚀 Version History
-v1.0.0 (Current)
+And the primary scientific reference:
 
-✅ Complete S2 processing pipeline
-✅ C2RCC atmospheric correction
-✅ Automatic SNAP TSM/CHL generation
-✅ Optional Jiang TSS methodology
-✅ Professional GUI interface
-✅ Comprehensive error handling
-✅ Real-time monitoring
-✅ SNAP diagnostics tool
+```bibtex
+@article{jiang2021tss,
+  title={Remotely estimating total suspended solids concentration in clear
+         to extremely turbid waters using a novel semi-analytical method},
+  author={Jiang, D. and Matsushita, B. and Pahlevan, N. and others},
+  journal={Remote Sensing of Environment},
+  volume={258},
+  pages={112386},
+  year={2021},
+  doi={10.1016/j.rse.2021.112386}
+}
+```
 
-Planned Features
+## Version History
 
-🔄 Parallel processing optimization
-🔄 Quality assessment tools
-🔄 Additional TSS methodologies
-🔄 Export to cloud-optimized formats
-🔄 Integration with cloud platforms
+### v2.0.0 (Current)
+- Complete modular refactoring into package structure
+- 18 RGB composite visualizations
+- 17+ spectral indices (NDWI, NDTI, NDCI, FLH, MCI, TSI, etc.)
+- Water type classification (4 types)
+- Trophic State Index (Carlson 1977)
+- Marine visualization processor
+- Improved memory management
+- CLI and Python API support
+
+### v1.0.0 (Legacy)
+- Monolithic single-file implementation
+- Basic C2RCC processing
+- SNAP TSM/CHL generation
+- Jiang TSS methodology
+- GUI interface
+
+## Support
+
+### Getting Help
+- **Issues**: [GitHub Issues](https://github.com/PedroMMGoncalves/sentinel2-tss-pipeline/issues)
+
+### Before Reporting Issues
+1. Run diagnostics: `python legacy/snap_diagnostics.py`
+2. Check logs: Review processing log files
+3. Search existing issues: Check if problem already reported
+
+## Acknowledgments
+
+- **ESA SNAP Team**: For the excellent SNAP software
+- **C2RCC Developers**: For the atmospheric correction algorithm
+- **Jiang et al.**: For the advanced TSS methodology
+- **Python Community**: For the amazing scientific libraries
+
+## License
+
+This project is licensed for research use. See the LICENSE file for details.
