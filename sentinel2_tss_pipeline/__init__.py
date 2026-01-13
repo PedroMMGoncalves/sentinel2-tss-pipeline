@@ -40,11 +40,36 @@ from .utils import (
     SystemMonitor,
 )
 
-# Import processor classes
+# Import processor classes (new names)
+from .processors import (
+    TSMChlorophyllCalculator,
+    ProcessingResult,
+    RGBCompositeDefinitions,
+    VisualizationProcessor,
+    WaterQualityConstants,
+    WaterQualityProcessor,
+    JiangTSSConstants,
+    JiangTSSProcessor,
+    S2Processor,
+    ProcessingStatus,
+    create_water_quality_processor,
+    process_water_quality_from_c2rcc,
+)
+
+# Backwards compatibility aliases
 from .processors import (
     SNAPTSMCHLCalculator,
-    ProcessingResult,
+    S2MarineRGBGenerator,
+    S2MarineVisualizationProcessor,
+    create_advanced_processor,
+    integrate_with_existing_pipeline,
 )
+
+# Import core classes
+from .core import UnifiedS2TSSProcessor
+
+# Import GUI classes (transitional - imports from main module)
+from .gui import UnifiedS2TSSGUI, bring_window_to_front
 
 __all__ = [
     # Config classes
@@ -66,7 +91,28 @@ __all__ = [
     'RasterIO',
     'ProductDetector',
     'SystemMonitor',
-    # Processor classes
-    'SNAPTSMCHLCalculator',
+    # Processor classes (new names)
+    'TSMChlorophyllCalculator',
     'ProcessingResult',
+    'RGBCompositeDefinitions',
+    'VisualizationProcessor',
+    'WaterQualityConstants',
+    'WaterQualityProcessor',
+    'JiangTSSConstants',
+    'JiangTSSProcessor',
+    'S2Processor',
+    'ProcessingStatus',
+    'create_water_quality_processor',
+    'process_water_quality_from_c2rcc',
+    # Backwards compatibility aliases
+    'SNAPTSMCHLCalculator',
+    'S2MarineRGBGenerator',
+    'S2MarineVisualizationProcessor',
+    'create_advanced_processor',
+    'integrate_with_existing_pipeline',
+    # Core classes
+    'UnifiedS2TSSProcessor',
+    # GUI classes
+    'UnifiedS2TSSGUI',
+    'bring_window_to_front',
 ]

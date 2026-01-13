@@ -31,8 +31,8 @@ class ProcessingResult:
     error_message: str = None
 
 
-class SNAPTSMCHLCalculator:
-    """Calculate TSM and CHL from SNAP C2RCC IOP outputs using official SNAP formulas"""
+class TSMChlorophyllCalculator:
+    """Calculate TSM and CHL from SNAP C2RCC IOP outputs using official SNAP formulas."""
 
     def __init__(self, tsm_fac: float = 1.06, tsm_exp: float = 0.942,
                  chl_fac: float = 21.0, chl_exp: float = 1.04):
