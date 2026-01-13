@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(copy:*)",
+      "Bash(cmd /c copy:*)",
+      "Bash(cmd /c \"cd /d \"\"c:\\\\Users\\\\pedro.goncalves\\\\OneDrive - LNEG - Laboratorio Nacional de Energia e Geologia\\\\GitHub\\\\sentinel2-tss-pipeline\"\" && del nul 2>nul && del \"\"sentinel2_tss_pipeline\\\\processors\\\\nul\"\" 2>nul && echo Cleaned\")",
+      "Bash(git add:*)",
+      "Bash(git clean:*)",
+      "Bash(cmd /c \"mkdir \"\"c:\\\\Users\\\\pedro.goncalves\\\\OneDrive - LNEG - Laboratorio Nacional de Energia e Geologia\\\\GitHub\\\\sentinel2-tss-pipeline\\\\legacy\"\"\")",
+      "Bash(cmd /c:*)"
     ]
   }
 }
