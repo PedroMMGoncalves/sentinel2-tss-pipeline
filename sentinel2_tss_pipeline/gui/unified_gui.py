@@ -54,7 +54,7 @@ def bring_window_to_front(window):
                 import ctypes
                 hwnd = ctypes.windll.user32.GetActiveWindow()
                 ctypes.windll.user32.FlashWindow(hwnd, True)
-            except:
+            except Exception:
                 pass
 
     except Exception as e:

@@ -15,6 +15,7 @@ from ..utils.logging_utils import setup_enhanced_logging
 from ..config.enums import ProcessingMode
 from ..config.processing_config import ProcessingConfig
 from ..core.unified_processor import UnifiedS2TSSProcessor
+from .config_io import update_configurations
 
 logger = logging.getLogger('sentinel2_tss_pipeline')
 
@@ -40,6 +41,10 @@ def start_processing(gui):
     logger.info(f"Log file: {log_file}")
 
     try:
+        # Ensure input_validation_result exists
+        if not hasattr(gui, 'input_validation_result'):
+            gui.input_validation_result = {"valid": False, "message": "", "products": []}
+
         # Validate configuration
         if not gui.input_validation_result.get("valid", False):
             messagebox.showerror(
@@ -57,7 +62,7 @@ def start_processing(gui):
             )
             return
 
-        if not gui.update_configurations():
+        if not update_configurations(gui):
             return
 
         # Create processing configuration

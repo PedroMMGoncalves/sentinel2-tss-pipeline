@@ -303,7 +303,7 @@ def main():
                     f"A critical error occurred:\n\n{str(e)}\n\n"
                     "Check the log file for details."
                 )
-        except:
+        except Exception:
             pass
 
         sys.exit(1)

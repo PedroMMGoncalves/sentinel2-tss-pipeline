@@ -1042,7 +1042,7 @@ class JiangTSSProcessor:
                     if success:
                         try:
                             stats = RasterIO.calculate_statistics(product_info['data'])
-                        except:
+                        except Exception:
                             valid_pixels = np.sum(~np.isnan(product_info['data'])) if isinstance(product_info['data'], np.ndarray) else 0
                             total_pixels = product_info['data'].size if isinstance(product_info['data'], np.ndarray) else 1
                             stats = {

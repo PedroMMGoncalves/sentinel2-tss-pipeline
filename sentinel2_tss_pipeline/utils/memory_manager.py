@@ -29,7 +29,7 @@ class MemoryManager:
             if var is not None:
                 try:
                     del var
-                except:
+                except Exception:
                     pass
         gc.collect()
 
@@ -55,7 +55,7 @@ class MemoryManager:
                 logger.warning(f"High memory usage: {memory_mb:.1f} MB")
                 return True
             return False
-        except:
+        except Exception:
             return False
 
     @staticmethod
@@ -72,5 +72,5 @@ class MemoryManager:
         try:
             process = psutil.Process()
             return process.memory_info().rss / 1024 / 1024
-        except:
+        except Exception:
             return -1

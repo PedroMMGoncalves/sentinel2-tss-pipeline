@@ -55,6 +55,7 @@ from .handlers import (
 
 # Configuration I/O
 from .config_io import (
+    update_configurations,
     save_config,
     load_config,
 )
@@ -95,6 +96,7 @@ __all__ = [
     'apply_snap_defaults',
     'on_closing',
     # Config I/O
+    'update_configurations',
     'save_config',
     'load_config',
     # Processing controller

@@ -891,7 +891,7 @@ class S2Processor:
             if os.path.exists(file_path):
                 return os.path.getsize(file_path) / 1024
             return 0.0
-        except:
+        except Exception:
             return 0.0
 
     def _check_rhow_bands_availability(self, c2rcc_path: str) -> Dict[int, str]:
@@ -1001,5 +1001,5 @@ class S2Processor:
             if graph_file and os.path.exists(graph_file):
                 try:
                     os.remove(graph_file)
-                except:
+                except Exception:
                     pass

@@ -19,15 +19,134 @@ from ..config.marine_config import MarineVisualizationConfig
 logger = logging.getLogger('sentinel2_tss_pipeline')
 
 
+def update_configurations(gui):
+    """
+    Update configuration objects from GUI variables.
+
+    Args:
+        gui: GUI instance with tk variables and config objects.
+
+    Returns:
+        bool: True if successful, False if validation failed.
+    """
+    try:
+        # Update resampling config
+        gui.resampling_config.target_resolution = gui.resolution_var.get()
+        gui.resampling_config.upsampling_method = gui.upsampling_var.get()
+        gui.resampling_config.downsampling_method = gui.downsampling_var.get()
+        gui.resampling_config.flag_downsampling = gui.flag_downsampling_var.get()
+        gui.resampling_config.resample_on_pyramid_levels = gui.pyramid_var.get()
+
+        # Update subset config
+        subset_method = gui.subset_method_var.get()
+
+        if subset_method == "geometry":
+            geometry_text = gui.geometry_text.get(1.0, tk.END).strip()
+            if geometry_text:
+                gui.subset_config.geometry_wkt = geometry_text
+                gui.subset_config.pixel_start_x = None
+                gui.subset_config.pixel_start_y = None
+                gui.subset_config.pixel_size_x = None
+                gui.subset_config.pixel_size_y = None
+            else:
+                messagebox.showerror(
+                    "Error",
+                    "Geometry method selected but no WKT provided!",
+                    parent=gui.root
+                )
+                return False
+        elif subset_method == "pixel":
+            try:
+                start_x = int(gui.pixel_start_x_var.get()) if gui.pixel_start_x_var.get() else None
+                start_y = int(gui.pixel_start_y_var.get()) if gui.pixel_start_y_var.get() else None
+                width = int(gui.pixel_width_var.get()) if gui.pixel_width_var.get() else None
+                height = int(gui.pixel_height_var.get()) if gui.pixel_height_var.get() else None
+
+                if all(v is not None for v in [start_x, start_y, width, height]):
+                    gui.subset_config.pixel_start_x = start_x
+                    gui.subset_config.pixel_start_y = start_y
+                    gui.subset_config.pixel_size_x = width
+                    gui.subset_config.pixel_size_y = height
+                    gui.subset_config.geometry_wkt = None
+                else:
+                    messagebox.showerror(
+                        "Error",
+                        "Pixel method selected but incomplete coordinates!",
+                        parent=gui.root
+                    )
+                    return False
+            except ValueError:
+                messagebox.showerror(
+                    "Error",
+                    "Invalid pixel coordinates (must be integers)!",
+                    parent=gui.root
+                )
+                return False
+        else:
+            # No subset
+            gui.subset_config.geometry_wkt = None
+            gui.subset_config.pixel_start_x = None
+            gui.subset_config.pixel_start_y = None
+            gui.subset_config.pixel_size_x = None
+            gui.subset_config.pixel_size_y = None
+
+        # Update C2RCC config
+        gui.c2rcc_config.salinity = gui.salinity_var.get()
+        gui.c2rcc_config.temperature = gui.temperature_var.get()
+        gui.c2rcc_config.ozone = gui.ozone_var.get()
+        gui.c2rcc_config.pressure = gui.pressure_var.get()
+        gui.c2rcc_config.use_ecmwf_aux_data = gui.use_ecmwf_var.get()
+
+        # Output products
+        gui.c2rcc_config.output_rhown = gui.output_rhow_var.get()
+        gui.c2rcc_config.output_kd = gui.output_kd_var.get()
+        gui.c2rcc_config.output_uncertainties = gui.output_uncertainties_var.get()
+
+        # Update Jiang config
+        gui.jiang_config.enable_jiang_tss = gui.enable_jiang_var.get()
+        gui.jiang_config.output_intermediates = gui.jiang_intermediates_var.get()
+        gui.jiang_config.output_comparison_stats = gui.jiang_comparison_var.get()
+
+        # Marine visualization
+        if hasattr(gui, 'enable_marine_viz_var'):
+            gui.jiang_config.enable_marine_visualization = gui.enable_marine_viz_var.get()
+            if gui.jiang_config.enable_marine_visualization:
+                if gui.jiang_config.marine_viz_config is None:
+                    gui.jiang_config.marine_viz_config = MarineVisualizationConfig()
+            else:
+                gui.jiang_config.marine_viz_config = None
+
+        # Advanced algorithms
+        if hasattr(gui, 'enable_advanced_var'):
+            gui.jiang_config.enable_advanced_algorithms = gui.enable_advanced_var.get()
+            if gui.jiang_config.enable_advanced_algorithms:
+                if gui.jiang_config.water_quality_config is None:
+                    gui.jiang_config.water_quality_config = WaterQualityConfig()
+            else:
+                gui.jiang_config.water_quality_config = None
+
+        logger.debug("Configuration updated from GUI")
+        return True
+
+    except Exception as e:
+        logger.error(f"Configuration update error: {e}")
+        messagebox.showerror(
+            "Configuration Error",
+            f"Failed to update configurations: {str(e)}",
+            parent=gui.root
+        )
+        return False
+
+
 def save_config(gui):
     """
     Save configuration to JSON file.
 
     Args:
-        gui: GUI instance with configuration objects and update_configurations method.
+        gui: GUI instance with configuration objects.
     """
     try:
-        if not gui.update_configurations():
+        if not update_configurations(gui):
             return
 
         config_file = filedialog.asksaveasfilename(

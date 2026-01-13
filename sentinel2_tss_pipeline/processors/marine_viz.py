@@ -1685,9 +1685,9 @@ class VisualizationProcessor:
                                 for file in files:
                                     try:
                                         total_size += os.path.getsize(os.path.join(root, file))
-                                    except:
+                                    except Exception:
                                         pass
-                    except:
+                    except Exception:
                         pass
 
                 total_size_mb = total_size / (1024 * 1024)
@@ -1710,7 +1710,7 @@ class VisualizationProcessor:
                         elif os.path.isfile(item_path):
                             try:
                                 os.remove(item_path)
-                            except:
+                            except Exception:
                                 pass
 
                 remaining_items = os.listdir(geometric_folder) if os.path.exists(geometric_folder) else []
