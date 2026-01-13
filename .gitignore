@@ -36,10 +36,6 @@ wheels/
 # Temporary files
 *.tmp
 *.temp
-sentinel2_tss_pipeline/__pycache__/__init__.cpython-311.pyc
-sentinel2_tss_pipeline/__pycache__/__init__.cpython-311.pyc
-sentinel2_tss_pipeline/processors/nul
-sentinel2_tss_pipeline/processors/__pycache__/snap_calculator.cpython-311.pyc
-sentinel2_tss_pipeline/processors/__pycache__/snap_calculator.cpython-311.pyc
-sentinel2_tss_pipeline/processors/__pycache__/__init__.cpython-311.pyc
-sentinel2_tss_pipeline/__pycache__/__init__.cpython-311.pyc
+tmpclaude-*
+nul
+.claude/
