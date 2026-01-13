@@ -32,8 +32,14 @@ import numpy as np
 
 try:
     from osgeo import gdal
+    GDAL_AVAILABLE = True
 except ImportError:
-    import gdal
+    try:
+        import gdal
+        GDAL_AVAILABLE = True
+    except ImportError:
+        gdal = None
+        GDAL_AVAILABLE = False
 
 from ..config import MarineVisualizationConfig
 from ..utils.raster_io import RasterIO
@@ -444,6 +450,10 @@ class VisualizationProcessor:
 
     def __init__(self, config: Optional[MarineVisualizationConfig] = None):
         """Initialize marine visualization processor with configuration and logging"""
+        # Check GDAL availability
+        if not GDAL_AVAILABLE:
+            logger.warning("GDAL not available - visualization functionality will be limited")
+
         # Configuration setup
         self.config = config or MarineVisualizationConfig()
 
