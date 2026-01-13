@@ -28,6 +28,7 @@ import numpy as np
 
 from ..config import JiangTSSConfig, WaterQualityConfig, MarineVisualizationConfig
 from ..utils.raster_io import RasterIO
+from ..utils.output_structure import OutputStructure
 from .snap_calculator import ProcessingResult
 from .water_quality_processor import WaterQualityProcessor
 from .marine_viz import VisualizationProcessor
@@ -896,108 +897,100 @@ class JiangTSSProcessor:
         """Save TSS products including core Jiang, water types, and advanced algorithms."""
         try:
             output_results = {}
-            clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
 
-            # Create main output structure
-            scene_folder = os.path.join(output_folder, clean_product_name)
-            tss_folder = os.path.join(scene_folder, "TSS_Products")
-            advanced_folder = os.path.join(scene_folder, "Advanced_Products")
-            rgb_folder = os.path.join(scene_folder, "RGB_Composites")
-            spectral_folder = os.path.join(scene_folder, "Spectral_Indices")
+            # Extract clean scene name using OutputStructure helper
+            scene_name = OutputStructure.extract_clean_scene_name(product_name)
 
-            os.makedirs(tss_folder, exist_ok=True)
-            os.makedirs(advanced_folder, exist_ok=True)
-            os.makedirs(rgb_folder, exist_ok=True)
-            os.makedirs(spectral_folder, exist_ok=True)
+            # Create scene-based output structure
+            scene_folder = OutputStructure.get_scene_folder(output_folder, scene_name)
+            tss_folder = OutputStructure.get_category_folder(scene_folder, OutputStructure.TSS_FOLDER)
+            advanced_folder = OutputStructure.get_category_folder(scene_folder, OutputStructure.ADVANCED_FOLDER)
 
-            # Core Jiang products
+            # Core Jiang products - using new naming convention
             jiang_products = {
                 'absorption': {
                     'data': results.get('absorption'),
-                    'filename': f"{clean_product_name}_Jiang_Absorption.tif",
+                    'filename': f"{scene_name}_Absorption.tif",
                     'description': "Absorption coefficient (m^-1) - Jiang et al. 2021",
                     'folder': tss_folder
                 },
                 'backscattering': {
                     'data': results.get('backscattering'),
-                    'filename': f"{clean_product_name}_Jiang_Backscattering.tif",
+                    'filename': f"{scene_name}_Backscattering.tif",
                     'description': "Particulate backscattering coefficient (m^-1) - Jiang et al. 2021",
                     'folder': tss_folder
                 },
                 'reference_band': {
                     'data': results.get('reference_band'),
-                    'filename': f"{clean_product_name}_Jiang_ReferenceBand.tif",
+                    'filename': f"{scene_name}_ReferenceBand.tif",
                     'description': "Reference wavelength used (nm) - Jiang et al. 2021",
                     'folder': tss_folder
                 },
                 'tss': {
                     'data': results.get('tss'),
-                    'filename': f"{clean_product_name}_Jiang_TSS.tif",
+                    'filename': f"{scene_name}_TSS.tif",
                     'description': "Total Suspended Solids (g/m3) - Jiang et al. 2021",
                     'folder': tss_folder
                 },
                 'water_type_classification': {
                     'data': results.get('water_type_classification'),
-                    'filename': f"{clean_product_name}_Jiang_WaterTypes.tif",
+                    'filename': f"{scene_name}_WaterTypes.tif",
                     'description': "Water Type Classification (0=Invalid, 1=Clear, 2=Moderate, 3=Highly turbid, 4=Extremely turbid)",
                     'folder': tss_folder
                 },
                 'valid_mask': {
                     'data': results.get('valid_mask'),
-                    'filename': f"{clean_product_name}_Jiang_ValidMask.tif",
+                    'filename': f"{scene_name}_ValidMask.tif",
                     'description': "Valid pixel mask - Jiang processing",
                     'folder': tss_folder
                 }
             }
 
-            # Advanced algorithm products
+            # Advanced algorithm products - organized by subcategory
             advanced_products = {}
             for key, data in results.items():
                 if key.startswith('advanced_'):
-                    if 'clarity' in key:
-                        category = 'WaterClarity'
+                    if 'clarity' in key or 'secchi' in key or 'euphotic' in key or 'kd' in key:
+                        subcategory = OutputStructure.WATER_CLARITY_FOLDER
                         description = "Water clarity analysis - Advanced Aquatic Processing"
-                    elif 'hab' in key:
-                        category = 'HAB'
+                        # Create subcategory folder
+                        subfolder = os.path.join(advanced_folder, subcategory)
+                        os.makedirs(subfolder, exist_ok=True)
+                    elif 'hab' in key or 'cyano' in key or 'bloom' in key:
+                        subcategory = OutputStructure.HAB_FOLDER
                         description = "Harmful Algal Bloom detection - Advanced Aquatic Processing"
+                        subfolder = os.path.join(advanced_folder, subcategory)
+                        os.makedirs(subfolder, exist_ok=True)
                     elif 'tsi' in key:
-                        category = 'TrophicState'
+                        subcategory = None
+                        subfolder = advanced_folder
                         description = "Trophic state assessment - Advanced Aquatic Processing"
                     else:
-                        category = 'General'
+                        subcategory = None
+                        subfolder = advanced_folder
                         description = "Advanced algorithm product"
 
-                    clean_key = key.replace('advanced_', '').replace('_', '').title()
-                    filename = f"{clean_product_name}_Advanced_{category}_{clean_key}.tif"
+                    # Create clean product name
+                    clean_key = key.replace('advanced_', '')
+                    # Convert to proper case (e.g., secchi_depth -> SecchiDepth)
+                    product_type = ''.join(word.title() for word in clean_key.split('_'))
+
+                    if subcategory:
+                        filename = f"{scene_name}_{subcategory}_{product_type}.tif"
+                    else:
+                        filename = f"{scene_name}_{product_type}.tif"
 
                     advanced_products[key] = {
                         'data': data,
                         'filename': filename,
                         'description': description,
-                        'folder': advanced_folder
+                        'folder': subfolder
                     }
 
-            # RGB composites and spectral indices
+            # NOTE: RGB composites and spectral indices are now handled by marine_viz.py
+            # They are saved directly there with proper band naming
             rgb_products = {}
             spectral_products = {}
-
-            for key, data in results.items():
-                if key.startswith('rgb_'):
-                    rgb_name = key.replace('rgb_', '').replace('_', '').title()
-                    rgb_products[key] = {
-                        'data': data,
-                        'filename': f"{clean_product_name}_RGB_{rgb_name}.tif",
-                        'description': f"RGB composite - {rgb_name}",
-                        'folder': rgb_folder
-                    }
-                elif key.startswith('index_'):
-                    index_name = key.replace('index_', '').replace('_', '').upper()
-                    spectral_products[key] = {
-                        'data': data,
-                        'filename': f"{clean_product_name}_Index_{index_name}.tif",
-                        'description': f"Spectral index - {index_name}",
-                        'folder': spectral_folder
-                    }
 
             all_products = {**jiang_products, **advanced_products, **rgb_products, **spectral_products}
 
@@ -1069,18 +1062,18 @@ class JiangTSSProcessor:
             # Create water type legend
             if 'water_type_classification' in results and results['water_type_classification'] is not None:
                 try:
-                    self._create_water_type_legend(scene_folder, clean_product_name)
+                    self._create_water_type_legend(tss_folder, scene_name)
                 except Exception as e:
                     logger.warning(f"Could not create water type legend: {e}")
 
             logger.info(f"Product saving completed:")
-            logger.info(f"  Scene folder: {clean_product_name}/")
+            logger.info(f"  Scene folder: {scene_name}/")
             logger.info(f"  Successfully saved: {saved_count} products")
             logger.info(f"  Skipped (no data): {skipped_count} products")
 
             # Create product index
             try:
-                self._create_product_index(output_results, scene_folder, clean_product_name)
+                self._create_product_index(output_results, scene_folder, scene_name)
             except Exception as e:
                 logger.debug(f"Could not create product index: {e}")
 

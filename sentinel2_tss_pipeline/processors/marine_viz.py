@@ -43,6 +43,7 @@ except ImportError:
 
 from ..config import MarineVisualizationConfig
 from ..utils.raster_io import RasterIO
+from ..utils.output_structure import OutputStructure
 from .snap_calculator import ProcessingResult
 
 logger = logging.getLogger('sentinel2_tss_pipeline')
@@ -560,15 +561,13 @@ class VisualizationProcessor:
                                 self.logger.info(f"Found geometric product: {file}")
                                 break
 
-            # Create visualization output directories
-            clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
-            scene_folder = os.path.join(output_folder, clean_product_name)
-            rgb_output_dir = os.path.join(scene_folder, "RGB_Composites")
-            indices_output_dir = os.path.join(scene_folder, "Spectral_Indices")
+            # Create visualization output directories using OutputStructure helper
+            scene_name = OutputStructure.extract_clean_scene_name(product_name)
+            scene_folder = OutputStructure.get_scene_folder(output_folder, scene_name)
+            rgb_output_dir = OutputStructure.get_category_folder(scene_folder, OutputStructure.RGB_FOLDER)
+            indices_output_dir = OutputStructure.get_category_folder(scene_folder, OutputStructure.INDICES_FOLDER)
 
-            os.makedirs(rgb_output_dir, exist_ok=True)
-            os.makedirs(indices_output_dir, exist_ok=True)
-
+            self.logger.info(f"Scene name: {scene_name}")
             self.logger.info(f"RGB output directory: {rgb_output_dir}")
             self.logger.info(f"Indices output directory: {indices_output_dir}")
 
@@ -621,7 +620,7 @@ class VisualizationProcessor:
                 self.logger.info("Generating RGB composites")
 
                 try:
-                    rgb_results = self._generate_rgb_composites(bands_data, reference_metadata, rgb_output_dir, product_name)
+                    rgb_results = self._generate_rgb_composites(bands_data, reference_metadata, rgb_output_dir, scene_name)
                     viz_results.update(rgb_results)
                     rgb_count = len([k for k in rgb_results.keys() if k.startswith('rgb_')])
                     self.logger.info(f"Generated {rgb_count} RGB composites")
@@ -635,7 +634,7 @@ class VisualizationProcessor:
                 self.logger.info("Generating spectral indices")
 
                 try:
-                    index_results = self._generate_spectral_indices(bands_data, reference_metadata, indices_output_dir, product_name)
+                    index_results = self._generate_spectral_indices(bands_data, reference_metadata, indices_output_dir, scene_name)
                     viz_results.update(index_results)
                     index_count = len([k for k in index_results.keys() if k.startswith('index_')])
                     self.logger.info(f"Generated {index_count} spectral indices")
@@ -967,7 +966,11 @@ class VisualizationProcessor:
 
                     rgb_array = self._create_rgb_composite(red_data, green_data, blue_data)
 
-                    output_path = os.path.join(output_folder, f"{product_name}_{rgb_name}.tif")
+                    # Use new naming: {scene_name}_RGB_{bands}.tif (e.g., S2A_20190105_T29TNF_RGB_432.tif)
+                    rgb_filename = OutputStructure.get_rgb_filename(
+                        product_name, config['red'], config['green'], config['blue']
+                    )
+                    output_path = os.path.join(output_folder, rgb_filename)
                     success = self._save_rgb_geotiff(rgb_array, output_path, reference_metadata, config['description'])
 
                     if success:
@@ -1178,7 +1181,9 @@ class VisualizationProcessor:
                     index_data = self._calculate_spectral_index(index_name, config, bands_data, bands_to_use)
 
                     if index_data is not None:
-                        output_path = os.path.join(output_folder, f"{product_name}_{index_name.lower()}.tif")
+                        # Use new naming: {scene_name}_{INDEX}.tif (e.g., S2A_20190105_T29TNF_NDWI.tif)
+                        index_filename = f"{product_name}_{index_name.upper()}.tif"
+                        output_path = os.path.join(output_folder, index_filename)
                         success = self._save_single_band_geotiff(index_data, output_path, reference_metadata, config['description'])
 
                         if success:

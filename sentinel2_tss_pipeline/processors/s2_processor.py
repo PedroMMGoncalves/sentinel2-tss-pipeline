@@ -21,6 +21,7 @@ import numpy as np
 from ..config import ProcessingConfig, ProcessingMode
 from ..utils.raster_io import RasterIO
 from ..utils.product_detector import ProductDetector, SystemMonitor
+from ..utils.output_structure import OutputStructure
 from .snap_calculator import TSMChlorophyllCalculator, ProcessingResult
 
 logger = logging.getLogger('sentinel2_tss_pipeline')
@@ -341,9 +342,14 @@ class S2Processor:
         product_name = os.path.basename(input_path)
         clean_name = self._extract_clean_product_name(product_name)
 
+        # Use Intermediate/Geometric folder structure
+        geometric_folder = OutputStructure.get_intermediate_folder(
+            output_folder, OutputStructure.GEOMETRIC_FOLDER
+        )
+
         # Check both possible geometric output names
-        subset_path = os.path.join(output_folder, "Geometric_Products", f"Resampled_{clean_name}_Subset.dim")
-        resample_path = os.path.join(output_folder, "Geometric_Products", f"Resampled_{clean_name}.dim")
+        subset_path = os.path.join(geometric_folder, f"Resampled_{clean_name}_Subset.dim")
+        resample_path = os.path.join(geometric_folder, f"Resampled_{clean_name}.dim")
 
         # Return the one that exists, or default to subset version
         if os.path.exists(subset_path):
@@ -397,13 +403,19 @@ class S2Processor:
         else:
             clean_name = product_name
 
-        # Stage-specific naming
+        # Stage-specific naming - use Intermediate folder structure
         if stage == "geometric":
             output_name = f"Resampled_{clean_name}_Subset.dim"
-            return os.path.join(output_dir, "Geometric_Products", output_name)
+            geometric_folder = OutputStructure.get_intermediate_folder(
+                output_dir, OutputStructure.GEOMETRIC_FOLDER
+            )
+            return os.path.join(geometric_folder, output_name)
         elif stage == "c2rcc":
             output_name = f"Resampled_{clean_name}_Subset_C2RCC.dim"
-            return os.path.join(output_dir, "C2RCC_Products", output_name)
+            c2rcc_folder = OutputStructure.get_intermediate_folder(
+                output_dir, OutputStructure.C2RCC_FOLDER
+            )
+            return os.path.join(c2rcc_folder, output_name)
         else:
             return os.path.join(output_dir, f"{clean_name}_{stage}.dim")
 
@@ -436,11 +448,10 @@ class S2Processor:
                     for warning in warnings:
                         logger.warning(f"  - {warning}")
 
-            # Ensure output directories exist
-            os.makedirs(os.path.join(output_folder, "Geometric_Products"), exist_ok=True)
-            os.makedirs(os.path.join(output_folder, "C2RCC_Products"), exist_ok=True)
-            os.makedirs(os.path.join(output_folder, "TSS_Products"), exist_ok=True)
-            os.makedirs(os.path.join(output_folder, "Logs"), exist_ok=True)
+            # Ensure output directories exist - use Intermediate folder for processing artifacts
+            OutputStructure.get_intermediate_folder(output_folder, OutputStructure.GEOMETRIC_FOLDER)
+            OutputStructure.get_intermediate_folder(output_folder, OutputStructure.C2RCC_FOLDER)
+            OutputStructure.get_logs_folder(output_folder)
 
             # Step 1: S2 Processing (Resampling + Subset + C2RCC)
             self.current_stage = "S2 Processing (Complete)"
@@ -574,10 +585,10 @@ class S2Processor:
             # Prepare GPT command
             gpt_cmd = self.get_gpt_command()
 
-            # Get the main output folder (parent of C2RCC_Products)
-            # output_path is like: /path/to/output/C2RCC_Products/product.dim
+            # Get the main output folder (parent of Intermediate/C2RCC)
+            # output_path is like: /path/to/output/Intermediate/C2RCC/product.dim
             # We need: /path/to/output/ (the main output folder)
-            output_folder = os.path.dirname(os.path.dirname(output_path))
+            output_folder = os.path.dirname(os.path.dirname(os.path.dirname(output_path)))
             geometric_output_path = self._get_resampled_output_path(input_path, output_folder)
 
             # Ensure geometric products directory exists

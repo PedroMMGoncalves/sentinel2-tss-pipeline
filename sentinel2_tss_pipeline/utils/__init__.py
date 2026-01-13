@@ -31,6 +31,7 @@ from .geometry_utils import (
     HAS_FIONA,
     HAS_OGR,
 )
+from .output_structure import OutputStructure
 
 __all__ = [
     # Logging
@@ -65,4 +66,6 @@ __all__ = [
     'HAS_SHAPELY',
     'HAS_FIONA',
     'HAS_OGR',
+    # Output structure
+    'OutputStructure',
 ]

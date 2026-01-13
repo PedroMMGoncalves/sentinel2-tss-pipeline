@@ -27,6 +27,7 @@ except ImportError:
 from ..config import ProcessingConfig, ProcessingMode
 from ..utils.product_detector import ProductDetector, SystemMonitor
 from ..utils.memory_manager import MemoryManager
+from ..utils.output_structure import OutputStructure
 from ..processors.snap_calculator import ProcessingResult
 from ..processors.s2_processor import S2Processor, ProcessingStatus
 from ..processors.jiang_processor import JiangTSSProcessor
@@ -168,17 +169,17 @@ class UnifiedS2TSSProcessor:
                     if 's2_processing' in s2_results:
                         c2rcc_output_path = s2_results['s2_processing'].output_path
                     else:
-                        # Find the C2RCC output file
-                        c2rcc_output_path = os.path.join(self.config.output_folder, "C2RCC_Products", f"Resampled_{product_name}_Subset_C2RCC.dim")
+                        # Find the C2RCC output file in Intermediate folder
+                        c2rcc_folder = OutputStructure.get_intermediate_folder(
+                            self.config.output_folder, OutputStructure.C2RCC_FOLDER
+                        )
+                        c2rcc_output_path = os.path.join(c2rcc_folder, f"Resampled_{product_name}_Subset_C2RCC.dim")
 
-                    # Process TSS
-                    tss_output_folder = os.path.join(self.config.output_folder, "TSS_Products")
-                    os.makedirs(tss_output_folder, exist_ok=True)
-
+                    # Process TSS - use main output folder (jiang_processor creates scene subfolder)
                     try:
                         s2_result = s2_results.get('s2_processing')
                         tss_results = self.jiang_processor.process_jiang_tss(
-                            c2rcc_output_path, tss_output_folder, product_name, s2_result
+                            c2rcc_output_path, self.config.output_folder, product_name, s2_result
                         )
                         results.update(tss_results)
 
@@ -203,10 +204,11 @@ class UnifiedS2TSSProcessor:
 
             elif self.config.processing_mode == ProcessingMode.TSS_PROCESSING_ONLY:
                 # TSS processing only: C2RCC -> Jiang TSS
+                # jiang_processor creates scene-based subfolders
                 if hasattr(self, 'jiang_processor') and self.jiang_processor is not None:
-                    tss_output_folder = os.path.join(self.config.output_folder, "TSS_Products")
-                    os.makedirs(tss_output_folder, exist_ok=True)
-                    results = self.jiang_processor.process_jiang_tss(product_path, tss_output_folder, product_name)
+                    results = self.jiang_processor.process_jiang_tss(
+                        product_path, self.config.output_folder, product_name
+                    )
                 else:
                     logger.error("Jiang processor not initialized for TSS_PROCESSING_ONLY mode")
                     results = {'error': ProcessingResult(False, "", None, "Jiang processor not initialized")}
@@ -304,15 +306,22 @@ class UnifiedS2TSSProcessor:
         try:
             mode = self.config.processing_mode
 
+            # Extract clean scene name for new folder structure
+            scene_name = OutputStructure.extract_clean_scene_name(product_name)
+
             if mode == ProcessingMode.COMPLETE_PIPELINE:
-                # Check for C2RCC output
-                c2rcc_path = os.path.join(self.config.output_folder, "C2RCC_Products", f"Resampled_{product_name}_Subset_C2RCC.dim")
+                # Check for C2RCC output in Intermediate folder
+                c2rcc_folder = OutputStructure.get_intermediate_folder(
+                    self.config.output_folder, OutputStructure.C2RCC_FOLDER
+                )
+                c2rcc_path = os.path.join(c2rcc_folder, f"Resampled_{product_name}_Subset_C2RCC.dim")
                 if not os.path.exists(c2rcc_path):
                     return False
 
-                # Check for TSS output if Jiang is enabled
+                # Check for TSS output if Jiang is enabled (in scene folder)
                 if self.config.jiang_config.enable_jiang_tss:
-                    tss_path = os.path.join(self.config.output_folder, "TSS_Products", f"{product_name}_Jiang_TSS.tif")
+                    scene_folder = os.path.join(self.config.output_folder, scene_name)
+                    tss_path = os.path.join(scene_folder, OutputStructure.TSS_FOLDER, f"{scene_name}_TSS.tif")
                     if not os.path.exists(tss_path):
                         return False
 
@@ -320,12 +329,16 @@ class UnifiedS2TSSProcessor:
 
             elif mode == ProcessingMode.S2_PROCESSING_ONLY:
                 # Check for C2RCC output
-                c2rcc_path = os.path.join(self.config.output_folder, "C2RCC_Products", f"Resampled_{product_name}_Subset_C2RCC.dim")
+                c2rcc_folder = OutputStructure.get_intermediate_folder(
+                    self.config.output_folder, OutputStructure.C2RCC_FOLDER
+                )
+                c2rcc_path = os.path.join(c2rcc_folder, f"Resampled_{product_name}_Subset_C2RCC.dim")
                 return os.path.exists(c2rcc_path)
 
             elif mode == ProcessingMode.TSS_PROCESSING_ONLY:
-                # Check for TSS output
-                tss_path = os.path.join(self.config.output_folder, "TSS_Products", f"{product_name}_Jiang_TSS.tif")
+                # Check for TSS output in scene folder
+                scene_folder = os.path.join(self.config.output_folder, scene_name)
+                tss_path = os.path.join(scene_folder, OutputStructure.TSS_FOLDER, f"{scene_name}_TSS.tif")
                 return os.path.exists(tss_path)
 
             return False
@@ -353,12 +366,17 @@ class UnifiedS2TSSProcessor:
         # Output summary
         logger.info(f"\nOutput Structure:")
         logger.info(f"|-- {self.config.output_folder}/")
-        if self.config.processing_mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.S2_PROCESSING_ONLY]:
-            logger.info(f"    |-- Geometric_Products/")
-            logger.info(f"    |-- C2RCC_Products/ (with SNAP TSM/CHL + uncertainties)")
         if self.config.processing_mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.TSS_PROCESSING_ONLY]:
-            if self.config.jiang_config.enable_jiang_tss:
-                logger.info(f"    |-- TSS_Products/ (Jiang methodology)")
+            logger.info(f"    |-- <scene_name>/")
+            logger.info(f"    |   |-- TSS/           (Jiang TSS products)")
+            logger.info(f"    |   |-- SNAP/          (SNAP TSM/CHL)")
+            logger.info(f"    |   |-- RGB/           (RGB composites)")
+            logger.info(f"    |   |-- Indices/       (Spectral indices)")
+            logger.info(f"    |   |-- Advanced/      (HAB, WaterClarity)")
+        if self.config.processing_mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.S2_PROCESSING_ONLY]:
+            logger.info(f"    |-- Intermediate/")
+            logger.info(f"    |   |-- Geometric/     (Resampled L1C)")
+            logger.info(f"    |   |-- C2RCC/         (C2RCC products)")
         logger.info(f"    |-- Logs/")
 
     def get_processing_status(self) -> ProcessingStatus:
