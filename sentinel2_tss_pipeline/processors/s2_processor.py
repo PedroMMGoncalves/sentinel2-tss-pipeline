@@ -233,6 +233,18 @@ class S2Processor:
     </parameters>
   </node>
 
+  <!-- Step 2.5: SAVE GEOMETRIC PRODUCTS (for RGB composites and spectral indices) -->
+  <node id="WriteGeometric">
+    <operator>Write</operator>
+    <sources>
+      <source refid="S2Resampling"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${{geometricProduct}}</file>
+      <formatName>BEAM-DIMAP</formatName>
+    </parameters>
+  </node>
+
   <!-- Step 3: C2RCC Atmospheric Correction -->
   <node id="c2rcc_msi">
     <operator>c2rcc.msi</operator>
