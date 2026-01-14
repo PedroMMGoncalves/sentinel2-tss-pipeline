@@ -25,3 +25,4 @@ class ProcessingConfig:
     test_mode: bool = False
     memory_limit_gb: int = 8
     thread_count: int = 4
+    gpt_timeout: int = 10800  # 3 hours default (in seconds)

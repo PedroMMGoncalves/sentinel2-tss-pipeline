@@ -610,47 +610,58 @@ class S2Processor:
             logger.info(f"  Geometric Output: {os.path.basename(geometric_output_path)}")
             logger.debug(f"GPT command: {' '.join(cmd)}")
 
-            # Run GPT processing with timeout
-            logger.info("Executing GPT processing...")
-            result = subprocess.run(
+            # Run GPT processing with timeout and proper process management
+            gpt_timeout = getattr(self.config, 'gpt_timeout', 10800)  # Default 3 hours
+            logger.info(f"Executing GPT processing (timeout: {gpt_timeout//3600}h {(gpt_timeout%3600)//60}m)...")
+
+            # Use Popen for proper process control (allows killing on timeout)
+            process = subprocess.Popen(
                 cmd,
-                capture_output=True,
-                text=True,
-                timeout=3600  # 1 hour timeout
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
             )
 
-            # Check processing results
-            if result.returncode == 0:
-                # Check main C2RCC output
-                if os.path.exists(output_path):
-                    file_size = os.path.getsize(output_path)
-                    if file_size > 1024 * 1024:  # > 1MB
-                        logger.info(f"C2RCC output created: {file_size / (1024*1024):.1f} MB")
+            try:
+                stdout, stderr = process.communicate(timeout=gpt_timeout)
+                returncode = process.returncode
 
-                        # Also check if geometric product was created
-                        if os.path.exists(geometric_output_path):
-                            geom_size = os.path.getsize(geometric_output_path)
-                            logger.info(f"Geometric output created: {geom_size / (1024*1024):.1f} MB")
+                # Check processing results
+                if returncode == 0:
+                    # Check main C2RCC output
+                    if os.path.exists(output_path):
+                        file_size = os.path.getsize(output_path)
+                        if file_size > 1024 * 1024:  # > 1MB
+                            logger.info(f"C2RCC output created: {file_size / (1024*1024):.1f} MB")
+
+                            # Also check if geometric product was created
+                            if os.path.exists(geometric_output_path):
+                                geom_size = os.path.getsize(geometric_output_path)
+                                logger.info(f"Geometric output created: {geom_size / (1024*1024):.1f} MB")
+                            else:
+                                logger.warning("Geometric product not created (but C2RCC succeeded)")
+
+                            return True
                         else:
-                            logger.warning("Geometric product not created (but C2RCC succeeded)")
-
-                        return True
+                            logger.error(f"C2RCC output file too small ({file_size} bytes)")
+                            return False
                     else:
-                        logger.error(f"C2RCC output file too small ({file_size} bytes)")
+                        logger.error(f"C2RCC output file not created")
                         return False
                 else:
-                    logger.error(f"C2RCC output file not created")
+                    logger.error(f"GPT processing failed")
+                    logger.error(f"Return code: {returncode}")
+                    if stderr:
+                        logger.error(f"GPT stderr: {stderr[:1000]}...")
                     return False
-            else:
-                logger.error(f"GPT processing failed")
-                logger.error(f"Return code: {result.returncode}")
-                if result.stderr:
-                    logger.error(f"GPT stderr: {result.stderr[:1000]}...")
-                return False
 
-        except subprocess.TimeoutExpired:
-            logger.error(f"GPT processing timeout")
-            return False
+            except subprocess.TimeoutExpired:
+                # CRITICAL: Kill the zombie GPT process to free memory
+                logger.error(f"GPT processing timeout after {gpt_timeout//3600}h - killing process")
+                process.kill()
+                process.wait()  # Wait for process to fully terminate
+                logger.info("GPT process terminated successfully")
+                return False
         except Exception as e:
             logger.error(f"GPT processing error: {str(e)}")
             return False

@@ -241,19 +241,24 @@ class UnifiedS2TSSProcessor:
                             logger.info(f"  {result_type}: {stats.get('file_size_mb', 0):.1f}MB, "
                                       f"status={stats.get('status', 'completed')}")
 
-            # Enhanced Memory cleanup
+            # Aggressive Memory cleanup between scenes
             try:
                 # Clean up large variables from this processing cycle
                 MemoryManager.cleanup_variables(results)
 
-                # Force garbage collection
-                gc.collect()
+                # Force multiple GC passes (all generations)
+                gc.collect(0)  # Generation 0 (youngest)
+                gc.collect(1)  # Generation 1
+                gc.collect(2)  # Generation 2 (full collection)
 
                 # Enhanced memory monitoring
                 if MemoryManager.monitor_memory():
-                    logger.info("Running enhanced memory cleanup...")
+                    logger.info("Running aggressive memory cleanup...")
                     MemoryManager.cleanup_variables()
-                    gc.collect()
+
+                    # Multiple full GC passes to ensure cleanup
+                    for _ in range(3):
+                        gc.collect()
 
                     # Check memory again after cleanup
                     current_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
