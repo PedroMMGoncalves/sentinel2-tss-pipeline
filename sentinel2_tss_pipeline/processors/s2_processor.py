@@ -71,7 +71,7 @@ class S2Processor:
             logger.error("SNAP_HOME environment variable not set!")
             raise RuntimeError("SNAP installation not found")
 
-        logger.info(f"SNAP_HOME: {snap_home}")
+        logger.debug(f"SNAP_HOME: {snap_home}")
 
         gpt_cmd = self.get_gpt_command()
         if not os.path.exists(gpt_cmd):
@@ -82,7 +82,7 @@ class S2Processor:
             result = subprocess.run([gpt_cmd, '-h'],
                                   capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
-                logger.info(f"GPT validated: {gpt_cmd}")
+                logger.debug(f"GPT validated: {gpt_cmd}")
             else:
                 logger.error(f"GPT validation failed: {result.stderr}")
                 raise RuntimeError("GPT validation failed")
@@ -111,7 +111,7 @@ class S2Processor:
             else:
                 self.main_graph_file = self.create_s2_graph_no_subset()
 
-        logger.info(f"Processing graph created for mode: {mode.value}")
+        logger.debug(f"Processing graph created for mode: {mode.value}")
 
     def create_s2_graph_with_subset(self) -> str:
         """Create S2 processing graph with spatial subset"""
@@ -201,7 +201,7 @@ class S2Processor:
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
 
-        logger.info(f"Complete processing graph saved: {graph_file}")
+        logger.debug(f"Complete processing graph saved: {graph_file}")
         return graph_file
 
     def create_s2_graph_no_subset(self) -> str:
@@ -275,7 +275,7 @@ class S2Processor:
         with open(graph_file, 'w', encoding='utf-8') as f:
             f.write(graph_content)
 
-        logger.info(f"Complete processing graph saved: {graph_file}")
+        logger.debug(f"Complete processing graph saved: {graph_file}")
         return graph_file
 
     def _get_subset_parameters(self) -> str:
@@ -435,10 +435,10 @@ class S2Processor:
             product_name = os.path.basename(input_path)
             self.current_product = product_name
 
-            logger.info(f"Processing: {product_name}")
-            logger.info(f"  Mode: {self.config.processing_mode.value}")
-            logger.info(f"  Resolution: {self.config.resampling_config.target_resolution}m")
-            logger.info(f"  ECMWF: {self.config.c2rcc_config.use_ecmwf_aux_data}")
+            logger.debug(f"Processing: {product_name}")
+            logger.debug(f"  Mode: {self.config.processing_mode.value}")
+            logger.debug(f"  Resolution: {self.config.resampling_config.target_resolution}m")
+            logger.debug(f"  ECMWF: {self.config.c2rcc_config.use_ecmwf_aux_data}")
 
             # Check system health before processing
             if self.system_monitor:
@@ -461,7 +461,7 @@ class S2Processor:
             if self.config.skip_existing and os.path.exists(c2rcc_output_path):
                 file_size = os.path.getsize(c2rcc_output_path)
                 if file_size > 1024 * 1024:  # > 1MB
-                    logger.info(f"C2RCC output exists ({file_size/1024/1024:.1f}MB), skipping S2 processing")
+                    logger.debug(f"C2RCC output exists ({file_size/1024/1024:.1f}MB), skipping S2 processing")
                     self.skipped_count += 1
 
                     # Verify required bands exist for potential TSS processing
@@ -488,7 +488,7 @@ class S2Processor:
 
                             # S2Processor stops here - no TSS processing
                             # TSS processing is handled by UnifiedS2TSSProcessor/JiangTSSProcessor
-                            logger.info("S2 processing completed - ready for TSS processing")
+                            logger.debug("S2 processing completed - ready for TSS processing")
 
                             return results
                 else:
@@ -496,7 +496,7 @@ class S2Processor:
                     os.remove(c2rcc_output_path)
 
             # Run S2 processing
-            logger.info("Starting S2 processing with C2RCC...")
+            logger.debug("Starting S2 processing with C2RCC...")
             s2_success = self._run_s2_processing(input_path, c2rcc_output_path)
 
             processing_time = time.time() - processing_start
@@ -507,16 +507,16 @@ class S2Processor:
 
                 if c2rcc_stats:
                     # Initial S2 processing success
-                    logger.info(f"S2 processing SUCCESS: {product_name}")
-                    logger.info(f"   Output: {os.path.basename(c2rcc_output_path)} ({c2rcc_stats['file_size_mb']:.1f}MB)")
-                    logger.info(f"   Processing time: {processing_time/60:.1f} minutes")
+                    logger.debug(f"S2 processing SUCCESS: {product_name}")
+                    logger.debug(f"   Output: {os.path.basename(c2rcc_output_path)} ({c2rcc_stats['file_size_mb']:.1f}MB)")
+                    logger.debug(f"   Processing time: {processing_time/60:.1f} minutes")
 
                     self.processed_count += 1
                     results['s2_processing'] = ProcessingResult(True, c2rcc_output_path, c2rcc_stats, None)
 
                     # Calculate SNAP TSM/CHL from IOPs if missing
                     if not c2rcc_stats['has_tsm'] or not c2rcc_stats['has_chl']:
-                        logger.info("Calculating missing SNAP TSM/CHL concentrations from IOP products...")
+                        logger.debug("Calculating missing SNAP TSM/CHL concentrations from IOP products...")
                         snap_calculator = TSMChlorophyllCalculator(
                             tsm_fac=self.config.c2rcc_config.tsm_fac,
                             tsm_exp=self.config.c2rcc_config.tsm_exp,
@@ -529,10 +529,10 @@ class S2Processor:
 
                         # Log SNAP TSM/CHL results
                         if 'snap_tsm' in snap_tsm_chl_results and snap_tsm_chl_results['snap_tsm'].success:
-                            logger.info("SNAP TSM calculation successful!")
+                            logger.debug("SNAP TSM calculation successful!")
 
                         if 'snap_chl' in snap_tsm_chl_results and snap_tsm_chl_results['snap_chl'].success:
-                            logger.info("SNAP CHL calculation successful!")
+                            logger.debug("SNAP CHL calculation successful!")
 
                         # Re-verify after calculating TSM/CHL
                         final_stats = self._verify_c2rcc_output(c2rcc_output_path)
@@ -545,12 +545,12 @@ class S2Processor:
                             result = ProcessingResult(True, c2rcc_output_path, final_stats, None)
                             result.intermediate_paths = self.intermediate_products.copy()
                             results['s2_processing'] = result
-                            logger.info("UPDATED SNAP PRODUCTS STATUS:")
-                            logger.info(f"   TSM={final_stats['has_tsm']}, CHL={final_stats['has_chl']}, Uncertainties={final_stats['has_uncertainties']}")
+                            logger.debug("UPDATED SNAP PRODUCTS STATUS:")
+                            logger.debug(f"   TSM={final_stats['has_tsm']}, CHL={final_stats['has_chl']}, Uncertainties={final_stats['has_uncertainties']}")
 
                     # S2Processor only does S2 processing - TSS handled separately
-                    logger.info("S2 processing completed - ready for TSS processing")
-                    logger.info("TSS processing (Jiang + Marine Viz) handled by separate processors")
+                    logger.debug("S2 processing completed - ready for TSS processing")
+                    logger.debug("TSS processing (Jiang + Marine Viz) handled by separate processors")
 
                     # Clean up memory after S2 processing
                     try:
@@ -607,15 +607,15 @@ class S2Processor:
                 f'-q', str(self.config.thread_count)
             ]
 
-            logger.info(f"GPT processing paths:")
-            logger.info(f"  Input: {os.path.basename(input_path)}")
-            logger.info(f"  C2RCC Output: {os.path.basename(output_path)}")
-            logger.info(f"  Geometric Output: {os.path.basename(geometric_output_path)}")
+            logger.debug(f"GPT processing paths:")
+            logger.debug(f"  Input: {os.path.basename(input_path)}")
+            logger.debug(f"  C2RCC Output: {os.path.basename(output_path)}")
+            logger.debug(f"  Geometric Output: {os.path.basename(geometric_output_path)}")
             logger.debug(f"GPT command: {' '.join(cmd)}")
 
             # Run GPT processing with timeout and proper process management
             gpt_timeout = getattr(self.config, 'gpt_timeout', 10800)  # Default 3 hours
-            logger.info(f"Executing GPT processing (timeout: {gpt_timeout//3600}h {(gpt_timeout%3600)//60}m)...")
+            logger.debug(f"Executing GPT processing (timeout: {gpt_timeout//3600}h {(gpt_timeout%3600)//60}m)...")
 
             # Use Popen for proper process control (allows killing on timeout)
             process = subprocess.Popen(
@@ -635,12 +635,12 @@ class S2Processor:
                     if os.path.exists(output_path):
                         file_size = os.path.getsize(output_path)
                         if file_size > 1024 * 1024:  # > 1MB
-                            logger.info(f"C2RCC output created: {file_size / (1024*1024):.1f} MB")
+                            logger.debug(f"C2RCC output created: {file_size / (1024*1024):.1f} MB")
 
                             # Also check if geometric product was created
                             if os.path.exists(geometric_output_path):
                                 geom_size = os.path.getsize(geometric_output_path)
-                                logger.info(f"Geometric output created: {geom_size / (1024*1024):.1f} MB")
+                                logger.debug(f"Geometric output created: {geom_size / (1024*1024):.1f} MB")
                             else:
                                 logger.warning("Geometric product not created (but C2RCC succeeded)")
 
@@ -663,7 +663,7 @@ class S2Processor:
                 logger.error(f"GPT processing timeout after {gpt_timeout//3600}h - killing process")
                 process.kill()
                 process.wait()  # Wait for process to fully terminate
-                logger.info("GPT process terminated successfully")
+                logger.debug("GPT process terminated successfully")
                 return False
         except Exception as e:
             logger.error(f"GPT processing error: {str(e)}")
@@ -724,11 +724,11 @@ class S2Processor:
                     elif 'chl' in filename:
                         has_chl = False
 
-            # Success message or issues - keep at INFO but concise
+            # Success message or issues
             if has_tsm and has_chl:
-                logger.info(f"TSM/CHL: Available" + (" with uncertainties" if has_uncertainties else ""))
+                logger.debug(f"TSM/CHL: Available" + (" with uncertainties" if has_uncertainties else ""))
             else:
-                logger.info("TSM/CHL: Will be calculated from IOP products")
+                logger.debug("TSM/CHL: Will be calculated from IOP products")
 
             # Check IOP products
             logger.debug("\nSNAP IOP PRODUCTS:")
@@ -754,7 +754,7 @@ class S2Processor:
                     else:
                         logger.debug(f"   - {iop_file} (missing/empty)")
 
-            logger.info(f"IOP products: {iop_count}/6 available")
+            logger.debug(f"IOP products: {iop_count}/6 available")
 
             # Check rhow bands for Jiang TSS
             rhow_bands = self._check_rhow_bands_availability(c2rcc_path)
@@ -769,13 +769,13 @@ class S2Processor:
                 else:
                     logger.warning("No rhow bands found - Jiang TSS will not run")
 
-            # Overall assessment - single concise line
+            # Overall assessment
             if has_tsm and has_chl and ready_for_jiang:
                 overall_status = "good"
-                logger.info(f"Jiang TSS: Ready ({rhow_count}/8 bands)")
+                logger.debug(f"Jiang TSS: Ready ({rhow_count}/8 bands)")
             elif ready_for_jiang:
                 overall_status = "adequate"
-                logger.info(f"Jiang TSS: Ready ({rhow_count}/8 bands), TSM/CHL will be calculated")
+                logger.debug(f"Jiang TSS: Ready ({rhow_count}/8 bands), TSM/CHL will be calculated")
             else:
                 overall_status = "limited"
                 logger.warning("Jiang TSS: Not ready - missing bands")
@@ -827,7 +827,7 @@ class S2Processor:
 
             # Check if btot already exists and is valid
             if os.path.exists(btot_path) and os.path.getsize(btot_path) > 1024:
-                logger.info("iop_btot.img already exists")
+                logger.debug("iop_btot.img already exists")
                 return True
 
             # Check if source files exist
@@ -839,7 +839,7 @@ class S2Processor:
                 logger.error(f"Missing bwit file: {bwit_path}")
                 return False
 
-            logger.info("Calculating missing iop_btot from bpart + bwit...")
+            logger.debug("Calculating missing iop_btot from bpart + bwit...")
 
             # Load bpart and bwit
             bpart_data, bpart_meta = RasterIO.read_raster(bpart_path)
@@ -867,7 +867,7 @@ class S2Processor:
                 logger.error(f"Invalid metadata type: {type(bpart_meta)}")
                 return False
 
-            logger.info(f"Calculated btot: shape={btot_data.shape}, valid_pixels={np.sum(~np.isnan(btot_data))}")
+            logger.debug(f"Calculated btot: shape={btot_data.shape}, valid_pixels={np.sum(~np.isnan(btot_data))}")
 
             # Write result
             success = RasterIO.write_raster(
@@ -880,7 +880,7 @@ class S2Processor:
 
             if success and os.path.exists(btot_path):
                 file_size_kb = os.path.getsize(btot_path) / 1024
-                logger.info(f"Successfully calculated and saved iop_btot.img ({file_size_kb:.1f} KB)")
+                logger.debug(f"Successfully calculated and saved iop_btot.img ({file_size_kb:.1f} KB)")
                 return True
             else:
                 logger.error("Failed to save iop_btot.img")
@@ -957,7 +957,7 @@ class S2Processor:
         for band_type in found_band_types.values():
             type_counts[band_type] = type_counts.get(band_type, 0) + 1
 
-        logger.info(f"Band type summary: {type_counts}")
+        logger.debug(f"Band type summary: {type_counts}")
 
         # Check if we have mixed band types (which might need unit conversion)
         unique_types = set(found_band_types.values())

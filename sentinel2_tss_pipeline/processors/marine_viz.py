@@ -465,21 +465,21 @@ class VisualizationProcessor:
         self.logger = logger
 
         # Log initialization details
-        self.logger.info("Initialized S2 Marine Visualization Processor")
-        self.logger.info(f"Configuration settings:")
-        self.logger.info(f"  Natural color RGB: {self.config.generate_natural_color}")
-        self.logger.info(f"  False color RGB: {self.config.generate_false_color}")
-        self.logger.info(f"  Water-specific RGB: {self.config.generate_water_specific}")
-        self.logger.info(f"  Research RGB: {self.config.generate_research_combinations}")
-        self.logger.info(f"  Water quality indices: {self.config.generate_water_quality_indices}")
-        self.logger.info(f"  Chlorophyll indices: {self.config.generate_chlorophyll_indices}")
-        self.logger.info(f"  Turbidity indices: {self.config.generate_turbidity_indices}")
-        self.logger.info(f"  Advanced indices: {self.config.generate_advanced_indices}")
-        self.logger.info(f"  Output format: {self.config.rgb_format}")
-        self.logger.info(f"  Contrast enhancement: {self.config.apply_contrast_enhancement}")
-        self.logger.info(f"  Contrast method: {self.config.contrast_method}")
-        self.logger.info(f"  Export metadata: {self.config.export_metadata}")
-        self.logger.info(f"  Create overview images: {self.config.create_overview_images}")
+        self.logger.debug("Initialized S2 Marine Visualization Processor")
+        self.logger.debug(f"Configuration settings:")
+        self.logger.debug(f"  Natural color RGB: {self.config.generate_natural_color}")
+        self.logger.debug(f"  False color RGB: {self.config.generate_false_color}")
+        self.logger.debug(f"  Water-specific RGB: {self.config.generate_water_specific}")
+        self.logger.debug(f"  Research RGB: {self.config.generate_research_combinations}")
+        self.logger.debug(f"  Water quality indices: {self.config.generate_water_quality_indices}")
+        self.logger.debug(f"  Chlorophyll indices: {self.config.generate_chlorophyll_indices}")
+        self.logger.debug(f"  Turbidity indices: {self.config.generate_turbidity_indices}")
+        self.logger.debug(f"  Advanced indices: {self.config.generate_advanced_indices}")
+        self.logger.debug(f"  Output format: {self.config.rgb_format}")
+        self.logger.debug(f"  Contrast enhancement: {self.config.apply_contrast_enhancement}")
+        self.logger.debug(f"  Contrast method: {self.config.contrast_method}")
+        self.logger.debug(f"  Export metadata: {self.config.export_metadata}")
+        self.logger.debug(f"  Create overview images: {self.config.create_overview_images}")
 
         # Estimate expected products
         expected_rgb = 0
@@ -494,8 +494,8 @@ class VisualizationProcessor:
         if self.config.generate_turbidity_indices: expected_indices += 2
         if self.config.generate_advanced_indices: expected_indices += 3
 
-        self.logger.info(f"Expected products: ~{expected_rgb} RGB composites + ~{expected_indices} spectral indices")
-        self.logger.info("Marine visualization processor ready for processing")
+        self.logger.debug(f"Expected products: ~{expected_rgb} RGB composites + ~{expected_indices} spectral indices")
+        self.logger.debug("Marine visualization processor ready for processing")
 
     def process_marine_visualizations(self, c2rcc_path: str, output_folder: str,
                                     product_name: str, intermediate_paths: Optional[Dict[str, str]] = None) -> Dict[str, ProcessingResult]:
@@ -512,7 +512,7 @@ class VisualizationProcessor:
             Dictionary of visualization results (RGB composites + spectral indices)
         """
         try:
-            self.logger.info(f"Starting marine visualization processing for {product_name}")
+            self.logger.debug(f"Starting marine visualization processing for {product_name}")
 
             # Determine input source
             input_source = None
@@ -521,18 +521,18 @@ class VisualizationProcessor:
             # PRIORITY 1: Use intermediate_paths geometric_path
             if intermediate_paths and 'geometric_path' in intermediate_paths:
                 geometric_path = intermediate_paths['geometric_path']
-                self.logger.info(f"Checking intermediate_paths geometric_path: {geometric_path}")
+                self.logger.debug(f"Checking intermediate_paths geometric_path: {geometric_path}")
 
                 if os.path.exists(geometric_path):
                     input_source = geometric_path
                     input_type = "geometric"
-                    self.logger.info(f"Using GEOMETRIC products from intermediate_paths: {os.path.basename(geometric_path)}")
+                    self.logger.debug(f"Using GEOMETRIC products from intermediate_paths: {os.path.basename(geometric_path)}")
                 else:
                     self.logger.warning(f"Geometric path in intermediate_paths not found: {geometric_path}")
 
             # PRIORITY 2: Look in Intermediate/Geometric folder
             if input_source is None:
-                self.logger.info("Trying Intermediate/Geometric folder location")
+                self.logger.debug("Trying Intermediate/Geometric folder location")
                 geometric_folder = OutputStructure.get_intermediate_folder(
                     output_folder, OutputStructure.GEOMETRIC_FOLDER
                 )
@@ -554,13 +554,13 @@ class VisualizationProcessor:
                     if os.path.exists(geometric_path):
                         input_source = geometric_path
                         input_type = "geometric"
-                        self.logger.info(f"Using GEOMETRIC products from standard location: {geometric_filename}")
+                        self.logger.debug(f"Using GEOMETRIC products from standard location: {geometric_filename}")
                     else:
                         for file in os.listdir(geometric_folder):
                             if file.endswith('.dim') and 'Subset' in file:
                                 input_source = os.path.join(geometric_folder, file)
                                 input_type = "geometric"
-                                self.logger.info(f"Found geometric product: {file}")
+                                self.logger.debug(f"Found geometric product: {file}")
                                 break
 
             # Create visualization output directories using OutputStructure helper
@@ -569,14 +569,14 @@ class VisualizationProcessor:
             rgb_output_dir = OutputStructure.get_category_folder(scene_folder, OutputStructure.RGB_FOLDER)
             indices_output_dir = OutputStructure.get_category_folder(scene_folder, OutputStructure.INDICES_FOLDER)
 
-            self.logger.info(f"Scene name: {scene_name}")
-            self.logger.info(f"RGB output directory: {rgb_output_dir}")
-            self.logger.info(f"Indices output directory: {indices_output_dir}")
+            self.logger.debug(f"Scene name: {scene_name}")
+            self.logger.debug(f"RGB output directory: {rgb_output_dir}")
+            self.logger.debug(f"Indices output directory: {indices_output_dir}")
 
             viz_results = {}
 
             # Load spectral bands
-            self.logger.info(f"Loading spectral bands from {input_type.upper()} products")
+            self.logger.debug(f"Loading spectral bands from {input_type.upper()} products")
 
             try:
                 if input_type == "geometric":
@@ -589,9 +589,9 @@ class VisualizationProcessor:
                     self.logger.error(error_msg)
                     return {'error': ProcessingResult(False, "", None, error_msg)}
 
-                self.logger.info(f"Found {len(band_paths)} spectral bands for visualization:")
+                self.logger.debug(f"Found {len(band_paths)} spectral bands for visualization:")
                 for wavelength, path in band_paths.items():
-                    self.logger.info(f"  {wavelength}nm: {os.path.basename(path)}")
+                    self.logger.debug(f"  {wavelength}nm: {os.path.basename(path)}")
 
                 bands_data, reference_metadata = self._load_bands_data_from_paths(band_paths)
 
@@ -600,15 +600,15 @@ class VisualizationProcessor:
                     self.logger.error(error_msg)
                     return {'error': ProcessingResult(False, "", None, error_msg)}
 
-                self.logger.info(f"Successfully loaded {len(bands_data)} bands for visualization")
+                self.logger.debug(f"Successfully loaded {len(bands_data)} bands for visualization")
 
                 sample_band = list(bands_data.values())[0]
                 data_min = np.nanmin(sample_band)
                 data_max = np.nanmax(sample_band)
-                self.logger.info(f"Data characteristics:")
-                self.logger.info(f"  Input type: {input_type.upper()}")
-                self.logger.info(f"  Value range: {data_min:.4f} to {data_max:.4f}")
-                self.logger.info(f"  Spatial dimensions: {sample_band.shape}")
+                self.logger.debug(f"Data characteristics:")
+                self.logger.debug(f"  Input type: {input_type.upper()}")
+                self.logger.debug(f"  Value range: {data_min:.4f} to {data_max:.4f}")
+                self.logger.debug(f"  Spatial dimensions: {sample_band.shape}")
 
             except Exception as band_error:
                 error_msg = f"Error loading spectral bands: {str(band_error)}"
@@ -619,13 +619,13 @@ class VisualizationProcessor:
 
             # Generate RGB composites
             if bands_data and len(bands_data) >= 3:
-                self.logger.info("Generating RGB composites")
+                self.logger.debug("Generating RGB composites")
 
                 try:
                     rgb_results = self._generate_rgb_composites(bands_data, reference_metadata, rgb_output_dir, scene_name)
                     viz_results.update(rgb_results)
                     rgb_count = len([k for k in rgb_results.keys() if k.startswith('rgb_')])
-                    self.logger.info(f"Generated {rgb_count} RGB composites")
+                    self.logger.info(f"    RGB Composites... done ({rgb_count} products)")
 
                 except Exception as rgb_error:
                     self.logger.error(f"Error generating RGB composites: {rgb_error}")
@@ -633,20 +633,20 @@ class VisualizationProcessor:
 
             # Generate spectral indices
             if bands_data and len(bands_data) >= 2:
-                self.logger.info("Generating spectral indices")
+                self.logger.debug("Generating spectral indices")
 
                 try:
                     index_results = self._generate_spectral_indices(bands_data, reference_metadata, indices_output_dir, scene_name)
                     viz_results.update(index_results)
                     index_count = len([k for k in index_results.keys() if k.startswith('index_')])
-                    self.logger.info(f"Generated {index_count} spectral indices")
+                    self.logger.info(f"    Spectral Indices... done ({index_count} products)")
 
                 except Exception as index_error:
                     self.logger.error(f"Error generating spectral indices: {index_error}")
                     viz_results['index_error'] = ProcessingResult(False, "", None, str(index_error))
 
             # Create processing summary
-            self.logger.info("Creating visualization summary")
+            self.logger.debug("Creating visualization summary")
             try:
                 self._create_visualization_summary(viz_results, output_folder, product_name)
             except Exception as summary_error:
@@ -657,11 +657,11 @@ class VisualizationProcessor:
             total_viz = len([r for r in viz_results.values() if isinstance(r, ProcessingResult)])
             success_rate = (successful_viz / total_viz) * 100 if total_viz > 0 else 0
 
-            self.logger.info("Marine visualization processing completed!")
-            self.logger.info(f"   Input source: {input_type.upper()} products")
-            self.logger.info(f"   Results: {successful_viz}/{total_viz} products successful ({success_rate:.1f}%)")
-            self.logger.info(f"   RGB output: {rgb_output_dir}")
-            self.logger.info(f"   Indices output: {indices_output_dir}")
+            self.logger.debug("Marine visualization processing completed!")
+            self.logger.debug(f"   Input source: {input_type.upper()} products")
+            self.logger.debug(f"   Results: {successful_viz}/{total_viz} products successful ({success_rate:.1f}%)")
+            self.logger.debug(f"   RGB output: {rgb_output_dir}")
+            self.logger.debug(f"   Indices output: {indices_output_dir}")
 
             return viz_results
 
@@ -703,7 +703,7 @@ class VisualizationProcessor:
 
         available_bands = {}
 
-        self.logger.info(f"Loading bands from: {os.path.basename(data_folder)}")
+        self.logger.debug(f"Loading bands from: {os.path.basename(data_folder)}")
 
         for wavelength, possible_files in band_mapping.items():
             for filename in possible_files:
@@ -715,7 +715,7 @@ class VisualizationProcessor:
                         self.logger.debug(f"Found {wavelength}nm: {filename}")
                         break
 
-        self.logger.info(f"Found {len(available_bands)} bands: {sorted(available_bands.keys())}")
+        self.logger.debug(f"Found {len(available_bands)} bands: {sorted(available_bands.keys())}")
         return available_bands
 
     def _load_available_bands(self, c2rcc_path: str) -> Dict[int, str]:
@@ -763,8 +763,8 @@ class VisualizationProcessor:
             if not band_found:
                 missing_files.append(f"{wavelength}nm ({possible_files[0]})")
 
-        self.logger.info(f"Band loading results:")
-        self.logger.info(f"  Found {len(available_bands)} bands: {sorted(list(available_bands.keys()))}")
+        self.logger.debug(f"Band loading results:")
+        self.logger.debug(f"  Found {len(available_bands)} bands: {sorted(list(available_bands.keys()))}")
         if missing_files:
             self.logger.warning(f"  Missing: {missing_files}")
 
@@ -775,7 +775,7 @@ class VisualizationProcessor:
         bands_data = {}
         reference_metadata = None
 
-        self.logger.info(f"Loading {len(band_paths)} bands into memory")
+        self.logger.debug(f"Loading {len(band_paths)} bands into memory")
 
         for wavelength, file_path in band_paths.items():
             try:
@@ -805,7 +805,7 @@ class VisualizationProcessor:
                 self.logger.error(f"Failed to load {wavelength}nm: {e}")
                 return None, None
 
-        self.logger.info(f"Successfully loaded {len(bands_data)} bands")
+        self.logger.debug(f"Successfully loaded {len(bands_data)} bands")
         return bands_data, reference_metadata
 
     def _generate_rgb_composites(self, bands_data: Dict[int, np.ndarray], reference_metadata: Dict,
@@ -815,7 +815,7 @@ class VisualizationProcessor:
 
         try:
             available_wavelengths = set(bands_data.keys())
-            self.logger.info(f"Available wavelengths for RGB: {sorted(available_wavelengths)}")
+            self.logger.debug(f"Available wavelengths for RGB: {sorted(available_wavelengths)}")
 
             rgb_combinations = {
                 'natural_color': {
@@ -949,7 +949,7 @@ class VisualizationProcessor:
             active_combinations = {name: config for name, config in rgb_combinations.items()
                                 if config['enabled'] and config['priority'] in ['essential', 'important', 'marine', 'research']}
 
-            self.logger.info(f"Processing {len(active_combinations)} RGB combinations")
+            self.logger.debug(f"Processing {len(active_combinations)} RGB combinations")
 
             for rgb_name, config in active_combinations.items():
                 try:
@@ -957,10 +957,10 @@ class VisualizationProcessor:
                     missing_bands = [wl for wl in required_bands if wl not in available_wavelengths]
 
                     if missing_bands:
-                        self.logger.info(f"Skipping {rgb_name}: missing wavelengths {missing_bands}")
+                        self.logger.debug(f"Skipping {rgb_name}: missing wavelengths {missing_bands}")
                         continue
 
-                    self.logger.info(f"Creating {rgb_name}: R={config['red']}nm, G={config['green']}nm, B={config['blue']}nm")
+                    self.logger.debug(f"Creating {rgb_name}: R={config['red']}nm, G={config['green']}nm, B={config['blue']}nm")
 
                     red_data = bands_data[config['red']]
                     green_data = bands_data[config['green']]
@@ -992,7 +992,7 @@ class VisualizationProcessor:
                         }
 
                         results[f'rgb_{rgb_name}'] = ProcessingResult(True, output_path, stats, None)
-                        self.logger.info(f"Created {rgb_name}: {coverage_percent:.1f}% coverage, {file_size_mb:.1f}MB")
+                        self.logger.debug(f"Created {rgb_name}: {coverage_percent:.1f}% coverage, {file_size_mb:.1f}MB")
                     else:
                         results[f'rgb_{rgb_name}'] = ProcessingResult(False, output_path, None, "Failed to save RGB composite")
 
@@ -1013,7 +1013,7 @@ class VisualizationProcessor:
 
         try:
             available_wavelengths = set(bands_data.keys())
-            self.logger.info(f"Available wavelengths for indices: {sorted(available_wavelengths)}")
+            self.logger.debug(f"Available wavelengths for indices: {sorted(available_wavelengths)}")
 
             spectral_indices = {
                 'NDWI': {
@@ -1161,7 +1161,7 @@ class VisualizationProcessor:
 
             active_indices = {name: config for name, config in spectral_indices.items() if config['enabled']}
 
-            self.logger.info(f"Processing {len(active_indices)} spectral indices")
+            self.logger.debug(f"Processing {len(active_indices)} spectral indices")
 
             for index_name, config in active_indices.items():
                 try:
@@ -1172,13 +1172,13 @@ class VisualizationProcessor:
                         bands_to_use = required_bands
                     elif fallback_bands and all(band in available_wavelengths for band in fallback_bands):
                         bands_to_use = fallback_bands
-                        self.logger.info(f"Using fallback bands for {index_name}")
+                        self.logger.debug(f"Using fallback bands for {index_name}")
                     else:
                         missing = [b for b in required_bands if b not in available_wavelengths]
-                        self.logger.info(f"Skipping {index_name}: missing wavelengths {missing}")
+                        self.logger.debug(f"Skipping {index_name}: missing wavelengths {missing}")
                         continue
 
-                    self.logger.info(f"Calculating {index_name} using bands: {bands_to_use}")
+                    self.logger.debug(f"Calculating {index_name} using bands: {bands_to_use}")
 
                     index_data = self._calculate_spectral_index(index_name, config, bands_data, bands_to_use)
 
@@ -1209,7 +1209,7 @@ class VisualizationProcessor:
                                 stats = {'description': config['description'], 'error': 'No valid data'}
 
                             results[f'index_{index_name.lower()}'] = ProcessingResult(True, output_path, stats, None)
-                            self.logger.info(f"Created {index_name}: {stats.get('coverage_percent', 0):.1f}% coverage")
+                            self.logger.debug(f"Created {index_name}: {stats.get('coverage_percent', 0):.1f}% coverage")
                         else:
                             results[f'index_{index_name.lower()}'] = ProcessingResult(False, output_path, None, "Failed to save index")
                     else:
@@ -1665,7 +1665,7 @@ class VisualizationProcessor:
                 total_size_mb = sum(os.path.getsize(fp) / (1024 * 1024) for fp in successful_files)
                 f.write(f"\nTotal output size: {total_size_mb:.1f} MB\n")
 
-            self.logger.info(f"Visualization summary created: {os.path.basename(summary_file)}")
+            self.logger.debug(f"Visualization summary created: {os.path.basename(summary_file)}")
 
         except Exception as e:
             self.logger.warning(f"Could not create visualization summary: {e}")
@@ -1678,20 +1678,20 @@ class VisualizationProcessor:
             )
 
             if not os.path.exists(geometric_folder):
-                logger.info("No geometric folder to delete")
+                logger.debug("No geometric folder to delete")
                 return True
 
-            logger.info("Attempting cleanup of geometric products")
+            logger.debug("Attempting cleanup of geometric products")
 
             try:
                 original_items = os.listdir(geometric_folder)
                 resampled_items = [item for item in original_items if item.startswith('Resampled_')]
 
                 if not resampled_items:
-                    logger.info("No Resampled_ items found to delete")
+                    logger.debug("No Resampled_ items found to delete")
                     return True
 
-                logger.info(f"Found {len(resampled_items)} Resampled items to delete")
+                logger.debug(f"Found {len(resampled_items)} Resampled items to delete")
 
                 total_size = 0
                 for item in resampled_items:
@@ -1710,7 +1710,7 @@ class VisualizationProcessor:
                         pass
 
                 total_size_mb = total_size / (1024 * 1024)
-                logger.info(f"Total size to delete: {total_size_mb:.1f} MB")
+                logger.debug(f"Total size to delete: {total_size_mb:.1f} MB")
 
             except Exception as e:
                 logger.warning(f"Could not analyze items: {e}")
@@ -1719,7 +1719,7 @@ class VisualizationProcessor:
 
             # Method 1: Try shutil.rmtree
             try:
-                logger.info("Using shutil.rmtree for cleanup...")
+                logger.debug("Using shutil.rmtree for cleanup...")
 
                 for item in resampled_items:
                     item_path = os.path.join(geometric_folder, item)
@@ -1736,7 +1736,7 @@ class VisualizationProcessor:
                 remaining_resampled = [item for item in remaining_items if item.startswith('Resampled_')]
 
                 if not remaining_resampled:
-                    logger.info(f"Cleanup successful: Deleted all geometric products ({total_size_mb:.1f} MB freed)")
+                    logger.debug(f"Cleanup successful: Deleted all geometric products ({total_size_mb:.1f} MB freed)")
                     return True
                 else:
                     logger.warning(f"Partial cleanup: {len(remaining_resampled)} items remain")
@@ -1746,7 +1746,7 @@ class VisualizationProcessor:
 
             # Method 2: System commands for remaining items
             try:
-                logger.info("Using system commands for cleanup...")
+                logger.debug("Using system commands for cleanup...")
 
                 current_items = os.listdir(geometric_folder) if os.path.exists(geometric_folder) else []
                 current_resampled = [item for item in current_items if item.startswith('Resampled_')]
@@ -1782,7 +1782,7 @@ class VisualizationProcessor:
                 final_resampled = [item for item in final_remaining if item.startswith('Resampled_')]
 
                 if not final_resampled:
-                    logger.info(f"Cleanup successful (Method 2): All geometric products deleted ({total_size_mb:.1f} MB freed)")
+                    logger.debug(f"Cleanup successful (Method 2): All geometric products deleted ({total_size_mb:.1f} MB freed)")
                     return True
                 else:
                     logger.error(f"Cleanup failed: {len(final_resampled)} items still remain: {final_resampled}")

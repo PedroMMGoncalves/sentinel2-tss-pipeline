@@ -107,10 +107,10 @@ class JiangTSSProcessor:
         # Initialize marine visualization processor
         if hasattr(config, 'enable_marine_visualization') and config.enable_marine_visualization:
             self.marine_viz_processor = VisualizationProcessor(config.marine_viz_config)
-            logger.info("Marine visualization processor initialized")
+            logger.debug("Marine visualization processor initialized")
         else:
             self.marine_viz_processor = None
-            logger.info("Marine visualization disabled")
+            logger.debug("Marine visualization disabled")
 
         # Initialize advanced processor if enabled
         if self.config.enable_advanced_algorithms:
@@ -120,24 +120,24 @@ class JiangTSSProcessor:
         else:
             self.advanced_processor = None
 
-        logger.info("Initialized Jiang TSS Processor with enhanced methodology")
-        logger.info(f"Jiang TSS enabled: {self.config.enable_jiang_tss}")
-        logger.info(f"Advanced algorithms enabled: {self.config.enable_advanced_algorithms}")
-        logger.info(f"Marine visualization enabled: {getattr(self.config, 'enable_marine_visualization', False)}")
+        logger.debug("Initialized Jiang TSS Processor with enhanced methodology")
+        logger.debug(f"Jiang TSS enabled: {self.config.enable_jiang_tss}")
+        logger.debug(f"Advanced algorithms enabled: {self.config.enable_advanced_algorithms}")
+        logger.debug(f"Marine visualization enabled: {getattr(self.config, 'enable_marine_visualization', False)}")
 
         if self.config.enable_advanced_algorithms and self.config.water_quality_config:
-            logger.info("Working algorithms available:")
-            logger.info(f"  Water Clarity: {self.config.water_quality_config.enable_water_clarity}")
-            logger.info(f"  HAB Detection: {self.config.water_quality_config.enable_hab_detection}")
+            logger.debug("Working algorithms available:")
+            logger.debug(f"  Water Clarity: {self.config.water_quality_config.enable_water_clarity}")
+            logger.debug(f"  HAB Detection: {self.config.water_quality_config.enable_hab_detection}")
 
-        logger.info("Jiang TSS Processor initialization completed successfully")
+        logger.debug("Jiang TSS Processor initialization completed successfully")
 
     def _load_bands_data(self, band_paths: Dict[int, str]) -> Tuple[Optional[Dict], Optional[Dict]]:
         """Load band data arrays from file paths"""
         bands_data = {}
         reference_metadata = None
 
-        logger.info(f"Loading {len(band_paths)} spectral bands into memory")
+        logger.debug(f"Loading {len(band_paths)} spectral bands into memory")
 
         for wavelength, file_path in band_paths.items():
             try:
@@ -154,7 +154,7 @@ class JiangTSSProcessor:
                 logger.error(f"Failed to load band {wavelength}nm from {file_path}: {e}")
                 return None, None
 
-        logger.info(f"Successfully loaded {len(bands_data)} bands into memory")
+        logger.debug(f"Successfully loaded {len(bands_data)} bands into memory")
         return bands_data, reference_metadata
 
     def _convert_rhow_to_rrs(self, bands_data: Dict[int, np.ndarray],
@@ -269,7 +269,7 @@ class JiangTSSProcessor:
         found_bands = {}
         band_type_summary = {}
 
-        logger.info(f"Searching for COMPLETE 8-band datasets in: {data_folder}")
+        logger.debug(f"Searching for COMPLETE 8-band datasets in: {data_folder}")
 
         for wavelength, possible_names in band_mapping.items():
             for name in possible_names:
@@ -283,21 +283,21 @@ class JiangTSSProcessor:
                         band_type = 'rrs'
 
                     band_type_summary[band_type] = band_type_summary.get(band_type, 0) + 1
-                    logger.info(f"Found {wavelength}nm: {name} ({band_type})")
+                    logger.debug(f"Found {wavelength}nm: {name} ({band_type})")
                     break
             else:
                 logger.warning(f"Missing {wavelength}nm - CRITICAL for Jiang algorithm")
 
-        logger.info(f"Band type summary: {band_type_summary}")
+        logger.debug(f"Band type summary: {band_type_summary}")
 
         total_found = len(found_bands)
         required_bands = [443, 490, 560, 665, 705, 740, 783, 865]
         missing_critical = [wl for wl in required_bands if wl not in found_bands]
 
         if total_found == 8 and not missing_critical:
-            logger.info("PERFECT: Complete 8-band dataset found - Jiang algorithm ready")
+            logger.debug("PERFECT: Complete 8-band dataset found - Jiang algorithm ready")
         elif total_found >= 6 and 783 in found_bands and 865 in found_bands:
-            logger.info(f"USABLE: {total_found}/8 bands found including critical NIR bands")
+            logger.debug(f"USABLE: {total_found}/8 bands found including critical NIR bands")
         else:
             logger.error(f"INSUFFICIENT: {total_found}/8 bands found")
             if missing_critical:
@@ -309,7 +309,7 @@ class JiangTSSProcessor:
                         intermediate_paths: Optional[Dict[str, str]] = None) -> Dict[str, ProcessingResult]:
         """Process Jiang TSS methodology from C2RCC outputs"""
         try:
-            logger.info(f"Starting Jiang TSS processing for: {product_name}")
+            logger.debug(f"Starting Jiang TSS processing for: {product_name}")
 
             # Extract georeference from C2RCC output
             try:
@@ -318,7 +318,7 @@ class JiangTSSProcessor:
 
                 if os.path.exists(sample_band_path):
                     _, reference_metadata = RasterIO.read_raster(sample_band_path)
-                    logger.info("Using C2RCC georeference for proper geographic positioning")
+                    logger.debug("Using C2RCC georeference for proper geographic positioning")
                 else:
                     logger.error("Cannot find reference band for georeference")
                     reference_metadata = {
@@ -446,7 +446,7 @@ class JiangTSSProcessor:
                     intermediate_paths['geometric_path'] = geometric_path
 
                     if os.path.exists(geometric_path):
-                        logger.info("Geometric products found for marine visualization")
+                        logger.debug("Geometric products found for marine visualization")
 
                         viz_results = self.marine_viz_processor.process_marine_visualizations(
                             c2rcc_path, output_folder, product_name, intermediate_paths
@@ -456,15 +456,15 @@ class JiangTSSProcessor:
 
                         rgb_count = len([k for k in viz_results.keys() if k.startswith('rgb_')])
                         index_count = len([k for k in viz_results.keys() if k.startswith('index_')])
-                        logger.info(f"Marine visualization completed: {rgb_count} RGB + {index_count} indices")
+                        logger.debug(f"Marine visualization completed: {rgb_count} RGB + {index_count} indices")
 
                         # Cleanup intermediate products
-                        logger.info("Starting intermediate products cleanup...")
+                        logger.debug("Starting intermediate products cleanup...")
                         try:
                             cleanup_success = self.marine_viz_processor._cleanup_intermediate_products(
                                 output_folder, product_name)
                             if cleanup_success:
-                                logger.info("Geometric products cleanup completed successfully")
+                                logger.debug("Geometric products cleanup completed successfully")
                             else:
                                 logger.warning("Geometric products cleanup had issues")
                         except Exception as cleanup_error:
@@ -498,11 +498,11 @@ class JiangTSSProcessor:
                     success_count += 1
             total_count = len(final_results)
 
-            logger.info("=" * 80)
-            logger.info(f"COMPLETE TSS PROCESSING FINISHED: {product_name}")
-            logger.info(f"   Total products generated: {success_count}/{total_count}")
-            logger.info(f"   Success rate: {(success_count/total_count)*100:.1f}%")
-            logger.info("=" * 80)
+            logger.debug("=" * 80)
+            logger.debug(f"COMPLETE TSS PROCESSING FINISHED: {product_name}")
+            logger.debug(f"   Total products generated: {success_count}/{total_count}")
+            logger.debug(f"   Success rate: {(success_count/total_count)*100:.1f}%")
+            logger.debug("=" * 80)
 
             # Create product index after all processing is complete
             try:
@@ -522,7 +522,7 @@ class JiangTSSProcessor:
                                         rrs_bands_data: Dict, product_name: str) -> Dict[str, ProcessingResult]:
         """Process water quality products (clarity, HAB) with converted Rrs data."""
         try:
-            logger.info("Processing advanced algorithms with unit-converted data")
+            logger.debug("Processing advanced algorithms with unit-converted data")
             advanced_results = {}
 
             config = self.config.water_quality_config
@@ -533,7 +533,7 @@ class JiangTSSProcessor:
 
             # Water clarity calculation
             if config.enable_water_clarity and 'absorption' in jiang_results and 'backscattering' in jiang_results:
-                logger.info("Calculating water clarity indices")
+                logger.debug("Calculating water clarity indices")
 
                 absorption = jiang_results['absorption']
                 backscattering = jiang_results['backscattering']
@@ -559,14 +559,14 @@ class JiangTSSProcessor:
                                 error_message=None
                             )
 
-                    logger.info(f"Water clarity calculation completed: {len(clarity_results)} products")
+                    logger.debug(f"Water clarity calculation completed: {len(clarity_results)} products")
 
                 except Exception as e:
                     logger.error(f"Water clarity calculation failed: {e}")
 
             # HAB detection
             if config.enable_hab_detection and rrs_bands_data:
-                logger.info("Detecting harmful algal blooms using converted Rrs data")
+                logger.debug("Detecting harmful algal blooms using converted Rrs data")
 
                 try:
                     hab_results = self.advanced_processor.detect_harmful_algal_blooms(
@@ -593,14 +593,14 @@ class JiangTSSProcessor:
                                 error_message=None
                             )
 
-                    logger.info(f"HAB detection completed: {len(hab_results)} products")
+                    logger.debug(f"HAB detection completed: {len(hab_results)} products")
 
                 except Exception as e:
                     logger.error(f"HAB detection failed: {e}")
             else:
                 logger.warning("No suitable converted spectral bands available for HAB detection")
 
-            logger.info(f"Advanced algorithms completed: {len(advanced_results)} products generated")
+            logger.debug(f"Advanced algorithms completed: {len(advanced_results)} products generated")
             return advanced_results
 
         except Exception as e:
@@ -616,7 +616,7 @@ class JiangTSSProcessor:
 
             if os.path.exists(chl_path):
                 chl_data, _ = RasterIO.read_raster(chl_path)
-                logger.info("Successfully extracted SNAP chlorophyll data")
+                logger.debug("Successfully extracted SNAP chlorophyll data")
                 return chl_data
             else:
                 logger.warning("SNAP chlorophyll data not found")
@@ -628,7 +628,7 @@ class JiangTSSProcessor:
 
     def _estimate_tss_all_pixels(self, rrs_data: Dict[int, np.ndarray]) -> Dict[str, np.ndarray]:
         """Estimate TSS for all valid pixels using Jiang methodology."""
-        logger.info("Applying Jiang methodology to pre-converted Rrs data")
+        logger.debug("Applying Jiang methodology to pre-converted Rrs data")
 
         shape = rrs_data[443].shape
 
@@ -639,7 +639,7 @@ class JiangTSSProcessor:
         tss_concentration = np.full(shape, np.nan, dtype=np.float32)
         water_type_classification = np.full(shape, 0, dtype=np.uint8)
 
-        logger.info("Using pre-converted Rrs data (no additional pi division)")
+        logger.debug("Using pre-converted Rrs data (no additional pi division)")
 
         # Create valid pixel mask
         valid_mask = self._create_valid_pixel_mask(rrs_data)
@@ -684,7 +684,7 @@ class JiangTSSProcessor:
                         percentage = (count / len(ref_bands_valid)) * 100
                         water_type_summary.append(f"Type {type_names[band]}:{percentage:.0f}%")
 
-        logger.info(f"Jiang TSS: {coverage_percent:.1f}% coverage, {' '.join(water_type_summary)}")
+        logger.info(f"    TSS: {coverage_percent:.1f}% coverage ({' '.join(water_type_summary)})")
 
         return {
             'absorption': absorption,
@@ -718,7 +718,7 @@ class JiangTSSProcessor:
             valid_pixels[wavelength] = data[valid_mask]
 
         n_pixels = len(valid_pixels[443])
-        logger.info(f"Processing {n_pixels} valid pixels with corrected Jiang algorithm")
+        logger.debug(f"Processing {n_pixels} valid pixels with corrected Jiang algorithm")
 
         absorption_out = np.full(n_pixels, np.nan, dtype=np.float32)
         backscattering_out = np.full(n_pixels, np.nan, dtype=np.float32)
@@ -1067,10 +1067,10 @@ class JiangTSSProcessor:
                 except Exception as e:
                     logger.warning(f"Could not create water type legend: {e}")
 
-            logger.info(f"Product saving completed:")
-            logger.info(f"  Scene folder: {scene_name}/")
-            logger.info(f"  Successfully saved: {saved_count} products")
-            logger.info(f"  Skipped (no data): {skipped_count} products")
+            logger.debug(f"Product saving completed:")
+            logger.debug(f"  Scene folder: {scene_name}/")
+            logger.debug(f"  Successfully saved: {saved_count} products")
+            logger.debug(f"  Skipped (no data): {skipped_count} products")
 
             return output_results
 
@@ -1125,7 +1125,7 @@ DOI: https://doi.org/10.1016/j.rse.2021.112386
         try:
             with open(legend_file, 'w', encoding='utf-8') as f:
                 f.write(legend_content)
-            logger.info(f"Water type legend created: {os.path.basename(legend_file)}")
+            logger.debug(f"Water type legend created: {os.path.basename(legend_file)}")
         except Exception as e:
             logger.warning(f"Could not create water type legend: {e}")
 
@@ -1196,7 +1196,7 @@ DOI: https://doi.org/10.1016/j.rse.2021.112386
 
                 f.write(f"\nTotal products generated: {total_count}\n")
 
-            logger.info(f"Product index created: {os.path.basename(index_file)}")
+            logger.debug(f"Product index created: {os.path.basename(index_file)}")
 
         except Exception as e:
             logger.warning(f"Could not create product index: {e}")
@@ -1212,17 +1212,17 @@ DOI: https://doi.org/10.1016/j.rse.2021.112386
 
         tss_stats = RasterIO.calculate_statistics(tss_data)
 
-        logger.info(f"=== FULL JIANG TSS PROCESSING SUMMARY: {product_name} ===")
-        logger.info(f"Total coverage: {tss_stats['coverage_percent']:.1f}%")
-        logger.info(f"TSS range: {tss_stats['min']:.2f} - {tss_stats['max']:.2f} g/m3")
-        logger.info(f"TSS mean: {tss_stats['mean']:.2f} g/m3")
+        logger.debug(f"=== FULL JIANG TSS PROCESSING SUMMARY: {product_name} ===")
+        logger.debug(f"Total coverage: {tss_stats['coverage_percent']:.1f}%")
+        logger.debug(f"TSS range: {tss_stats['min']:.2f} - {tss_stats['max']:.2f} g/m3")
+        logger.debug(f"TSS mean: {tss_stats['mean']:.2f} g/m3")
 
         if valid_mask is not None and np.any(valid_mask):
             ref_bands_valid = reference_bands[valid_mask]
             ref_bands_valid = ref_bands_valid[~np.isnan(ref_bands_valid)]
 
             if len(ref_bands_valid) > 0:
-                logger.info("Water type classification results:")
+                logger.debug("Water type classification results:")
                 for band in [560, 665, 740, 865]:
                     count = np.sum(ref_bands_valid == band)
                     percentage = (count / len(ref_bands_valid)) * 100
@@ -1233,6 +1233,6 @@ DOI: https://doi.org/10.1016/j.rse.2021.112386
                             740: "Type III (Highly turbid)",
                             865: "Type IV (Extremely turbid)"
                         }[band]
-                        logger.info(f"  {band}nm ({water_type}): {count} pixels ({percentage:.1f}%)")
+                        logger.debug(f"  {band}nm ({water_type}): {count} pixels ({percentage:.1f}%)")
 
-        logger.info("=" * 60)
+        logger.debug("=" * 60)

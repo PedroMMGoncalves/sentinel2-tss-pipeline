@@ -10,10 +10,13 @@ from typing import Dict, Tuple, Optional
 
 import numpy as np
 
+# Suppress PROJ/GDAL stderr messages BEFORE importing GDAL
+os.environ['CPL_LOG'] = 'NUL' if os.name == 'nt' else '/dev/null'
+os.environ['PROJ_DEBUG'] = '0'
+
 try:
     from osgeo import gdal, gdalconst
     GDAL_AVAILABLE = True
-    # Suppress PROJ/GDAL error messages (e.g., "PROJ: proj_identify: SQLite error")
     gdal.DontUseExceptions()
     gdal.PushErrorHandler('CPLQuietErrorHandler')
 except ImportError:
@@ -170,7 +173,7 @@ class RasterIO:
 
             dataset = None  # Close dataset
 
-            logger.info(f"Successfully wrote raster: {os.path.basename(output_path)}")
+            logger.debug(f"Successfully wrote raster: {os.path.basename(output_path)}")
             return True
 
         except Exception as e:
