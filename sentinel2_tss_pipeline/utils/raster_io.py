@@ -13,6 +13,9 @@ import numpy as np
 try:
     from osgeo import gdal, gdalconst
     GDAL_AVAILABLE = True
+    # Suppress PROJ/GDAL error messages (e.g., "PROJ: proj_identify: SQLite error")
+    gdal.DontUseExceptions()
+    gdal.PushErrorHandler('CPLQuietErrorHandler')
 except ImportError:
     GDAL_AVAILABLE = False
 

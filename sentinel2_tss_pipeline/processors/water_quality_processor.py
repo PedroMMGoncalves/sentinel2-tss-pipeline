@@ -444,7 +444,8 @@ def process_water_quality_from_c2rcc(c2rcc_results: Dict,
                 rrs_bands = c2rcc_results.get('rrs_bands', {})
                 phycocyanin = c2rcc_results.get('phycocyanin', None)
                 hab_results = processor.detect_harmful_algal_blooms(chlorophyll, phycocyanin, rrs_bands)
-                advanced_results.update({f'hab_{k}': v for k, v in hab_results.items()})
+                # Add hab_ prefix only if not already present to avoid doubling
+                advanced_results.update({k if k.startswith('hab_') else f'hab_{k}': v for k, v in hab_results.items()})
 
         # Bio-optical parameters from Jiang results
         if 'absorption' in jiang_results and 'backscattering' in jiang_results:
@@ -454,7 +455,8 @@ def process_water_quality_from_c2rcc(c2rcc_results: Dict,
             # Water clarity
             if water_quality_config.enable_water_clarity:
                 clarity_results = processor.calculate_water_clarity(absorption, backscattering)
-                advanced_results.update({f'clarity_{k}': v for k, v in clarity_results.items()})
+                # Add clarity_ prefix only if not already present to avoid doubling
+                advanced_results.update({k if k.startswith('clarity_') else f'clarity_{k}': v for k, v in clarity_results.items()})
 
             # Particle size estimation
             if water_quality_config.enable_particle_size:

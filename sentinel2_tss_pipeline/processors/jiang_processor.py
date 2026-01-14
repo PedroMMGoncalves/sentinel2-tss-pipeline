@@ -18,6 +18,7 @@ Water Type Classification:
 """
 
 import os
+import glob
 import logging
 import warnings
 import traceback
@@ -502,6 +503,12 @@ class JiangTSSProcessor:
             logger.info(f"   Total products generated: {success_count}/{total_count}")
             logger.info(f"   Success rate: {(success_count/total_count)*100:.1f}%")
             logger.info("=" * 80)
+
+            # Create product index after all processing is complete
+            try:
+                self._create_product_index(final_results, output_folder, product_name)
+            except Exception as e:
+                logger.debug(f"Could not create product index: {e}")
 
             return final_results
 
@@ -1065,12 +1072,6 @@ class JiangTSSProcessor:
             logger.info(f"  Successfully saved: {saved_count} products")
             logger.info(f"  Skipped (no data): {skipped_count} products")
 
-            # Create product index
-            try:
-                self._create_product_index(output_results, scene_folder, scene_name)
-            except Exception as e:
-                logger.debug(f"Could not create product index: {e}")
-
             return output_results
 
         except Exception as e:
@@ -1130,7 +1131,7 @@ DOI: https://doi.org/10.1016/j.rse.2021.112386
 
     def _create_product_index(self, output_results: Dict[str, ProcessingResult],
                             output_folder: str, product_name: str):
-        """Create an index file listing all generated products"""
+        """Create an index file listing all generated products by scanning output folders"""
         try:
             index_file = os.path.join(output_folder, f"{product_name}_ProductIndex.txt")
 
@@ -1141,24 +1142,59 @@ DOI: https://doi.org/10.1016/j.rse.2021.112386
                 f.write(f"Processing Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"Pipeline: Unified S2-TSS Processing v2.0\n\n")
 
-                f.write(f"CORE TSS PRODUCTS:\n")
-                f.write(f"{'-'*20}\n")
-                jiang_products = ['absorption', 'backscattering', 'reference_band', 'tss', 'valid_mask',
-                                'water_type_classification']
-                for product in jiang_products:
-                    if product in output_results and output_results[product].success:
-                        f.write(f"+ {os.path.basename(output_results[product].output_path)}\n")
-                    else:
-                        f.write(f"- {product} (failed or not generated)\n")
+                total_count = 0
 
-                f.write(f"\nADVANCED ALGORITHM PRODUCTS:\n")
-                f.write(f"{'-'*30}\n")
+                # CORE TSS PRODUCTS (from TSS subfolder)
+                tss_folder = os.path.join(output_folder, 'TSS')
+                if os.path.exists(tss_folder):
+                    tss_files = sorted(glob.glob(os.path.join(tss_folder, '*.tif')))
+                    if tss_files:
+                        f.write(f"CORE TSS PRODUCTS:\n")
+                        f.write(f"{'-'*20}\n")
+                        for filepath in tss_files:
+                            f.write(f"+ {os.path.basename(filepath)}\n")
+                            total_count += 1
 
-                for key, result in output_results.items():
-                    if key.startswith('advanced_') and result.success:
-                        f.write(f"+ {os.path.basename(result.output_path)}\n")
+                # ADVANCED ALGORITHM PRODUCTS (from Advanced subfolder)
+                advanced_folder = os.path.join(output_folder, 'Advanced')
+                if os.path.exists(advanced_folder):
+                    for category in ['HAB', 'WaterClarity']:
+                        cat_folder = os.path.join(advanced_folder, category)
+                        if os.path.exists(cat_folder):
+                            cat_files = sorted(glob.glob(os.path.join(cat_folder, '*.tif')))
+                            if cat_files:
+                                f.write(f"\n{category.upper()} PRODUCTS:\n")
+                                f.write(f"{'-'*30}\n")
+                                for filepath in cat_files:
+                                    f.write(f"+ {os.path.basename(filepath)}\n")
+                                    total_count += 1
 
-                f.write(f"\nTotal products generated: {len([r for r in output_results.values() if r.success])}\n")
+                # MARINE VISUALIZATIONS (from Visualizations subfolder)
+                viz_folder = os.path.join(output_folder, 'Visualizations')
+                if os.path.exists(viz_folder):
+                    # RGB composites
+                    rgb_folder = os.path.join(viz_folder, 'RGB')
+                    if os.path.exists(rgb_folder):
+                        rgb_files = sorted(glob.glob(os.path.join(rgb_folder, '*.tif')))
+                        if rgb_files:
+                            f.write(f"\nRGB COMPOSITES:\n")
+                            f.write(f"{'-'*30}\n")
+                            for filepath in rgb_files:
+                                f.write(f"+ {os.path.basename(filepath)}\n")
+                                total_count += 1
+
+                    # Spectral indices
+                    indices_folder = os.path.join(viz_folder, 'Indices')
+                    if os.path.exists(indices_folder):
+                        idx_files = sorted(glob.glob(os.path.join(indices_folder, '*.tif')))
+                        if idx_files:
+                            f.write(f"\nSPECTRAL INDICES:\n")
+                            f.write(f"{'-'*30}\n")
+                            for filepath in idx_files:
+                                f.write(f"+ {os.path.basename(filepath)}\n")
+                                total_count += 1
+
+                f.write(f"\nTotal products generated: {total_count}\n")
 
             logger.info(f"Product index created: {os.path.basename(index_file)}")
 
