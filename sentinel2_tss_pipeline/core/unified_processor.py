@@ -223,19 +223,9 @@ class UnifiedS2TSSProcessor:
                             success_count += 1
                     elif result is not None:
                         success_count += 1
-                logger.info(f"Processing completed: {success_count} products generated")
+                processing_time = time.time() - processing_start
+                logger.info(f"Scene complete: {success_count} products ({processing_time/60:.1f} min)")
                 self.processed_count += 1
-
-                # Log individual results
-                for result_type, result in results.items():
-                    if isinstance(result, ProcessingResult) and hasattr(result, 'success') and result.success and result.stats:
-                        stats = result.stats
-                        if 'coverage_percent' in stats:
-                            logger.info(f"  {result_type}: {stats.get('coverage_percent', 0):.1f}% coverage, "
-                                      f"mean={stats.get('mean', 0):.2f}")
-                        elif 'file_size_mb' in stats:
-                            logger.info(f"  {result_type}: {stats.get('file_size_mb', 0):.1f}MB, "
-                                      f"status={stats.get('status', 'completed')}")
 
             # Aggressive Memory cleanup between scenes
             try:
@@ -249,7 +239,7 @@ class UnifiedS2TSSProcessor:
 
                 # Enhanced memory monitoring
                 if MemoryManager.monitor_memory():
-                    logger.info("Running aggressive memory cleanup...")
+                    logger.debug("Running aggressive memory cleanup...")
                     MemoryManager.cleanup_variables()
 
                     # Multiple full GC passes to ensure cleanup
@@ -258,18 +248,19 @@ class UnifiedS2TSSProcessor:
 
                     # Check memory again after cleanup
                     current_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
-                    logger.info(f"Memory usage after cleanup: {current_memory:.1f}MB")
+                    logger.debug(f"Memory usage after cleanup: {current_memory:.1f}MB")
 
             except Exception as cleanup_error:
                 logger.debug(f"Memory cleanup warning: {cleanup_error}")
 
-            # Progress estimation
-            if self.processed_count > 0:
+            # Progress estimation and scene separator
+            if self.processed_count > 0 and current < total:
                 elapsed = time.time() - self.start_time
                 avg_time = elapsed / current
                 remaining = total - current
                 eta_minutes = (avg_time * remaining) / 60
-                logger.info(f"Progress: {current}/{total} ({(current/total)*100:.1f}%), ETA: {eta_minutes:.1f} minutes")
+                logger.info(f"Progress: {current}/{total} - ETA: {eta_minutes:.0f} min remaining")
+            logger.info("-" * 60)
 
         except Exception as e:
             processing_time = time.time() - processing_start

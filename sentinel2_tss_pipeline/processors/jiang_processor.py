@@ -175,7 +175,7 @@ class JiangTSSProcessor:
             elif filename.startswith('rrs_'):
                 band_types.add('rrs')
 
-        logger.info(f"Detected band types: {list(band_types)}")
+        logger.debug(f"Detected band types: {list(band_types)}")
 
         # Apply conversions
         for wavelength, data in bands_data.items():
@@ -197,16 +197,16 @@ class JiangTSSProcessor:
                 converted_data[wavelength] = data.copy()
                 conversion_log.append(f"{wavelength}nm: unknown (no conversion)")
 
-        # Log all conversions applied
+        # Log conversion summary (not individual bands)
         if len(band_types) > 1:
-            logger.info("Mixed band types - individual conversions:")
+            logger.debug("Mixed band types - individual conversions applied")
         elif 'rrs' in band_types:
-            logger.info("All rrs bands - no conversion needed:")
+            logger.debug("All rrs bands - no conversion needed")
         elif 'rhow' in band_types:
-            logger.info("All rhow bands - converting to Rrs:")
+            logger.debug("All rhow bands - converted to Rrs")
 
         for log_entry in conversion_log:
-            logger.info(f"  {log_entry}")
+            logger.debug(f"  {log_entry}")
 
         # Validate converted data ranges
         self._validate_rrs_ranges(converted_data)
@@ -663,27 +663,21 @@ class JiangTSSProcessor:
         total_pixels = shape[0] * shape[1]
         coverage_percent = (valid_pixels / total_pixels) * 100
 
-        logger.info(f"Jiang processing completed:")
-        logger.info(f"  Valid pixels: {valid_pixels}/{total_pixels} ({coverage_percent:.1f}%)")
-
-        # Log water type distribution
+        # Log water type distribution summary
+        water_type_summary = []
         if valid_pixels > 0:
             ref_bands_valid = reference_band[valid_mask]
             ref_bands_valid = ref_bands_valid[~np.isnan(ref_bands_valid)]
 
             if len(ref_bands_valid) > 0:
-                logger.info("Water type distribution:")
+                type_names = {560: "I", 665: "II", 740: "III", 865: "IV"}
                 for band in [560, 665, 740, 865]:
                     count = np.sum(ref_bands_valid == band)
                     if count > 0:
                         percentage = (count / len(ref_bands_valid)) * 100
-                        water_type = {
-                            560: "Type I (Clear water)",
-                            665: "Type II (Moderately turbid)",
-                            740: "Type III (Highly turbid)",
-                            865: "Type IV (Extremely turbid)"
-                        }[band]
-                        logger.info(f"  {band}nm ({water_type}): {count} pixels ({percentage:.1f}%)")
+                        water_type_summary.append(f"Type {type_names[band]}:{percentage:.0f}%")
+
+        logger.info(f"Jiang TSS: {coverage_percent:.1f}% coverage, {' '.join(water_type_summary)}")
 
         return {
             'absorption': absorption,
@@ -996,9 +990,7 @@ class JiangTSSProcessor:
 
             all_products = {**jiang_products, **advanced_products, **rgb_products, **spectral_products}
 
-            logger.info(f"Saving {len(all_products)} products:")
-            logger.info(f"  Core Jiang products: {len(jiang_products)}")
-            logger.info(f"  Advanced products: {len(advanced_products)}")
+            logger.debug(f"Saving {len(all_products)} products: {len(jiang_products)} core + {len(advanced_products)} advanced")
 
             # Classification products that need uint8
             classification_product_keys = [

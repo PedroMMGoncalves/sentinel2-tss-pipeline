@@ -77,7 +77,7 @@ class WaterQualityProcessor:
             Dictionary with clarity indices
         """
         try:
-            logger.info("Calculating water clarity indices")
+            logger.debug("Calculating water clarity indices")
 
             # Convert solar zenith to cosine
             mu0 = np.cos(np.radians(solar_zenith))
@@ -113,9 +113,7 @@ class WaterQualityProcessor:
             # Calculate statistics
             valid_pixels = np.sum(~np.isnan(kd))
             if valid_pixels > 0:
-                logger.info(f"Water clarity calculated for {valid_pixels} pixels")
-                logger.info(f"Mean Secchi depth: {np.nanmean(secchi_depth):.2f} m")
-                logger.info(f"Mean clarity index: {np.nanmean(clarity_index):.3f}")
+                logger.debug(f"Water clarity: {valid_pixels} pixels, Secchi={np.nanmean(secchi_depth):.1f}m")
 
             return results
 
@@ -135,7 +133,7 @@ class WaterQualityProcessor:
         - Gower, J. et al. (1999). Detection of intense plankton blooms using 709 nm band.
         """
         try:
-            logger.info("Detecting harmful algal blooms using Sentinel-2 spectral analysis")
+            logger.debug("Detecting harmful algal blooms")
 
             results = {}
 
@@ -157,7 +155,7 @@ class WaterQualityProcessor:
 
             # Method 1: Normalized Difference Chlorophyll Index (NDCI)
             if 705 in rrs_bands and 665 in rrs_bands:
-                logger.info("Calculating NDCI (Normalized Difference Chlorophyll Index)")
+                logger.debug("Calculating NDCI")
 
                 band_705 = rrs_bands[705]
                 band_665 = rrs_bands[665]
@@ -185,12 +183,11 @@ class WaterQualityProcessor:
                     hab_probability += ndci_bloom * 0.3
                     algorithms_applied.append("NDCI")
 
-                    valid_count = np.sum(valid_mask)
-                    logger.info(f"NDCI calculated for {valid_count} pixels")
+                    logger.debug(f"NDCI calculated for {np.sum(valid_mask)} pixels")
 
             # Method 2: Fluorescence Line Height (FLH) approximation
             if all(band in rrs_bands for band in [665, 705, 740]):
-                logger.info("Calculating Fluorescence Line Height (FLH)")
+                logger.debug("Calculating FLH")
 
                 band_665 = rrs_bands[665]
                 band_705 = rrs_bands[705]
@@ -217,12 +214,11 @@ class WaterQualityProcessor:
                     hab_probability += flh_bloom * 0.3
                     algorithms_applied.append("FLH")
 
-                    valid_count = np.sum(valid_mask)
-                    logger.info(f"FLH calculated for {valid_count} pixels")
+                    logger.debug(f"FLH calculated for {np.sum(valid_mask)} pixels")
 
             # Method 3: Maximum Chlorophyll Index (MCI) approximation
             if all(band in rrs_bands for band in [665, 705, 740, 865]):
-                logger.info("Calculating Maximum Chlorophyll Index (MCI)")
+                logger.debug("Calculating MCI")
 
                 band_665 = rrs_bands[665]
                 band_705 = rrs_bands[705]
@@ -253,8 +249,7 @@ class WaterQualityProcessor:
                     hab_probability += mci_bloom * 0.3
                     algorithms_applied.append("MCI")
 
-                    valid_count = np.sum(valid_mask)
-                    logger.info(f"MCI calculated for {valid_count} pixels")
+                    logger.debug(f"MCI calculated for {np.sum(valid_mask)} pixels")
 
             # Calculate combined HAB probability and risk levels
             if algorithms_applied:
@@ -290,18 +285,13 @@ class WaterQualityProcessor:
                 results['high_biomass_alert'] = high_biomass
                 results['extreme_biomass_alert'] = extreme_biomass
 
-                # Calculate statistics
+                # Calculate statistics - single summary line
                 total_pixels = np.sum(~np.isnan(hab_probability))
                 if total_pixels > 0:
                     high_risk_pixels = np.sum(hab_risk == 3)
                     medium_risk_pixels = np.sum(hab_risk == 2)
                     low_risk_pixels = np.sum(hab_risk == 1)
-
-                    logger.info(f"HAB detection completed using algorithms: {', '.join(algorithms_applied)}")
-                    logger.info(f"Processed {total_pixels} pixels")
-                    logger.info(f"High risk: {high_risk_pixels} pixels ({100*high_risk_pixels/total_pixels:.1f}%)")
-                    logger.info(f"Medium risk: {medium_risk_pixels} pixels ({100*medium_risk_pixels/total_pixels:.1f}%)")
-                    logger.info(f"Low risk: {low_risk_pixels} pixels ({100*low_risk_pixels/total_pixels:.1f}%)")
+                    logger.debug(f"HAB: {', '.join(algorithms_applied)} - High:{high_risk_pixels} Med:{medium_risk_pixels} Low:{low_risk_pixels}")
             else:
                 logger.warning("No suitable spectral bands found for HAB detection")
                 # Return empty arrays to avoid missing data issues

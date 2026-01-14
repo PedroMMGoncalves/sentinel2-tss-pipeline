@@ -41,14 +41,12 @@ class TSMChlorophyllCalculator:
         self.chl_fac = chl_fac
         self.chl_exp = chl_exp
 
-        logger.info(f"SNAP TSM/CHL Calculator initialized:")
-        logger.info(f"  TSM formula: TSM = {tsm_fac} * (bpart + bwit)^{tsm_exp}")
-        logger.info(f"  CHL formula: CHL = apig^{chl_exp} * {chl_fac}")
+        logger.debug(f"SNAP TSM/CHL Calculator: TSM={tsm_fac}*(bpart+bwit)^{tsm_exp}, CHL=apig^{chl_exp}*{chl_fac}")
 
     def calculate_snap_tsm_chl(self, c2rcc_path: str) -> Dict[str, ProcessingResult]:
         """Calculate TSM and CHL from SNAP IOPs using official formulas"""
         try:
-            logger.info("Calculating SNAP TSM/CHL from IOP products...")
+            logger.debug("Calculating SNAP TSM/CHL from IOP products")
 
             # Determine data folder
             if c2rcc_path.endswith('.dim'):
@@ -74,17 +72,17 @@ class TSMChlorophyllCalculator:
                     try:
                         data, metadata = RasterIO.read_raster(iop_path)
                         available_iops[iop_name] = {'data': data, 'metadata': metadata}
-                        logger.info(f"Loaded {iop_name}: {data.shape}, mean={np.nanmean(data):.4f}")
+                        logger.debug(f"Loaded {iop_name}: {data.shape}, mean={np.nanmean(data):.4f}")
                     except Exception as e:
                         logger.error(f"Error loading {iop_name}: {e}")
                 else:
-                    logger.warning(f"Missing or empty: {iop_name}")
+                    logger.debug(f"Missing or empty: {iop_name}")
 
             results = {}
 
             # Calculate CHL from apig using SNAP formula
             if 'apig' in available_iops:
-                logger.info("Calculating CHL concentration from iop_apig...")
+                logger.debug("Calculating CHL from iop_apig")
 
                 apig_data = available_iops['apig']['data']
                 metadata = available_iops['apig']['metadata']
@@ -111,7 +109,7 @@ class TSMChlorophyllCalculator:
                             temp_mask[valid_mask] = valid_chl_mask
                             chl_concentration[temp_mask] = chl_values[valid_chl_mask]
 
-                            logger.info(f"CHL calculation: {np.sum(temp_mask)} valid pixels out of {np.sum(valid_mask)} processed")
+                            logger.debug(f"CHL: {np.sum(temp_mask)} valid pixels")
                         else:
                             logger.warning("No valid CHL values after calculation")
 
@@ -129,7 +127,7 @@ class TSMChlorophyllCalculator:
 
                 if success:
                     stats = RasterIO.calculate_statistics(chl_concentration)
-                    logger.info(f"CHL concentration saved: {stats['coverage_percent']:.1f}% coverage, mean={stats['mean']:.3f} mg/m3")
+                    logger.debug(f"CHL saved: {stats['coverage_percent']:.1f}% coverage, mean={stats['mean']:.3f} mg/m3")
                     results['snap_chl'] = ProcessingResult(True, output_path, stats, None)
                 else:
                     results['snap_chl'] = ProcessingResult(False, output_path, None, "Failed to save CHL")
@@ -139,7 +137,7 @@ class TSMChlorophyllCalculator:
 
             # Calculate TSM from bpart + bwit (btot approximation)
             if 'bpart' in available_iops and 'bwit' in available_iops:
-                logger.info("Calculating TSM concentration from bpart + bwit (btot approximation)...")
+                logger.debug("Calculating TSM from bpart + bwit")
 
                 bpart_data = available_iops['bpart']['data']
                 bwit_data = available_iops['bwit']['data']
@@ -169,7 +167,7 @@ class TSMChlorophyllCalculator:
                             temp_mask[valid_mask] = valid_tsm_mask
                             tsm_concentration[temp_mask] = tsm_values[valid_tsm_mask]
 
-                            logger.info(f"TSM calculation: {np.sum(temp_mask)} valid pixels out of {np.sum(valid_mask)} processed")
+                            logger.debug(f"TSM: {np.sum(temp_mask)} valid pixels")
                         else:
                             logger.warning("No valid TSM values after calculation")
 
@@ -187,7 +185,7 @@ class TSMChlorophyllCalculator:
 
                 if success:
                     stats = RasterIO.calculate_statistics(tsm_concentration)
-                    logger.info(f"TSM concentration saved: {stats['coverage_percent']:.1f}% coverage, mean={stats['mean']:.3f} g/m3")
+                    logger.debug(f"TSM saved: {stats['coverage_percent']:.1f}% coverage, mean={stats['mean']:.3f} g/m3")
                     results['snap_tsm'] = ProcessingResult(True, output_path, stats, None)
                 else:
                     results['snap_tsm'] = ProcessingResult(False, output_path, None, "Failed to save TSM")
