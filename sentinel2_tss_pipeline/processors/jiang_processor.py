@@ -423,7 +423,9 @@ class JiangTSSProcessor:
 
                 try:
                     results_folder = os.path.dirname(output_folder)
-                    geometric_folder = os.path.join(results_folder, "Geometric_Products")
+                    geometric_folder = OutputStructure.get_intermediate_folder(
+                        results_folder, OutputStructure.GEOMETRIC_FOLDER
+                    )
 
                     if intermediate_paths is None:
                         intermediate_paths = {}

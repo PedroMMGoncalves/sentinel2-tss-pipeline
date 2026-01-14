@@ -530,10 +530,12 @@ class VisualizationProcessor:
                 else:
                     self.logger.warning(f"Geometric path in intermediate_paths not found: {geometric_path}")
 
-            # PRIORITY 2: Look in standard output_folder location
+            # PRIORITY 2: Look in Intermediate/Geometric folder
             if input_source is None:
-                self.logger.info("Trying standard Geometric_Products folder location")
-                geometric_folder = os.path.join(output_folder, "Geometric_Products")
+                self.logger.info("Trying Intermediate/Geometric folder location")
+                geometric_folder = OutputStructure.get_intermediate_folder(
+                    output_folder, OutputStructure.GEOMETRIC_FOLDER
+                )
 
                 if os.path.exists(geometric_folder):
                     clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
@@ -1671,7 +1673,9 @@ class VisualizationProcessor:
     def _cleanup_intermediate_products(self, results_folder: str, product_name: str) -> bool:
         """Clean up intermediate resampled products after processing."""
         try:
-            geometric_folder = os.path.join(results_folder, "Geometric_Products")
+            geometric_folder = OutputStructure.get_intermediate_folder(
+                results_folder, OutputStructure.GEOMETRIC_FOLDER
+            )
 
             if not os.path.exists(geometric_folder):
                 logger.info("No geometric folder to delete")
