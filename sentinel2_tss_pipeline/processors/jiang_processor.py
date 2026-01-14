@@ -333,8 +333,8 @@ class JiangTSSProcessor:
             # Create intermediate tracking
             intermediate_paths = {}
 
-            # Step 1: Load spectral bands directly
-            logger.info("Step 1: Loading spectral bands from C2RCC output")
+            # Load spectral bands directly
+            logger.debug("Loading spectral bands from C2RCC output")
             data_folder = c2rcc_path.replace('.dim', '.data')
 
             band_files = {
@@ -358,7 +358,7 @@ class JiangTSSProcessor:
                             data, _ = RasterIO.read_raster(file_path)
                             bands_data[wavelength] = data
                             band_paths[wavelength] = file_path
-                            logger.info(f"Loaded {wavelength}nm: {filename}")
+                            logger.debug(f"Loaded {wavelength}nm: {filename}")
                             break
                         except Exception as e:
                             logger.error(f"Failed to load {wavelength}nm from {filename}: {e}")
@@ -368,22 +368,22 @@ class JiangTSSProcessor:
                 logger.error(error_msg)
                 return {'error': ProcessingResult(False, "", None, error_msg)}
 
-            # Step 3: Apply unit conversion
-            logger.info("Step 3: Converting rhow to Rrs")
+            # Apply unit conversion
+            logger.debug("Converting rhow to Rrs")
             converted_bands_data = self._convert_rhow_to_rrs(bands_data, band_paths)
 
-            # Step 4: Apply Jiang methodology
-            logger.info("Step 4: Applying Jiang TSS methodology")
+            # Apply Jiang methodology
+            logger.debug("Applying Jiang TSS methodology")
             jiang_results = self._estimate_tss_all_pixels(converted_bands_data)
 
-            # Step 5: Process advanced algorithms
+            # Process advanced algorithms
             advanced_results = {}
             if (hasattr(self.config, 'enable_advanced_algorithms') and
                 self.config.enable_advanced_algorithms and
                 hasattr(self, 'advanced_processor') and
                 self.advanced_processor is not None):
 
-                logger.info("Step 5: Processing advanced algorithms")
+                logger.debug("Processing advanced algorithms")
                 advanced_results = self._process_water_quality_products(
                     c2rcc_path, jiang_results, converted_bands_data, product_name
                 )
@@ -391,7 +391,7 @@ class JiangTSSProcessor:
                 if advanced_results is None:
                     advanced_results = {}
 
-                logger.info(f"Advanced algorithms completed: {len(advanced_results)} additional products")
+                logger.debug(f"Advanced algorithms completed: {len(advanced_results)} additional products")
 
             # Combine all results
             all_algorithm_results = jiang_results.copy()
@@ -400,8 +400,8 @@ class JiangTSSProcessor:
                 if isinstance(result, ProcessingResult) and result.stats and 'numpy_data' in result.stats:
                     all_algorithm_results[key] = result.stats['numpy_data']
 
-            # Step 6: Save complete results
-            logger.info("Step 6: Saving complete results including advanced algorithms")
+            # Save complete results
+            logger.debug("Saving complete results including advanced algorithms")
             saved_results = self._save_tss_products(all_algorithm_results, output_folder,
                                                    product_name, reference_metadata)
 
@@ -413,13 +413,13 @@ class JiangTSSProcessor:
                     advanced_result.output_path = saved_results[key].output_path
                     final_results[key] = advanced_result
 
-            # Step 7: Marine visualization processing
+            # Marine visualization processing
             if (hasattr(self.config, 'enable_marine_visualization') and
                 self.config.enable_marine_visualization and
                 hasattr(self, 'marine_viz_processor') and
                 self.marine_viz_processor is not None):
 
-                logger.info("Step 7: Processing marine visualizations")
+                logger.debug("Processing marine visualizations")
 
                 try:
                     # Use output_folder directly (not its parent) to match where s2_processor creates geometric products

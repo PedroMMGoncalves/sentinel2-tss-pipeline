@@ -130,10 +130,7 @@ class UnifiedS2TSSProcessor:
         try:
             product_name = self._extract_product_name(product_path)
 
-            logger.info(f"\n{'-' * 80}")
             logger.info(f"Processing {current}/{total}: {product_name}")
-            logger.info(f"Mode: {self.config.processing_mode.value}")
-            logger.info(f"{'-' * 80}")
 
             # Check if outputs already exist
             if self.config.skip_existing and self._check_outputs_exist(product_name):
@@ -146,8 +143,7 @@ class UnifiedS2TSSProcessor:
 
             if self.config.processing_mode == ProcessingMode.COMPLETE_PIPELINE:
                 # Complete pipeline with proper coordination
-                # Step 1: S2 Processing (L1C -> C2RCC)
-                logger.info("Step 1: S2 Processing (L1C -> C2RCC)")
+                logger.debug("S2 Processing (L1C -> C2RCC)")
                 s2_results = self.s2_processor.process_single_product(product_path, self.config.output_folder)
                 results.update(s2_results)
 
@@ -158,12 +154,12 @@ class UnifiedS2TSSProcessor:
                     self.failed_count += 1
                     return
 
-                # Step 2: TSS Processing (if enabled and processor exists)
+                # TSS Processing (if enabled and processor exists)
                 if (self.config.jiang_config.enable_jiang_tss and
                     hasattr(self, 'jiang_processor') and
                     self.jiang_processor is not None):
 
-                    logger.info("Step 2: TSS Processing (Jiang)")
+                    logger.debug("TSS Processing (Jiang)")
 
                     # Get C2RCC output path from S2 results
                     if 's2_processing' in s2_results:

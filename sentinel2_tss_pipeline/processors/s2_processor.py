@@ -681,11 +681,11 @@ class S2Processor:
             file_size_mb = file_size / (1024 * 1024)
             data_folder = c2rcc_path.replace('.dim', '.data')
 
-            logger.info("=" * 60)
-            logger.info("C2RCC OUTPUT VERIFICATION REPORT")
-            logger.info("=" * 60)
-            logger.info(f"C2RCC file: {os.path.basename(c2rcc_path)} ({file_size_mb:.1f} MB)")
-            logger.info(f"Data folder: {os.path.basename(data_folder)}")
+            logger.debug("=" * 60)
+            logger.debug("C2RCC OUTPUT VERIFICATION REPORT")
+            logger.debug("=" * 60)
+            logger.debug(f"C2RCC file: {os.path.basename(c2rcc_path)} ({file_size_mb:.1f} MB)")
+            logger.debug(f"Data folder: {os.path.basename(data_folder)}")
 
             # Check critical products
             critical_products = {
@@ -695,7 +695,7 @@ class S2Processor:
                 'unc_chl.img': 'CHL uncertainties'
             }
 
-            logger.info("\nSNAP TSM/CHL PRODUCTS (Critical for Analysis):")
+            logger.debug("\nSNAP TSM/CHL PRODUCTS (Critical for Analysis):")
 
             has_tsm = False
             has_chl = False
@@ -706,17 +706,17 @@ class S2Processor:
                 exists, size_kb, is_valid = self._verify_file_integrity(file_path, min_size_kb=10)
 
                 if exists and is_valid:
-                    logger.info(f"   + {description}: {filename} ({size_kb:.1f} KB)")
+                    logger.debug(f"   + {description}: {filename} ({size_kb:.1f} KB)")
                     if 'tsm' in filename and 'unc' not in filename:
                         has_tsm = True
                     elif 'chl' in filename and 'unc' not in filename:
                         has_chl = True
                 elif exists and not is_valid:
-                    logger.warning(f"   ! {description}: {filename} ({size_kb:.1f} KB) - File too small!")
+                    logger.debug(f"   ! {description}: {filename} ({size_kb:.1f} KB) - File too small!")
                     if 'unc' in filename:
                         has_uncertainties = False
                 else:
-                    logger.warning(f"   - {description}: {filename} (missing/empty)")
+                    logger.debug(f"   - {description}: {filename} (missing/empty)")
                     if 'unc' in filename:
                         has_uncertainties = False
                     elif 'tsm' in filename:
@@ -724,21 +724,14 @@ class S2Processor:
                     elif 'chl' in filename:
                         has_chl = False
 
-            # Success message or issues
+            # Success message or issues - keep at INFO but concise
             if has_tsm and has_chl:
-                if has_uncertainties:
-                    logger.info("SUCCESS: Both TSM and CHL products available with uncertainties!")
-                else:
-                    logger.info("SUCCESS: Both TSM and CHL products available!")
-                    logger.info("   ! Uncertainties: Not available (calculated products)")
+                logger.info(f"TSM/CHL: Available" + (" with uncertainties" if has_uncertainties else ""))
             else:
-                logger.info("TSM/CHL products will be calculated from IOP products")
-                logger.info("   Using SNAP formulas:")
-                logger.info("   - TSM = TSMfac * (bpart + bwit)^TSMexp")
-                logger.info("   - CHL = apig^CHLexp * CHLfac")
+                logger.info("TSM/CHL: Will be calculated from IOP products")
 
             # Check IOP products
-            logger.info("\nSNAP IOP PRODUCTS:")
+            logger.debug("\nSNAP IOP PRODUCTS:")
             iop_products = ['iop_apig.img', 'iop_adet.img', 'iop_agelb.img',
                         'iop_bpart.img', 'iop_bwit.img', 'iop_btot.img']
 
@@ -748,67 +741,44 @@ class S2Processor:
                 exists, size_kb, is_valid = self._verify_file_integrity(file_path, min_size_kb=100)
 
                 if exists and is_valid:
-                    logger.info(f"   + {iop_file} ({size_kb:.1f} KB)")
+                    logger.debug(f"   + {iop_file} ({size_kb:.1f} KB)")
                     iop_count += 1
                 else:
                     if iop_file == 'iop_btot.img':
                         # Try to calculate missing btot
                         if self._calculate_missing_btot(c2rcc_path):
-                            logger.info(f"   + {iop_file} (calculated from bpart + bwit)")
+                            logger.debug(f"   + {iop_file} (calculated from bpart + bwit)")
                             iop_count += 1
                         else:
-                            logger.info(f"   - {iop_file} (missing/empty)")
+                            logger.debug(f"   - {iop_file} (missing/empty)")
                     else:
-                        logger.info(f"   - {iop_file} (missing/empty)")
+                        logger.debug(f"   - {iop_file} (missing/empty)")
+
+            logger.info(f"IOP products: {iop_count}/6 available")
 
             # Check rhow bands for Jiang TSS
-            logger.info("\nJIANG TSS READINESS:")
             rhow_bands = self._check_rhow_bands_availability(c2rcc_path)
             rhow_count = len(rhow_bands)
 
-            if rhow_count == 8:
-                logger.info(f"EXCELLENT: All {rhow_count}/8 rhow bands available")
+            if rhow_count >= 6:
                 ready_for_jiang = True
-            elif rhow_count >= 6:
-                logger.info(f"GOOD: {rhow_count}/8 rhow bands available (sufficient for processing)")
-                ready_for_jiang = True
-            elif rhow_count > 0:
-                logger.warning(f"PARTIAL: Only {rhow_count}/8 rhow bands available")
-                missing_bands = []
-                for wl in [443, 490, 560, 665, 705, 740, 783, 865]:
-                    if wl not in rhow_bands:
-                        band_names = ['rhow_B1.img', 'rhow_B2.img', 'rhow_B3.img', 'rhow_B4.img',
-                                    'rhow_B5.img', 'rhow_B6.img', 'rhow_B7.img', 'rhow_B8A.img']
-                        wavelengths = [443, 490, 560, 665, 705, 740, 783, 865]
-                        if wl in wavelengths:
-                            missing_bands.append(band_names[wavelengths.index(wl)])
-                logger.warning(f"   Missing bands: {missing_bands}")
-                ready_for_jiang = False
             else:
-                logger.warning("PARTIAL: Only 0/8 rhow bands available")
-                logger.warning("   Missing bands: ['rhow_B1.img', 'rhow_B2.img', 'rhow_B3.img', 'rhow_B4.img', 'rhow_B5.img', 'rhow_B6.img', 'rhow_B7.img', 'rhow_B8A.img']")
                 ready_for_jiang = False
+                if rhow_count > 0:
+                    logger.warning(f"Only {rhow_count}/8 rhow bands available - Jiang TSS may fail")
+                else:
+                    logger.warning("No rhow bands found - Jiang TSS will not run")
 
-            # Overall assessment
-            logger.info("\nOVERALL ASSESSMENT:")
-
-            if has_tsm and has_chl and has_uncertainties and ready_for_jiang and iop_count >= 5:
-                logger.info("EXCELLENT: Complete processing capabilities")
-                logger.info("   - SNAP TSM/CHL: Available")
-                logger.info("   - Jiang TSS: Ready")
-                logger.info("   - Advanced algorithms: Can proceed")
-                overall_status = "excellent"
-            elif has_tsm and has_chl and ready_for_jiang:
-                logger.info("GOOD: Jiang TSS ready, SNAP products will be calculated")
+            # Overall assessment - single concise line
+            if has_tsm and has_chl and ready_for_jiang:
                 overall_status = "good"
+                logger.info(f"Jiang TSS: Ready ({rhow_count}/8 bands)")
             elif ready_for_jiang:
-                logger.info("ADEQUATE: Jiang TSS ready, some products missing")
                 overall_status = "adequate"
+                logger.info(f"Jiang TSS: Ready ({rhow_count}/8 bands), TSM/CHL will be calculated")
             else:
-                logger.warning("LIMITED: Missing critical components")
                 overall_status = "limited"
-
-            logger.info("=" * 60)
+                logger.warning("Jiang TSS: Not ready - missing bands")
 
             # Return comprehensive stats
             stats = {
@@ -956,7 +926,7 @@ class S2Processor:
         }
 
         rhow_bands = {}
-        logger.info(f"Checking for water reflectance bands in: {data_folder}")
+        logger.debug(f"Checking for water reflectance bands in: {data_folder}")
 
         found_band_types = {}  # Track which type of bands we're finding
 
@@ -977,7 +947,7 @@ class S2Processor:
                         band_type = 'toa'
 
                     found_band_types[wavelength] = band_type
-                    logger.info(f"Found band {wavelength}nm: {name} ({band_type})")
+                    logger.debug(f"Found band {wavelength}nm: {name} ({band_type})")
                     break
             else:
                 logger.warning(f"Missing band {wavelength}nm")
