@@ -596,6 +596,9 @@ class S2Processor:
 
             cmd = [
                 gpt_cmd,
+                # Memory optimization: use file-based tile cache to avoid DataBuffer errors
+                '-Dsnap.gpf.useFileTileCache=true',
+                '-Dsnap.gpf.disableTileCache=false',
                 self.main_graph_file,
                 f'-PsourceProduct={input_path}',
                 f'-PtargetProduct={output_path}',
