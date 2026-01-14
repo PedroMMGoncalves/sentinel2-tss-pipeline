@@ -232,8 +232,8 @@ class UnifiedS2TSSProcessor:
 
                 # Log individual results
                 for result_type, result in results.items():
-                    if isinstance(result, ProcessingResult) and hasattr(result, 'success') and result.success and result.statistics:
-                        stats = result.statistics
+                    if isinstance(result, ProcessingResult) and hasattr(result, 'success') and result.success and result.stats:
+                        stats = result.stats
                         if 'coverage_percent' in stats:
                             logger.info(f"  {result_type}: {stats.get('coverage_percent', 0):.1f}% coverage, "
                                       f"mean={stats.get('mean', 0):.2f}")
