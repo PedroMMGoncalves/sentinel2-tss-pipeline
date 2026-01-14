@@ -39,3 +39,6 @@ wheels/
 tmpclaude-*
 nul
 .claude/
+
+# Processing results and logs (local output)
+S2_TSS_Results/
