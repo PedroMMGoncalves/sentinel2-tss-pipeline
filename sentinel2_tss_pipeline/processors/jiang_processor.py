@@ -422,9 +422,9 @@ class JiangTSSProcessor:
                 logger.info("Step 7: Processing marine visualizations")
 
                 try:
-                    results_folder = os.path.dirname(output_folder)
+                    # Use output_folder directly (not its parent) to match where s2_processor creates geometric products
                     geometric_folder = OutputStructure.get_intermediate_folder(
-                        results_folder, OutputStructure.GEOMETRIC_FOLDER
+                        output_folder, OutputStructure.GEOMETRIC_FOLDER
                     )
 
                     if intermediate_paths is None:
@@ -461,7 +461,7 @@ class JiangTSSProcessor:
                         logger.info("Starting intermediate products cleanup...")
                         try:
                             cleanup_success = self.marine_viz_processor._cleanup_intermediate_products(
-                                results_folder, product_name)
+                                output_folder, product_name)
                             if cleanup_success:
                                 logger.info("Geometric products cleanup completed successfully")
                             else:
