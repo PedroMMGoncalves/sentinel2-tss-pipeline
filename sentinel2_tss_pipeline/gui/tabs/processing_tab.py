@@ -103,7 +103,7 @@ def create_processing_tab(gui, notebook):
     ).pack(anchor=tk.W, pady=2)
 
     ttk.Checkbutton(
-        left_options, text="Test mode (process only 1 file)",
+        left_options, text="Test mode (process only 5 files)",
         variable=gui.test_mode_var
     ).pack(anchor=tk.W, pady=2)
 

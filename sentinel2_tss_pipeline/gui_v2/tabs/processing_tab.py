@@ -166,11 +166,11 @@ def create_processing_tab(gui, notebook):
 
     test_cb = ttk.Checkbutton(
         left_col,
-        text="Test mode (process 1 file only)",
+        text="Test mode (process 5 files only)",
         variable=gui.test_mode_var
     )
     test_cb.pack(anchor=tk.W, pady=2)
-    create_tooltip(test_cb, "Process only the first product for testing")
+    create_tooltip(test_cb, "Process only the first 5 products for testing")
 
     # Right column - Performance
     right_col = ttk.Frame(opts_frame)

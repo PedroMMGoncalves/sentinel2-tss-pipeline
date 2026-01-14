@@ -119,7 +119,7 @@ def _confirm_processing(gui, config, products):
     """
     process_count = len(products)
     if config.test_mode:
-        process_count = min(1, process_count)
+        process_count = min(5, process_count)
 
     mode_name = config.processing_mode.value.replace('_', ' ').title()
 
@@ -156,7 +156,7 @@ def _run_processing_thread(gui, config, products):
 
         # Limit products for test mode
         if config.test_mode:
-            products = products[:1]
+            products = products[:5]
             logger.info(f"TEST MODE: Processing only {len(products)} products")
 
         # Process products
