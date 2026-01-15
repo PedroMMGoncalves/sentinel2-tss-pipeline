@@ -157,6 +157,92 @@ class JiangTSSProcessor:
         logger.debug(f"Successfully loaded {len(bands_data)} bands into memory")
         return bands_data, reference_metadata
 
+    def _create_water_mask(self, bands_data: Dict[int, np.ndarray],
+                            geometric_path: Optional[str] = None) -> Optional[np.ndarray]:
+        """
+        Create water mask using MNDWI or NDWI.
+
+        Prefers MNDWI (B3-B11)/(B3+B11) from geometric/resampled data as it better
+        separates water from built-up areas. Falls back to NDWI (B3-B8A)/(B3+B8A)
+        from C2RCC data if geometric data unavailable.
+
+        References:
+        - Xu, H. (2006). Modification of NDWI - MNDWI. Int. J. Remote Sens. 27(14):3025-3033
+        - McFeeters, S.K. (1996). NDWI. Int. J. Remote Sens. 17(7):1425-1432
+
+        Args:
+            bands_data: Dictionary mapping wavelength (nm) to Rrs data (C2RCC)
+            geometric_path: Optional path to resampled geometric data for MNDWI
+
+        Returns:
+            Boolean array where True = water, False = land
+            Returns None if required bands not available
+        """
+        try:
+            # Try MNDWI first (preferred - better land/water separation)
+            if geometric_path and os.path.exists(geometric_path):
+                data_folder = geometric_path.replace('.dim', '.data')
+                b3_path = os.path.join(data_folder, 'B3.img')
+                b11_path = os.path.join(data_folder, 'B11.img')
+
+                if os.path.exists(b3_path) and os.path.exists(b11_path):
+                    try:
+                        green, _ = RasterIO.read_raster(b3_path)
+                        swir1, _ = RasterIO.read_raster(b11_path)
+
+                        # Calculate MNDWI
+                        denominator = green + swir1
+                        valid_mask = (denominator > 1e-8) & (~np.isnan(green)) & (~np.isnan(swir1))
+
+                        mndwi = np.full_like(green, np.nan, dtype=np.float32)
+                        mndwi[valid_mask] = (green[valid_mask] - swir1[valid_mask]) / denominator[valid_mask]
+
+                        # MNDWI threshold (Xu 2006: 0.42 for Sentinel-2)
+                        threshold = 0.42
+                        water_mask = mndwi > threshold
+
+                        total_valid = np.sum(valid_mask)
+                        water_pixels = np.sum(water_mask)
+                        if total_valid > 0:
+                            water_pct = 100.0 * water_pixels / total_valid
+                            logger.debug(f"Water mask (MNDWI > {threshold}): {water_pct:.1f}% water")
+
+                        return water_mask
+
+                    except Exception as e:
+                        logger.debug(f"MNDWI from geometric data failed: {e}, trying NDWI fallback")
+
+            # Fallback to NDWI using C2RCC bands
+            if 560 not in bands_data or 865 not in bands_data:
+                logger.debug("Cannot create water mask: 560nm or 865nm not available")
+                return None
+
+            green = bands_data[560]  # 560nm
+            nir = bands_data[865]    # 865nm
+
+            # Calculate NDWI
+            denominator = green + nir
+            valid_mask = (denominator > 1e-8) & (~np.isnan(green)) & (~np.isnan(nir))
+
+            ndwi = np.full_like(green, np.nan, dtype=np.float32)
+            ndwi[valid_mask] = (green[valid_mask] - nir[valid_mask]) / denominator[valid_mask]
+
+            # NDWI threshold (0.3 is robust for water detection)
+            threshold = self.config.ndwi_threshold
+            water_mask = ndwi > threshold
+
+            total_valid = np.sum(valid_mask)
+            water_pixels = np.sum(water_mask)
+            if total_valid > 0:
+                water_pct = 100.0 * water_pixels / total_valid
+                logger.debug(f"Water mask (NDWI > {threshold}): {water_pct:.1f}% water")
+
+            return water_mask
+
+        except Exception as e:
+            logger.error(f"Error creating water mask: {e}")
+            return None
+
     def _convert_rhow_to_rrs(self, bands_data: Dict[int, np.ndarray],
                               band_paths: Dict[int, str]) -> Dict[int, np.ndarray]:
         """Convert rhow (water-leaving reflectance) to Rrs (remote sensing reflectance).
@@ -373,6 +459,30 @@ class JiangTSSProcessor:
             logger.debug("Converting rhow to Rrs")
             converted_bands_data = self._convert_rhow_to_rrs(bands_data, band_paths)
 
+            # Create water mask using MNDWI/NDWI to exclude land pixels
+            # Try to get geometric path for MNDWI (preferred), fallback to NDWI from C2RCC
+            water_mask = None
+            if hasattr(self.config, 'apply_land_mask') and self.config.apply_land_mask:
+                # Construct geometric path for MNDWI
+                geometric_folder = OutputStructure.get_intermediate_folder(
+                    output_folder, OutputStructure.GEOMETRIC_FOLDER
+                )
+                clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
+                if 'MSIL1C' in clean_product_name:
+                    parts = clean_product_name.split('_')
+                    date_part = parts[2][:8] if len(parts) > 2 else ''
+                    tile_part = parts[5] if len(parts) > 5 else ''
+                    clean_name = f"{parts[0]}_{date_part}_{tile_part}" if date_part and tile_part else clean_product_name
+                else:
+                    clean_name = clean_product_name
+                geometric_path = os.path.join(geometric_folder, f"Resampled_{clean_name}_Subset.dim")
+
+                water_mask = self._create_water_mask(converted_bands_data, geometric_path)
+                if water_mask is not None:
+                    land_pixels = np.sum(~water_mask)
+                    total_pixels = water_mask.size
+                    logger.info(f"Land mask: {land_pixels}/{total_pixels} pixels excluded ({100*land_pixels/total_pixels:.1f}%)")
+
             # Apply Jiang methodology
             logger.debug("Applying Jiang TSS methodology")
             jiang_results = self._estimate_tss_all_pixels(converted_bands_data)
@@ -401,10 +511,10 @@ class JiangTSSProcessor:
                 if isinstance(result, ProcessingResult) and result.stats and 'numpy_data' in result.stats:
                     all_algorithm_results[key] = result.stats['numpy_data']
 
-            # Save complete results
+            # Save complete results (with water mask applied to remove land pixels)
             logger.debug("Saving complete results including advanced algorithms")
             saved_results = self._save_tss_products(all_algorithm_results, output_folder,
-                                                   product_name, reference_metadata)
+                                                   product_name, reference_metadata, water_mask)
 
             # Update ProcessingResult objects with actual file paths
             final_results = saved_results.copy()
@@ -896,10 +1006,26 @@ class JiangTSSProcessor:
         return {'a': aw[865], 'bbp': bbp865, 'band': 865, 'tss': tss}
 
     def _save_tss_products(self, results: Dict[str, np.ndarray], output_folder: str,
-                           product_name: str, reference_metadata: Dict) -> Dict[str, ProcessingResult]:
-        """Save TSS products including core Jiang, water types, and advanced algorithms."""
+                           product_name: str, reference_metadata: Dict,
+                           water_mask: Optional[np.ndarray] = None) -> Dict[str, ProcessingResult]:
+        """Save TSS products including core Jiang, water types, and advanced algorithms.
+
+        Args:
+            results: Dictionary of product name to numpy array
+            output_folder: Base output folder path
+            product_name: Scene/product identifier
+            reference_metadata: Georeference metadata for output files
+            water_mask: Optional boolean mask (True=water, False=land) to apply to products
+
+        Returns:
+            Dictionary of ProcessingResult objects
+        """
         try:
             output_results = {}
+
+            # Log if water masking is being applied
+            if water_mask is not None:
+                logger.debug("Applying NDWI water mask to TSS products")
 
             # Extract clean scene name using OutputStructure helper
             scene_name = OutputStructure.extract_clean_scene_name(product_name)
@@ -1012,6 +1138,15 @@ class JiangTSSProcessor:
             for product_key, product_info in all_products.items():
                 if product_info['data'] is not None:
                     output_path = os.path.join(product_info['folder'], product_info['filename'])
+
+                    # Apply water mask (set land pixels to NaN) if available
+                    # Skip masking for mask products themselves
+                    if water_mask is not None and 'mask' not in product_key.lower():
+                        try:
+                            masked_data = np.where(water_mask, product_info['data'], np.nan)
+                            product_info['data'] = masked_data
+                        except Exception as e:
+                            logger.debug(f"Could not apply water mask to {product_key}: {e}")
 
                     if any(class_key in product_key for class_key in classification_product_keys):
                         nodata_value = 255

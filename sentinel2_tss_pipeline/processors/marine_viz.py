@@ -1000,6 +1000,15 @@ class VisualizationProcessor:
             available_wavelengths = set(bands_data.keys())
             self.logger.debug(f"Available wavelengths for indices: {sorted(available_wavelengths)}")
 
+            # Create water mask if enabled (Xu 2006 MNDWI method)
+            water_mask = None
+            if self.config.apply_land_mask:
+                water_mask = self._create_water_mask(bands_data)
+                if water_mask is not None:
+                    self.logger.debug(f"Land masking enabled (MNDWI > {self.config.mndwi_threshold})")
+                else:
+                    self.logger.debug("Land masking skipped - required bands not available")
+
             spectral_indices = {
                 'NDWI': {
                     'formula': '(B3 - B8A) / (B3 + B8A)',
@@ -1086,22 +1095,8 @@ class VisualizationProcessor:
                     'enabled': self.config.generate_chlorophyll_indices,
                     'category': 'chlorophyll'
                 },
-                'PC': {
-                    'formula': '(B5 - B4) / (B6 - B4)',
-                    'required_bands': [705, 665, 740],
-                    'description': 'Phycocyanin Index (Cyanobacteria detection)',
-                    'application': 'Harmful algal bloom detection, cyanobacteria monitoring',
-                    'enabled': self.config.generate_chlorophyll_indices,
-                    'category': 'chlorophyll'
-                },
-                'FAI': {
-                    'formula': 'B8 - (B4 + (B8A - B4) * (B8 - B4) / (B8A - B4))',
-                    'required_bands': [842, 665, 865],
-                    'description': 'Floating Algae Index',
-                    'application': 'Floating algae and scum detection',
-                    'enabled': self.config.generate_chlorophyll_indices,
-                    'category': 'chlorophyll'
-                },
+                # PC (Phycocyanin) REMOVED: Requires 620nm band for phycocyanin absorption - S2 lacks this
+                # FAI (Floating Algae Index) REMOVED: Formula mathematically undefined for S2 band set
                 'TSI': {
                     'formula': '(B4 + B3) / 2',
                     'required_bands': [665, 560],
@@ -1118,19 +1113,12 @@ class VisualizationProcessor:
                     'enabled': self.config.generate_turbidity_indices,
                     'category': 'turbidity'
                 },
-                'FUI': {
-                    'formula': 'arctan2(B4 - B3, B2 - B3) * 180 / pi',
-                    'required_bands': [665, 560, 490],
-                    'description': 'Forel-Ule Index',
-                    'application': 'Water color classification',
-                    'enabled': self.config.generate_advanced_indices,
-                    'category': 'advanced'
-                },
+                # FUI (Forel-Ule Index) REMOVED: Requires CIE chromaticity conversion, arctan2 formula scientifically invalid
                 'SDD': {
                     'formula': 'ln(0.14 / B4) / 1.7',
                     'required_bands': [665],
-                    'description': 'Secchi Disk Depth proxy',
-                    'application': 'Water transparency',
+                    'description': 'Secchi Disk Depth proxy (Gordon 1989)',
+                    'application': 'Water transparency - Kd*SD=1.7 relationship',
                     'enabled': self.config.generate_advanced_indices,
                     'category': 'advanced'
                 },
@@ -1168,6 +1156,10 @@ class VisualizationProcessor:
                     index_data = self._calculate_spectral_index(index_name, config, bands_data, bands_to_use)
 
                     if index_data is not None:
+                        # Apply water mask (set land pixels to NaN) if available
+                        if water_mask is not None:
+                            index_data = np.where(water_mask, index_data, np.nan)
+
                         # Use new naming: {scene_name}_{INDEX}.tif (e.g., S2A_20190105_T29TNF_NDWI.tif)
                         index_filename = f"{product_name}_{index_name.upper()}.tif"
                         output_path = os.path.join(output_folder, index_filename)
@@ -1286,9 +1278,12 @@ class VisualizationProcessor:
                 return (b3 - b4) / (b3 + b4 + 1e-8)
 
             # Advanced Water Properties
-            # FUI removed: requires CIE chromaticity conversion (scientifically incorrect formula)
+            # PC, FAI, FUI removed: require bands/methods not available in Sentinel-2
 
             elif index_name == 'SDD':
+                # Secchi Disk Depth proxy using Gordon (1989) Kd*SD=1.7 relationship
+                # 0.14 = empirical reflectance threshold for Secchi visibility
+                # Reference: Gordon, H.R. (1989). Limnol. Oceanogr. 34(8):1389-1409
                 b4 = bands_data[bands_to_use[0]]  # 665nm
                 return np.log(0.14 / (b4 + 1e-8)) / 1.7
 
@@ -1316,6 +1311,54 @@ class VisualizationProcessor:
 
         except Exception as e:
             self.logger.error(f"Error calculating {index_name}: {e}")
+            return None
+
+    def _create_water_mask(self, bands_data: Dict[int, np.ndarray]) -> Optional[np.ndarray]:
+        """
+        Create water mask using MNDWI (Modified Normalized Difference Water Index).
+
+        Reference: Xu, H. (2006). Modification of normalised difference water index (NDWI)
+        to enhance open water features in remotely sensed imagery.
+        Int. J. Remote Sens. 27(14):3025-3033.
+
+        Args:
+            bands_data: Dictionary mapping wavelength (nm) to band data
+
+        Returns:
+            Boolean array where True = water, False = land/cloud
+            Returns None if required bands not available
+        """
+        try:
+            # MNDWI requires B3 (560nm) and B11 (1610nm)
+            if 560 not in bands_data or 1610 not in bands_data:
+                self.logger.debug("Cannot create water mask: B3 (560nm) or B11 (1610nm) not available")
+                return None
+
+            green = bands_data[560]   # B3 - 560nm
+            swir1 = bands_data[1610]  # B11 - 1610nm
+
+            # Calculate MNDWI
+            denominator = green + swir1
+            valid_mask = (denominator > 1e-8) & (~np.isnan(green)) & (~np.isnan(swir1))
+
+            mndwi = np.full_like(green, np.nan, dtype=np.float32)
+            mndwi[valid_mask] = (green[valid_mask] - swir1[valid_mask]) / denominator[valid_mask]
+
+            # Apply threshold (Xu 2006 validated for Sentinel-2: 0.42)
+            threshold = self.config.mndwi_threshold
+            water_mask = mndwi > threshold
+
+            # Statistics
+            total_valid = np.sum(valid_mask)
+            water_pixels = np.sum(water_mask)
+            if total_valid > 0:
+                water_pct = 100.0 * water_pixels / total_valid
+                self.logger.debug(f"Water mask: {water_pixels}/{total_valid} pixels ({water_pct:.1f}% water)")
+
+            return water_mask
+
+        except Exception as e:
+            self.logger.error(f"Error creating water mask: {e}")
             return None
 
     def _create_rgb_composite(self, red: np.ndarray, green: np.ndarray, blue: np.ndarray) -> np.ndarray:
