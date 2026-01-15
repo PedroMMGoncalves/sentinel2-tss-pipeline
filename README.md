@@ -57,8 +57,8 @@ DOI: https://doi.org/10.1016/j.rse.2021.112386
 - **QAA v6.0**: Lee et al. - Quasi-Analytical Algorithm
 - **TSI**: Carlson (1977) - Trophic State Index
 - **NDCI**: Mishra & Mishra (2012) - Harmful Algal Bloom detection
-- **FLH**: Gower et al. (1999) - Fluorescence Line Height
-- **MCI**: Gitelson et al. (2008) - Maximum Chlorophyll Index
+- **MCI**: Gower et al. (2005) - Maximum Chlorophyll Index
+- **RDI**: Stumpf et al. (2003) - Relative Depth Index (bathymetric change detection)
 - **Pure Water Constants**: Pope & Fry (1997)
 
 ## Requirements

@@ -4,7 +4,7 @@ Visualization Processor.
 Generate RGB composites and spectral indices from Sentinel-2 imagery.
 
 This module provides:
-- RGBCompositeDefinitions: Defines 20 RGB combinations and 17 spectral indices
+- RGBCompositeDefinitions: Defines 20 RGB combinations and 15 spectral indices
 - VisualizationProcessor: Complete visualization processor
 
 RGB Categories:
@@ -15,9 +15,11 @@ RGB Categories:
 
 Spectral Index Categories:
 - Water Quality (7): NDWI, MNDWI, NDTI, NDMI, AWEI, WI, WRI
-- Chlorophyll & Algae (5): NDCI, CHL_RED_EDGE, GNDVI, PC, FAI
+- Chlorophyll & Algae (3): NDCI, CHL_RED_EDGE, GNDVI
 - Turbidity & Sediment (2): TSI, NGRDI
-- Advanced (3): FUI, SDD, CDOM
+- Advanced (3): SDD, CDOM, RDI (Relative Depth Index)
+
+Note: PC, FAI, FUI removed - require spectral bands not available in Sentinel-2.
 """
 
 import os
@@ -358,28 +360,8 @@ class RGBCompositeDefinitions:
                 'category': 'chlorophyll',
                 'priority': 'important'
             },
-            'PC': {
-                'formula': '(B5 - B4) / (B6 - B4)',
-                'required_bands': [705, 665, 740],
-                'description': 'Phycocyanin Index (Cyanobacteria detection)',
-                'application': 'Harmful algal bloom detection',
-                'range': '(0, inf)',
-                'interpretation': 'Higher values indicate cyanobacteria',
-                'enabled_by': 'generate_chlorophyll_indices',
-                'category': 'chlorophyll',
-                'priority': 'advanced'
-            },
-            'FAI': {
-                'formula': 'B8 - (B4 + (B8A - B4) * (B8 - B4) / (B8A - B4))',
-                'required_bands': [842, 665, 865],
-                'description': 'Floating Algae Index',
-                'application': 'Floating algae detection',
-                'range': '(-inf, inf)',
-                'interpretation': 'Positive values indicate floating algae',
-                'enabled_by': 'generate_chlorophyll_indices',
-                'category': 'chlorophyll',
-                'priority': 'advanced'
-            },
+            # PC (Phycocyanin Index) - REMOVED: Requires 620nm band (S2 lacks this band)
+            # FAI (Floating Algae Index) - REMOVED: Requires SWIR at 20m (not available in resampled C2RCC)
 
             # =================================================================
             # TURBIDITY & SEDIMENT INDICES (2 indices)
@@ -410,17 +392,7 @@ class RGBCompositeDefinitions:
             # =================================================================
             # ADVANCED WATER PROPERTIES (3 indices)
             # =================================================================
-            'FUI': {
-                'formula': 'arctan2(B4 - B3, B2 - B3) * 180 / pi',
-                'required_bands': [665, 560, 490],
-                'description': 'Forel-Ule Index',
-                'application': 'Water color classification',
-                'range': '(0, 360)',
-                'interpretation': 'Water color angle in degrees',
-                'enabled_by': 'generate_advanced_indices',
-                'category': 'advanced',
-                'priority': 'advanced'
-            },
+            # FUI (Forel-Ule Index) - REMOVED: Requires CIE chromaticity conversion (current formula scientifically incorrect)
             'SDD': {
                 'formula': 'ln(0.14 / B4) / 1.7',
                 'required_bands': [665],
@@ -439,6 +411,19 @@ class RGBCompositeDefinitions:
                 'application': 'CDOM concentration',
                 'range': '(0, inf)',
                 'interpretation': 'Higher values indicate more CDOM',
+                'enabled_by': 'generate_advanced_indices',
+                'category': 'advanced',
+                'priority': 'advanced'
+            },
+            'RDI': {
+                'formula': 'ln(B2) / ln(B3)',
+                'required_bands': [490, 560],
+                'description': 'Relative Depth Index (Stumpf et al. 2003)',
+                'application': 'Time-series bathymetric change detection, sediment deposition monitoring',
+                'range': '(0, 1)',
+                'interpretation': 'Higher values indicate deeper water (relative, not calibrated)',
+                'limitations': 'Valid only in clear, shallow water (<20m). Users should mask high-TSS areas.',
+                'reference': 'Stumpf et al. (2003) Limnol. Oceanogr. 48(1):547-556',
                 'enabled_by': 'generate_advanced_indices',
                 'category': 'advanced',
                 'priority': 'advanced'
@@ -490,9 +475,9 @@ class VisualizationProcessor:
 
         expected_indices = 0
         if self.config.generate_water_quality_indices: expected_indices += 7
-        if self.config.generate_chlorophyll_indices: expected_indices += 5
+        if self.config.generate_chlorophyll_indices: expected_indices += 3  # PC, FAI removed
         if self.config.generate_turbidity_indices: expected_indices += 2
-        if self.config.generate_advanced_indices: expected_indices += 3
+        if self.config.generate_advanced_indices: expected_indices += 3  # FUI removed, RDI added
 
         self.logger.debug(f"Expected products: ~{expected_rgb} RGB composites + ~{expected_indices} spectral indices")
         self.logger.debug("Marine visualization processor ready for processing")
@@ -1287,18 +1272,7 @@ class VisualizationProcessor:
                 b3 = bands_data[bands_to_use[1]]  # 560nm
                 return (b8 - b3) / (b8 + b3 + 1e-8)
 
-            elif index_name == 'PC':
-                red_edge1 = bands_data[bands_to_use[0]]  # 705nm
-                red = bands_data[bands_to_use[1]]        # 665nm
-                red_edge2 = bands_data[bands_to_use[2]]  # 740nm
-                return (red_edge1 - red) / (red_edge2 - red + 1e-8)
-
-            elif index_name == 'FAI':
-                nir_b8 = bands_data[bands_to_use[0]]     # 842nm
-                red = bands_data[bands_to_use[1]]        # 665nm
-                nir_b8a = bands_data[bands_to_use[2]]    # 865nm
-                baseline = red + (nir_b8a - red) * (nir_b8 - red) / (nir_b8a - red + 1e-8)
-                return nir_b8 - baseline
+            # PC, FAI removed: require spectral bands not available in Sentinel-2
 
             # Turbidity & Sediment Indices
             elif index_name == 'TSI':
@@ -1312,11 +1286,7 @@ class VisualizationProcessor:
                 return (b3 - b4) / (b3 + b4 + 1e-8)
 
             # Advanced Water Properties
-            elif index_name == 'FUI':
-                b4 = bands_data[bands_to_use[0]]  # 665nm
-                b3 = bands_data[bands_to_use[1]]  # 560nm
-                b2 = bands_data[bands_to_use[2]]  # 490nm
-                return np.arctan2(b4 - b3, b2 - b3) * 180 / np.pi
+            # FUI removed: requires CIE chromaticity conversion (scientifically incorrect formula)
 
             elif index_name == 'SDD':
                 b4 = bands_data[bands_to_use[0]]  # 665nm
@@ -1326,6 +1296,19 @@ class VisualizationProcessor:
                 b1 = bands_data[bands_to_use[0]]  # 443nm
                 b3 = bands_data[bands_to_use[1]]  # 560nm
                 return b1 / (b3 + 1e-8)
+
+            elif index_name == 'RDI':
+                # Relative Depth Index (Stumpf et al. 2003)
+                # Without in-situ calibration, produces relative depth index (unitless)
+                # Ideal for time-series analysis of bathymetric changes
+                blue = bands_data[bands_to_use[0]]   # 490nm (B2)
+                green = bands_data[bands_to_use[1]]  # 560nm (B3)
+                valid_mask = (blue > 0) & (green > 0)
+                rdi = np.full_like(blue, np.nan, dtype=np.float32)
+                rdi[valid_mask] = np.log(blue[valid_mask]) / np.log(green[valid_mask])
+                # Mask optically deep water where ratio breaks down (>1.0)
+                rdi = np.where(rdi > 1.0, np.nan, rdi)
+                return rdi
 
             else:
                 self.logger.warning(f"Unknown index calculation for {index_name}")

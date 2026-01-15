@@ -5,15 +5,18 @@ Advanced aquatic algorithms processor with complete scientific implementations.
 
 Algorithms implemented:
 - Water clarity indices (Secchi depth, euphotic depth, diffuse attenuation)
-- Harmful Algal Bloom (HAB) detection (NDCI, FLH, MCI)
+- Harmful Algal Bloom (HAB) detection (NDCI, MCI)
 - Trophic State Index (Carlson 1977)
+
+Note: FLH (Fluorescence Line Height) removed - Sentinel-2 lacks 681nm band for true
+fluorescence peak detection.
 
 References:
 - Kirk, J.T.O. (2011). Light and photosynthesis in aquatic ecosystems.
 - Lee, Z. et al. (2002). Deriving inherent optical properties from water color.
 - Tyler, J.E. (1968). The Secchi disc.
 - Mishra, S. & Mishra, D.R. (2012). Normalized difference chlorophyll index.
-- Gower, J. et al. (1999). Detection of intense plankton blooms.
+- Gower, J. et al. (2005). Maximum Chlorophyll Index.
 - Carlson, R.E. (1977). A trophic state index for lakes.
 """
 
@@ -125,12 +128,13 @@ class WaterQualityProcessor:
                                 phycocyanin: Optional[np.ndarray],
                                 rrs_bands: Dict[int, np.ndarray]) -> Dict[str, np.ndarray]:
         """
-        HAB detection using Sentinel-2 spectral bands
+        HAB detection using Sentinel-2 spectral bands (NDCI, MCI)
+
+        Note: FLH removed - S2 lacks 681nm band for true fluorescence detection.
 
         References:
-        - Wynne, T.T. et al. (2008). Relating spectral shape to cyanobacterial blooms.
         - Mishra, S. & Mishra, D.R. (2012). Normalized difference chlorophyll index.
-        - Gower, J. et al. (1999). Detection of intense plankton blooms using 709 nm band.
+        - Gower, J. et al. (2005). Maximum Chlorophyll Index.
         """
         try:
             logger.debug("Detecting harmful algal blooms")
@@ -148,7 +152,7 @@ class WaterQualityProcessor:
             # Initialize result arrays
             hab_probability = np.zeros(shape, dtype=np.float32)
             ndci_values = np.full(shape, np.nan, dtype=np.float32)
-            flh_values = np.full(shape, np.nan, dtype=np.float32)
+            # flh_values removed: S2 lacks 681nm band for true FLH
             mci_values = np.full(shape, np.nan, dtype=np.float32)
 
             algorithms_applied = []
@@ -185,38 +189,11 @@ class WaterQualityProcessor:
 
                     logger.debug(f"NDCI calculated for {np.sum(valid_mask)} pixels")
 
-            # Method 2: Fluorescence Line Height (FLH) approximation
-            if all(band in rrs_bands for band in [665, 705, 740]):
-                logger.debug("Calculating FLH")
+            # FLH (Fluorescence Line Height) removed: S2 lacks the 681nm band required for
+            # true fluorescence peak detection. The 705nm band captures red-edge reflectance,
+            # not the chlorophyll fluorescence emission at ~685nm.
 
-                band_665 = rrs_bands[665]
-                band_705 = rrs_bands[705]
-                band_740 = rrs_bands[740]
-
-                valid_mask = (
-                    (~np.isnan(band_665)) &
-                    (~np.isnan(band_705)) &
-                    (~np.isnan(band_740))
-                )
-
-                if np.any(valid_mask):
-                    # FLH calculation (baseline correction)
-                    slope_factor = (705 - 665) / (740 - 665)  # 0.533
-                    baseline = band_665 + (band_740 - band_665) * slope_factor
-                    flh_values[valid_mask] = band_705[valid_mask] - baseline[valid_mask]
-
-                    # FLH bloom threshold
-                    flh_bloom = (flh_values > 0.004).astype(np.float32)
-                    results['flh_bloom'] = flh_bloom
-                    results['flh_values'] = flh_values
-
-                    # Add to probability calculation
-                    hab_probability += flh_bloom * 0.3
-                    algorithms_applied.append("FLH")
-
-                    logger.debug(f"FLH calculated for {np.sum(valid_mask)} pixels")
-
-            # Method 3: Maximum Chlorophyll Index (MCI) approximation
+            # Method 2: Maximum Chlorophyll Index (MCI) - Gower et al. (2005)
             if all(band in rrs_bands for band in [665, 705, 740, 865]):
                 logger.debug("Calculating MCI")
 
@@ -267,16 +244,9 @@ class WaterQualityProcessor:
                 results['hab_risk_level'] = hab_risk
 
                 # Additional detection flags
-                if 'ndci_bloom' in results or 'flh_bloom' in results:
-                    # Cyanobacteria-like bloom detection
-                    cyano_bloom = np.zeros(shape, dtype=np.float32)
-
-                    if 'ndci_bloom' in results:
-                        cyano_bloom = np.maximum(cyano_bloom, results['ndci_bloom'])
-                    if 'flh_bloom' in results:
-                        cyano_bloom = np.maximum(cyano_bloom, results['flh_bloom'])
-
-                    results['cyanobacteria_bloom'] = cyano_bloom
+                if 'ndci_bloom' in results:
+                    # Cyanobacteria-like bloom detection (based on NDCI only - FLH removed)
+                    results['cyanobacteria_bloom'] = results['ndci_bloom'].copy()
 
                 # Biomass alert levels
                 high_biomass = (hab_probability > 0.6).astype(np.float32)
