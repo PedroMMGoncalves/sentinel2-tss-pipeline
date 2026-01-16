@@ -433,6 +433,7 @@ class S2Processor:
 
         try:
             product_name = os.path.basename(input_path)
+            clean_name = self._extract_clean_product_name(product_name)  # For cleanup tracking
             self.current_product = product_name
 
             logger.debug(f"Processing: {product_name}")
@@ -485,6 +486,7 @@ class S2Processor:
                         if c2rcc_stats:
                             results['s2_processing'] = ProcessingResult(True, c2rcc_output_path,
                                                                     c2rcc_stats, None)
+                            results['clean_product_name'] = clean_name  # For cleanup tracking
 
                             # S2Processor stops here - no TSS processing
                             # TSS processing is handled by UnifiedS2TSSProcessor/JiangTSSProcessor
@@ -513,6 +515,7 @@ class S2Processor:
 
                     self.processed_count += 1
                     results['s2_processing'] = ProcessingResult(True, c2rcc_output_path, c2rcc_stats, None)
+                    results['clean_product_name'] = clean_name  # For cleanup tracking
 
                     # Calculate SNAP TSM/CHL from IOPs if missing
                     if not c2rcc_stats['has_tsm'] or not c2rcc_stats['has_chl']:

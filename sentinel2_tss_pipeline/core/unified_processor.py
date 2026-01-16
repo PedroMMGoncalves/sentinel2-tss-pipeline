@@ -129,6 +129,7 @@ class UnifiedS2TSSProcessor:
 
         try:
             product_name = self._extract_product_name(product_path)
+            clean_product_name = product_name  # Will be updated with actual clean name from S2Processor
 
             logger.info(f"Processing {current}/{total}: {product_name}")
 
@@ -149,6 +150,9 @@ class UnifiedS2TSSProcessor:
                 s2_time = time.time() - s2_start
                 logger.info(f"  S2 Processing... done ({s2_time/60:.1f} min)")
                 results.update(s2_results)
+
+                # Get clean product name for cleanup (S2Processor uses shorter naming)
+                clean_product_name = s2_results.get('clean_product_name', product_name)
 
                 # Check if S2 processing succeeded
                 if 'error' in s2_results or 's2_error' in s2_results:
@@ -267,7 +271,7 @@ class UnifiedS2TSSProcessor:
 
             # Delete intermediate files if requested
             if getattr(self.config, 'delete_intermediate_files', False):
-                self._cleanup_intermediate_files(self.config.output_folder, product_name)
+                self._cleanup_intermediate_files(self.config.output_folder, clean_product_name)
 
             # Progress estimation and scene separator
             if self.processed_count > 0 and current < total:
@@ -380,8 +384,8 @@ class UnifiedS2TSSProcessor:
             deleted_count = 0
 
             # Delete Resampled product (.dim and .data folder)
-            resampled_dim = os.path.join(geometric_folder, f"Resampled_{product_name}.dim")
-            resampled_data = os.path.join(geometric_folder, f"Resampled_{product_name}.data")
+            resampled_dim = os.path.join(geometric_folder, f"Resampled_{product_name}_Subset.dim")
+            resampled_data = os.path.join(geometric_folder, f"Resampled_{product_name}_Subset.data")
 
             if os.path.exists(resampled_dim):
                 os.remove(resampled_dim)
