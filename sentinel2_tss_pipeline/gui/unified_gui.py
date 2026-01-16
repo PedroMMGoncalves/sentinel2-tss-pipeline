@@ -298,6 +298,12 @@ class UnifiedS2TSSGUI:
         self.enable_jiang_var = tk.BooleanVar(value=True)
         self.jiang_intermediates_var = tk.BooleanVar(value=True)
         self.jiang_comparison_var = tk.BooleanVar(value=True)
+
+        # Water mask options (independent controls)
+        self.apply_nir_water_mask_var = tk.BooleanVar(value=False)
+        self.water_mask_threshold_var = tk.DoubleVar(value=0.01)
+        self.water_mask_shapefile_var = tk.StringVar(value="")
+
         self.enable_advanced_var = tk.BooleanVar(value=True)
         self.trophic_state_var = tk.BooleanVar(value=True)
         self.water_clarity_var = tk.BooleanVar(value=True)

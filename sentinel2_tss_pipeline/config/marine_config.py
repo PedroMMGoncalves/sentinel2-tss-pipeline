@@ -33,7 +33,5 @@ class MarineVisualizationConfig:
     contrast_method: str = 'percentile_stretch'
     percentile_range: tuple = (2, 98)
 
-    # Land masking options (Xu 2006)
-    # Uses MNDWI = (B3 - B11) / (B3 + B11) to separate water from land
-    apply_land_mask: bool = True
-    mndwi_threshold: float = 0.42  # Validated threshold for Sentinel-2
+    # Note: Water masking is controlled by JiangTSSConfig
+    # Marine viz receives mask from calling code if enabled

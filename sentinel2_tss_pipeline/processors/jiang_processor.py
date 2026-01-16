@@ -157,90 +157,144 @@ class JiangTSSProcessor:
         logger.debug(f"Successfully loaded {len(bands_data)} bands into memory")
         return bands_data, reference_metadata
 
-    def _create_water_mask(self, bands_data: Dict[int, np.ndarray],
-                            geometric_path: Optional[str] = None) -> Optional[np.ndarray]:
+    def _create_nir_water_mask(self, bands_data: Dict[int, np.ndarray]) -> Optional[np.ndarray]:
         """
-        Create water mask using MNDWI or NDWI.
+        Create water mask using simple NIR threshold.
 
-        Prefers MNDWI (B3-B11)/(B3+B11) from geometric/resampled data as it better
-        separates water from built-up areas. Falls back to NDWI (B3-B8A)/(B3+B8A)
-        from C2RCC data if geometric data unavailable.
-
-        References:
-        - Xu, H. (2006). Modification of NDWI - MNDWI. Int. J. Remote Sens. 27(14):3025-3033
-        - McFeeters, S.K. (1996). NDWI. Int. J. Remote Sens. 17(7):1425-1432
+        Water absorbs NIR strongly, so low NIR reflectance indicates water.
+        This is simpler and more robust for turbid waters than index-based methods.
 
         Args:
-            bands_data: Dictionary mapping wavelength (nm) to Rrs data (C2RCC)
-            geometric_path: Optional path to resampled geometric data for MNDWI
+            bands_data: Dictionary mapping wavelength (nm) to Rrs data
 
         Returns:
-            Boolean array where True = water, False = land
-            Returns None if required bands not available
+            Boolean array where True = water (NIR < threshold), False = land
+            Returns None if NIR band not available
         """
         try:
-            # Try MNDWI first (preferred - better land/water separation)
-            if geometric_path and os.path.exists(geometric_path):
-                data_folder = geometric_path.replace('.dim', '.data')
-                b3_path = os.path.join(data_folder, 'B3.img')
-                b11_path = os.path.join(data_folder, 'B11.img')
-
-                if os.path.exists(b3_path) and os.path.exists(b11_path):
-                    try:
-                        green, _ = RasterIO.read_raster(b3_path)
-                        swir1, _ = RasterIO.read_raster(b11_path)
-
-                        # Calculate MNDWI
-                        denominator = green + swir1
-                        valid_mask = (denominator > 1e-8) & (~np.isnan(green)) & (~np.isnan(swir1))
-
-                        mndwi = np.full_like(green, np.nan, dtype=np.float32)
-                        mndwi[valid_mask] = (green[valid_mask] - swir1[valid_mask]) / denominator[valid_mask]
-
-                        # MNDWI threshold (Xu 2006: 0.42 for Sentinel-2)
-                        threshold = 0.42
-                        water_mask = mndwi > threshold
-
-                        total_valid = np.sum(valid_mask)
-                        water_pixels = np.sum(water_mask)
-                        if total_valid > 0:
-                            water_pct = 100.0 * water_pixels / total_valid
-                            logger.debug(f"Water mask (MNDWI > {threshold}): {water_pct:.1f}% water")
-
-                        return water_mask
-
-                    except Exception as e:
-                        logger.debug(f"MNDWI from geometric data failed: {e}, trying NDWI fallback")
-
-            # Fallback to NDWI using C2RCC bands
-            if 560 not in bands_data or 865 not in bands_data:
-                logger.debug("Cannot create water mask: 560nm or 865nm not available")
+            if 865 not in bands_data:  # B8A (865nm)
+                logger.debug("Cannot create NIR water mask: 865nm not available")
                 return None
 
-            green = bands_data[560]  # 560nm
-            nir = bands_data[865]    # 865nm
+            nir = bands_data[865]
+            threshold = self.config.water_mask_threshold  # Default 0.01
 
-            # Calculate NDWI
-            denominator = green + nir
-            valid_mask = (denominator > 1e-8) & (~np.isnan(green)) & (~np.isnan(nir))
+            valid = ~np.isnan(nir)
+            water_mask = np.zeros_like(nir, dtype=bool)
+            water_mask[valid] = nir[valid] < threshold
 
-            ndwi = np.full_like(green, np.nan, dtype=np.float32)
-            ndwi[valid_mask] = (green[valid_mask] - nir[valid_mask]) / denominator[valid_mask]
-
-            # NDWI threshold (0.3 is robust for water detection)
-            threshold = self.config.ndwi_threshold
-            water_mask = ndwi > threshold
-
-            total_valid = np.sum(valid_mask)
             water_pixels = np.sum(water_mask)
+            total_valid = np.sum(valid)
             if total_valid > 0:
                 water_pct = 100.0 * water_pixels / total_valid
-                logger.debug(f"Water mask (NDWI > {threshold}): {water_pct:.1f}% water")
+                logger.info(f"NIR water mask (< {threshold}): {water_pct:.1f}% water, {100-water_pct:.1f}% land")
 
             return water_mask
 
         except Exception as e:
-            logger.error(f"Error creating water mask: {e}")
+            logger.error(f"Error creating NIR water mask: {e}")
+            return None
+
+    def _rasterize_shapefile_mask(self, shapefile_path: str,
+                                   reference_metadata: dict) -> Optional[np.ndarray]:
+        """
+        Rasterize shapefile to create water mask matching output resolution.
+
+        Handles CRS reprojection if shapefile CRS differs from raster CRS.
+
+        Args:
+            shapefile_path: Path to water polygon shapefile (UTM or WGS84)
+            reference_metadata: GDAL metadata from reference raster
+
+        Returns:
+            Boolean array where True = inside polygon (water), False = outside (land)
+            Returns None if shapefile cannot be read
+        """
+        try:
+            from osgeo import gdal, ogr, osr
+
+            # Open shapefile
+            shp = ogr.Open(shapefile_path)
+            if shp is None:
+                logger.error(f"Could not open shapefile: {shapefile_path}")
+                return None
+
+            layer = shp.GetLayer()
+            if layer is None:
+                logger.error(f"Could not get layer from shapefile: {shapefile_path}")
+                return None
+
+            # Check CRS and reproject if needed
+            shp_srs = layer.GetSpatialRef()
+            raster_srs = osr.SpatialReference()
+            raster_srs.ImportFromWkt(reference_metadata['projection'])
+
+            # Keep reference to memory dataset for reprojected layer
+            mem_ds = None
+            rasterize_layer = layer
+
+            if shp_srs and not shp_srs.IsSame(raster_srs):
+                logger.info(f"Reprojecting shapefile from {shp_srs.GetName()} to {raster_srs.GetName()}")
+                try:
+                    # Create coordinate transformation
+                    transform = osr.CoordinateTransformation(shp_srs, raster_srs)
+
+                    # Create in-memory reprojected layer
+                    mem_driver = ogr.GetDriverByName('Memory')
+                    mem_ds = mem_driver.CreateDataSource('')
+                    mem_layer = mem_ds.CreateLayer('reprojected', raster_srs, ogr.wkbPolygon)
+
+                    # Copy and transform features
+                    layer.ResetReading()
+                    for feature in layer:
+                        geom = feature.GetGeometryRef()
+                        if geom is not None:
+                            geom_clone = geom.Clone()
+                            geom_clone.Transform(transform)
+                            new_feature = ogr.Feature(mem_layer.GetLayerDefn())
+                            new_feature.SetGeometry(geom_clone)
+                            mem_layer.CreateFeature(new_feature)
+
+                    rasterize_layer = mem_layer
+                    logger.debug(f"Reprojected {mem_layer.GetFeatureCount()} features")
+
+                except Exception as e:
+                    logger.warning(f"CRS reprojection failed: {e}, using original layer")
+                    rasterize_layer = layer
+
+            # Create memory raster matching reference
+            driver = gdal.GetDriverByName('MEM')
+            target = driver.Create('',
+                                  reference_metadata['width'],
+                                  reference_metadata['height'],
+                                  1, gdal.GDT_Byte)
+            target.SetGeoTransform(reference_metadata['transform'])
+            target.SetProjection(reference_metadata['projection'])
+
+            # Initialize with zeros (outside polygon = land)
+            band = target.GetRasterBand(1)
+            band.Fill(0)
+
+            # Rasterize: 1 inside polygon, 0 outside
+            gdal.RasterizeLayer(target, [1], rasterize_layer, burn_values=[1])
+
+            mask = band.ReadAsArray()
+            water_mask = mask == 1  # True = water (inside polygon)
+
+            water_pixels = np.sum(water_mask)
+            total_pixels = water_mask.size
+            water_pct = 100.0 * water_pixels / total_pixels
+            logger.info(f"Shapefile water mask: {water_pct:.1f}% water, {100-water_pct:.1f}% land")
+
+            # Cleanup
+            shp = None
+            mem_ds = None
+            target = None
+
+            return water_mask
+
+        except Exception as e:
+            logger.error(f"Error rasterizing shapefile mask: {e}")
             return None
 
     def _convert_rhow_to_rrs(self, bands_data: Dict[int, np.ndarray],
@@ -459,29 +513,27 @@ class JiangTSSProcessor:
             logger.debug("Converting rhow to Rrs")
             converted_bands_data = self._convert_rhow_to_rrs(bands_data, band_paths)
 
-            # Create water mask using MNDWI/NDWI to exclude land pixels
-            # Try to get geometric path for MNDWI (preferred), fallback to NDWI from C2RCC
+            # Create water mask to exclude land pixels
+            # Priority: 1) Shapefile mask, 2) NIR threshold mask, 3) No mask
             water_mask = None
-            if hasattr(self.config, 'apply_land_mask') and self.config.apply_land_mask:
-                # Construct geometric path for MNDWI
-                geometric_folder = OutputStructure.get_intermediate_folder(
-                    output_folder, OutputStructure.GEOMETRIC_FOLDER
-                )
-                clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
-                if 'MSIL1C' in clean_product_name:
-                    parts = clean_product_name.split('_')
-                    date_part = parts[2][:8] if len(parts) > 2 else ''
-                    tile_part = parts[5] if len(parts) > 5 else ''
-                    clean_name = f"{parts[0]}_{date_part}_{tile_part}" if date_part and tile_part else clean_product_name
-                else:
-                    clean_name = clean_product_name
-                geometric_path = os.path.join(geometric_folder, f"Resampled_{clean_name}_Subset.dim")
 
-                water_mask = self._create_water_mask(converted_bands_data, geometric_path)
-                if water_mask is not None:
-                    land_pixels = np.sum(~water_mask)
-                    total_pixels = water_mask.size
-                    logger.info(f"Land mask: {land_pixels}/{total_pixels} pixels excluded ({100*land_pixels/total_pixels:.1f}%)")
+            # Option 1: Shapefile mask (highest priority)
+            if hasattr(self.config, 'water_mask_shapefile') and self.config.water_mask_shapefile:
+                if os.path.exists(self.config.water_mask_shapefile):
+                    logger.info(f"Using shapefile water mask: {self.config.water_mask_shapefile}")
+                    water_mask = self._rasterize_shapefile_mask(
+                        self.config.water_mask_shapefile, reference_metadata)
+                else:
+                    logger.error(f"Shapefile not found: {self.config.water_mask_shapefile}")
+
+            # Option 2: NIR threshold mask (if enabled and no shapefile)
+            elif hasattr(self.config, 'apply_nir_water_mask') and self.config.apply_nir_water_mask:
+                logger.info(f"Using NIR threshold water mask (< {self.config.water_mask_threshold})")
+                water_mask = self._create_nir_water_mask(converted_bands_data)
+
+            # Option 3: No mask
+            else:
+                logger.info("No water mask applied")
 
             # Apply Jiang methodology
             logger.debug("Applying Jiang TSS methodology")

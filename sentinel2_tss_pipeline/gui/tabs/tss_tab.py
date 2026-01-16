@@ -113,6 +113,67 @@ def _create_jiang_section(parent, gui):
         variable=gui.jiang_comparison_var
     ).pack(anchor=tk.W, pady=2)
 
+    # Water Mask Section
+    _create_water_mask_section(gui.jiang_options_frame, gui)
+
+
+def _create_water_mask_section(parent, gui):
+    """Create water mask configuration section."""
+    mask_frame = ttk.LabelFrame(parent, text="Water Mask (Optional)", padding="5")
+    mask_frame.pack(fill=tk.X, pady=(10, 5))
+
+    # Description
+    ttk.Label(
+        mask_frame,
+        text="Mask land pixels in TSS output. Choose shapefile mask OR NIR threshold (not both).",
+        font=("Arial", 9), foreground="gray", wraplength=500
+    ).pack(anchor=tk.W, pady=(0, 5))
+
+    # Option 1: Shapefile mask
+    shp_frame = ttk.Frame(mask_frame)
+    shp_frame.pack(fill=tk.X, pady=2)
+
+    ttk.Label(shp_frame, text="Water Shapefile:").pack(side=tk.LEFT)
+    ttk.Entry(shp_frame, textvariable=gui.water_mask_shapefile_var, width=40).pack(side=tk.LEFT, padx=5)
+    ttk.Button(
+        shp_frame, text="Browse...", width=10,
+        command=lambda: _browse_water_mask_shapefile(gui)
+    ).pack(side=tk.LEFT)
+
+    # Option 2: NIR threshold
+    nir_frame = ttk.Frame(mask_frame)
+    nir_frame.pack(fill=tk.X, pady=2)
+
+    ttk.Checkbutton(
+        nir_frame, text="Apply NIR threshold mask",
+        variable=gui.apply_nir_water_mask_var
+    ).pack(side=tk.LEFT)
+
+    ttk.Label(nir_frame, text="Threshold:").pack(side=tk.LEFT, padx=(20, 5))
+    threshold_spin = ttk.Spinbox(
+        nir_frame,
+        textvariable=gui.water_mask_threshold_var,
+        from_=0.001, to=0.5, increment=0.005, width=8, format="%.3f"
+    )
+    threshold_spin.pack(side=tk.LEFT)
+
+    ttk.Label(
+        mask_frame,
+        text="NIR threshold: pixels with Rrs(865nm) < threshold are classified as water",
+        font=("Arial", 8), foreground="gray"
+    ).pack(anchor=tk.W, pady=(2, 0))
+
+
+def _browse_water_mask_shapefile(gui):
+    """Browse for water mask shapefile."""
+    from tkinter import filedialog
+    filepath = filedialog.askopenfilename(
+        title="Select Water Mask Shapefile",
+        filetypes=[("Shapefiles", "*.shp"), ("All files", "*.*")]
+    )
+    if filepath:
+        gui.water_mask_shapefile_var.set(filepath)
+
 
 def _create_marine_viz_section(parent, gui):
     """Create marine visualization configuration section."""

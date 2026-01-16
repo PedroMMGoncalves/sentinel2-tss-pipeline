@@ -107,6 +107,15 @@ def update_configurations(gui):
         gui.jiang_config.output_intermediates = gui.jiang_intermediates_var.get()
         gui.jiang_config.output_comparison_stats = gui.jiang_comparison_var.get()
 
+        # Water mask options
+        if hasattr(gui, 'apply_nir_water_mask_var'):
+            gui.jiang_config.apply_nir_water_mask = gui.apply_nir_water_mask_var.get()
+        if hasattr(gui, 'water_mask_threshold_var'):
+            gui.jiang_config.water_mask_threshold = gui.water_mask_threshold_var.get()
+        if hasattr(gui, 'water_mask_shapefile_var'):
+            shapefile_path = gui.water_mask_shapefile_var.get()
+            gui.jiang_config.water_mask_shapefile = shapefile_path if shapefile_path else None
+
         # Marine visualization
         if hasattr(gui, 'enable_marine_viz_var'):
             gui.jiang_config.enable_marine_visualization = gui.enable_marine_viz_var.get()
@@ -275,9 +284,12 @@ def _serialize_jiang_config(jiang_config):
         return {
             'enable_jiang_tss': getattr(jiang_config, 'enable_jiang_tss', True),
             'output_intermediates': getattr(jiang_config, 'output_intermediates', True),
-            'water_mask_threshold': getattr(jiang_config, 'water_mask_threshold', 0.01),
             'tss_valid_range': list(getattr(jiang_config, 'tss_valid_range', (0.01, 10000))),
             'output_comparison_stats': getattr(jiang_config, 'output_comparison_stats', True),
+            # Water mask options
+            'apply_nir_water_mask': getattr(jiang_config, 'apply_nir_water_mask', False),
+            'water_mask_threshold': getattr(jiang_config, 'water_mask_threshold', 0.01),
+            'water_mask_shapefile': getattr(jiang_config, 'water_mask_shapefile', None),
             'enable_advanced_algorithms': getattr(jiang_config, 'enable_advanced_algorithms', True),
             'enable_marine_visualization': getattr(jiang_config, 'enable_marine_visualization', True),
         }
@@ -435,9 +447,12 @@ def _load_jiang_config(gui, data):
     gui.jiang_config = JiangTSSConfig(
         enable_jiang_tss=data.get('enable_jiang_tss', True),
         output_intermediates=data.get('output_intermediates', True),
-        water_mask_threshold=data.get('water_mask_threshold', 0.01),
         tss_valid_range=tss_range,
         output_comparison_stats=data.get('output_comparison_stats', True),
+        # Water mask options
+        apply_nir_water_mask=data.get('apply_nir_water_mask', False),
+        water_mask_threshold=data.get('water_mask_threshold', 0.01),
+        water_mask_shapefile=data.get('water_mask_shapefile', None),
         enable_advanced_algorithms=data.get('enable_advanced_algorithms', True)
     )
 
@@ -481,6 +496,16 @@ def _update_jiang_gui_variables(gui):
         gui.jiang_intermediates_var.set(j.output_intermediates)
     if hasattr(gui, 'jiang_comparison_var'):
         gui.jiang_comparison_var.set(j.output_comparison_stats)
+
+    # Water mask options
+    if hasattr(gui, 'apply_nir_water_mask_var'):
+        gui.apply_nir_water_mask_var.set(getattr(j, 'apply_nir_water_mask', False))
+    if hasattr(gui, 'water_mask_threshold_var'):
+        gui.water_mask_threshold_var.set(getattr(j, 'water_mask_threshold', 0.01))
+    if hasattr(gui, 'water_mask_shapefile_var'):
+        shapefile = getattr(j, 'water_mask_shapefile', None)
+        gui.water_mask_shapefile_var.set(shapefile if shapefile else "")
+
     if hasattr(gui, 'enable_marine_viz_var'):
         gui.enable_marine_viz_var.set(getattr(j, 'enable_marine_visualization', True))
     if hasattr(gui, 'enable_advanced_var'):

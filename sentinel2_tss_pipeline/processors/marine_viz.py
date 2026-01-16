@@ -1000,14 +1000,9 @@ class VisualizationProcessor:
             available_wavelengths = set(bands_data.keys())
             self.logger.debug(f"Available wavelengths for indices: {sorted(available_wavelengths)}")
 
-            # Create water mask if enabled (Xu 2006 MNDWI method)
+            # Note: Water masking is controlled by JiangTSSConfig and applied at save time
+            # Marine viz no longer applies its own mask
             water_mask = None
-            if self.config.apply_land_mask:
-                water_mask = self._create_water_mask(bands_data)
-                if water_mask is not None:
-                    self.logger.debug(f"Land masking enabled (MNDWI > {self.config.mndwi_threshold})")
-                else:
-                    self.logger.debug("Land masking skipped - required bands not available")
 
             spectral_indices = {
                 'NDWI': {
@@ -1313,53 +1308,8 @@ class VisualizationProcessor:
             self.logger.error(f"Error calculating {index_name}: {e}")
             return None
 
-    def _create_water_mask(self, bands_data: Dict[int, np.ndarray]) -> Optional[np.ndarray]:
-        """
-        Create water mask using MNDWI (Modified Normalized Difference Water Index).
-
-        Reference: Xu, H. (2006). Modification of normalised difference water index (NDWI)
-        to enhance open water features in remotely sensed imagery.
-        Int. J. Remote Sens. 27(14):3025-3033.
-
-        Args:
-            bands_data: Dictionary mapping wavelength (nm) to band data
-
-        Returns:
-            Boolean array where True = water, False = land/cloud
-            Returns None if required bands not available
-        """
-        try:
-            # MNDWI requires B3 (560nm) and B11 (1610nm)
-            if 560 not in bands_data or 1610 not in bands_data:
-                self.logger.debug("Cannot create water mask: B3 (560nm) or B11 (1610nm) not available")
-                return None
-
-            green = bands_data[560]   # B3 - 560nm
-            swir1 = bands_data[1610]  # B11 - 1610nm
-
-            # Calculate MNDWI
-            denominator = green + swir1
-            valid_mask = (denominator > 1e-8) & (~np.isnan(green)) & (~np.isnan(swir1))
-
-            mndwi = np.full_like(green, np.nan, dtype=np.float32)
-            mndwi[valid_mask] = (green[valid_mask] - swir1[valid_mask]) / denominator[valid_mask]
-
-            # Apply threshold (Xu 2006 validated for Sentinel-2: 0.42)
-            threshold = self.config.mndwi_threshold
-            water_mask = mndwi > threshold
-
-            # Statistics
-            total_valid = np.sum(valid_mask)
-            water_pixels = np.sum(water_mask)
-            if total_valid > 0:
-                water_pct = 100.0 * water_pixels / total_valid
-                self.logger.debug(f"Water mask: {water_pixels}/{total_valid} pixels ({water_pct:.1f}% water)")
-
-            return water_mask
-
-        except Exception as e:
-            self.logger.error(f"Error creating water mask: {e}")
-            return None
+    # Note: _create_water_mask() removed - water masking is now controlled by
+    # JiangTSSConfig (shapefile mask or NIR threshold) and applied centrally
 
     def _create_rgb_composite(self, red: np.ndarray, green: np.ndarray, blue: np.ndarray) -> np.ndarray:
         """Create RGB composite with percentile-based normalization."""

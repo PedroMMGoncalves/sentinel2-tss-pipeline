@@ -28,10 +28,13 @@ class JiangTSSConfig:
     tss_valid_range: tuple = (0.01, 10000)  # g/m³
     output_comparison_stats: bool = True
 
-    # Land masking using NDWI (B3-B8A)/(B3+B8A)
-    # NDWI is used because B11 (SWIR) is not available in C2RCC output
-    apply_land_mask: bool = True
-    ndwi_threshold: float = 0.3  # Standard NDWI threshold for water
+    # Water masking options (two independent methods)
+    # Option 1: NIR threshold - water absorbs NIR, so low NIR = water
+    apply_nir_water_mask: bool = False  # Disabled by default
+    water_mask_threshold: float = 0.01  # NIR reflectance threshold
+
+    # Option 2: Shapefile mask - user provides water polygon
+    water_mask_shapefile: Optional[str] = None  # Path to shapefile (UTM or WGS84)
 
     # Advanced algorithms configuration
     enable_advanced_algorithms: bool = True
