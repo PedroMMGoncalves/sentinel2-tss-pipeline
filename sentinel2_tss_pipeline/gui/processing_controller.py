@@ -77,7 +77,8 @@ def start_processing(gui):
             skip_existing=gui.skip_existing_var.get(),
             test_mode=gui.test_mode_var.get(),
             memory_limit_gb=int(gui.memory_limit_var.get()),
-            thread_count=int(gui.thread_count_var.get())
+            thread_count=int(gui.thread_count_var.get()),
+            delete_intermediate_files=gui.delete_intermediate_var.get()
         )
 
         # Build and show confirmation dialog
