@@ -268,7 +268,7 @@ class JiangTSSProcessor:
                                   reference_metadata['width'],
                                   reference_metadata['height'],
                                   1, gdal.GDT_Byte)
-            target.SetGeoTransform(reference_metadata['transform'])
+            target.SetGeoTransform(reference_metadata['geotransform'])
             target.SetProjection(reference_metadata['projection'])
 
             # Initialize with zeros (outside polygon = land)
