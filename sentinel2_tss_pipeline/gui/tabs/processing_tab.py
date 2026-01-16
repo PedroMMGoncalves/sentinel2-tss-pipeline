@@ -107,6 +107,11 @@ def create_processing_tab(gui, notebook):
         variable=gui.test_mode_var
     ).pack(anchor=tk.W, pady=2)
 
+    ttk.Checkbutton(
+        left_options, text="Delete intermediate files (.dim/.data) after processing",
+        variable=gui.delete_intermediate_var
+    ).pack(anchor=tk.W, pady=2)
+
     # Right column - performance settings
     right_options = ttk.Frame(options_grid)
     right_options.pack(side=tk.RIGHT, fill=tk.X, expand=True)

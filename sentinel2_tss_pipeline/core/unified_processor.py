@@ -265,6 +265,10 @@ class UnifiedS2TSSProcessor:
             except Exception as cleanup_error:
                 logger.debug(f"Memory cleanup warning: {cleanup_error}")
 
+            # Delete intermediate files if requested
+            if getattr(self.config, 'delete_intermediate_files', False):
+                self._cleanup_intermediate_files(output_folder, product_name)
+
             # Progress estimation and scene separator
             if self.processed_count > 0 and current < total:
                 elapsed = time.time() - self.start_time
@@ -350,6 +354,66 @@ class UnifiedS2TSSProcessor:
         except Exception as e:
             logger.debug(f"Error checking existing outputs: {e}")
             return False
+
+    def _cleanup_intermediate_files(self, output_folder: str, product_name: str):
+        """
+        Delete intermediate .dim/.data files after successful processing.
+
+        Removes the Resampled and C2RCC intermediate files to save disk space.
+        Only called when delete_intermediate_files config option is True.
+
+        Args:
+            output_folder: Base output directory
+            product_name: Name of the processed product
+        """
+        import shutil
+
+        try:
+            # Get intermediate folders
+            geometric_folder = OutputStructure.get_intermediate_folder(
+                output_folder, OutputStructure.GEOMETRIC_FOLDER
+            )
+            c2rcc_folder = OutputStructure.get_intermediate_folder(
+                output_folder, OutputStructure.C2RCC_FOLDER
+            )
+
+            deleted_count = 0
+
+            # Delete Resampled product (.dim and .data folder)
+            resampled_dim = os.path.join(geometric_folder, f"Resampled_{product_name}.dim")
+            resampled_data = os.path.join(geometric_folder, f"Resampled_{product_name}.data")
+
+            if os.path.exists(resampled_dim):
+                os.remove(resampled_dim)
+                deleted_count += 1
+            if os.path.exists(resampled_data):
+                shutil.rmtree(resampled_data)
+                deleted_count += 1
+
+            # Delete C2RCC product (.dim and .data folder)
+            # Try multiple naming patterns
+            c2rcc_patterns = [
+                f"Resampled_{product_name}_Subset_C2RCC",
+                f"Resampled_{product_name}_C2RCC",
+                f"{product_name}_C2RCC"
+            ]
+
+            for pattern in c2rcc_patterns:
+                c2rcc_dim = os.path.join(c2rcc_folder, f"{pattern}.dim")
+                c2rcc_data = os.path.join(c2rcc_folder, f"{pattern}.data")
+
+                if os.path.exists(c2rcc_dim):
+                    os.remove(c2rcc_dim)
+                    deleted_count += 1
+                if os.path.exists(c2rcc_data):
+                    shutil.rmtree(c2rcc_data)
+                    deleted_count += 1
+
+            if deleted_count > 0:
+                logger.info(f"  Cleanup: Deleted {deleted_count} intermediate files/folders")
+
+        except Exception as e:
+            logger.warning(f"  Cleanup warning: Could not delete intermediate files: {e}")
 
     def _print_final_summary(self):
         """Print final processing summary"""

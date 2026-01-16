@@ -97,6 +97,14 @@ def update_configurations(gui):
         gui.c2rcc_config.pressure = gui.pressure_var.get()
         gui.c2rcc_config.use_ecmwf_aux_data = gui.use_ecmwf_var.get()
 
+        # Neural network, DEM and elevation
+        if hasattr(gui, 'net_set_var'):
+            gui.c2rcc_config.net_set = gui.net_set_var.get()
+        if hasattr(gui, 'dem_name_var'):
+            gui.c2rcc_config.dem_name = gui.dem_name_var.get()
+        if hasattr(gui, 'elevation_var'):
+            gui.c2rcc_config.elevation = gui.elevation_var.get()
+
         # Output products
         gui.c2rcc_config.output_rhown = gui.output_rhow_var.get()
         gui.c2rcc_config.output_kd = gui.output_kd_var.get()
@@ -176,6 +184,7 @@ def save_config(gui):
             'jiang': _serialize_jiang_config(gui.jiang_config),
             'skip_existing': gui.skip_existing_var.get(),
             'test_mode': gui.test_mode_var.get(),
+            'delete_intermediate_files': gui.delete_intermediate_var.get(),
             'memory_limit': int(gui.memory_limit_var.get()),
             'thread_count': int(gui.thread_count_var.get()),
             'saved_at': datetime.now().isoformat()
@@ -249,6 +258,8 @@ def load_config(gui):
             gui.skip_existing_var.set(config['skip_existing'])
         if 'test_mode' in config:
             gui.test_mode_var.set(config['test_mode'])
+        if 'delete_intermediate_files' in config:
+            gui.delete_intermediate_var.set(config['delete_intermediate_files'])
         if 'memory_limit' in config:
             gui.memory_limit_var.set(config['memory_limit'])
         if 'thread_count' in config:

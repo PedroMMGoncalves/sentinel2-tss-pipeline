@@ -53,6 +53,9 @@ def create_c2rcc_tab(gui, notebook):
     # ECMWF Configuration
     _create_ecmwf_section(scrollable_frame, gui)
 
+    # Neural Network and DEM Configuration
+    _create_nn_dem_section(scrollable_frame, gui)
+
     # Water Properties
     _create_water_properties_section(scrollable_frame, gui)
 
@@ -102,6 +105,61 @@ def _create_ecmwf_section(parent, gui):
         text="Uses real atmospheric conditions at acquisition time for superior accuracy",
         font=("Arial", 9), foreground="darkgreen"
     ).pack(anchor=tk.W, pady=2)
+
+
+def _create_nn_dem_section(parent, gui):
+    """Create neural network and DEM configuration section."""
+    nn_frame = ttk.LabelFrame(
+        parent, text="Neural Network & Terrain Correction", padding="10"
+    )
+    nn_frame.pack(fill=tk.X, padx=10, pady=5)
+
+    nn_grid = ttk.Frame(nn_frame)
+    nn_grid.pack(fill=tk.X)
+
+    # Neural Network selection
+    ttk.Label(nn_grid, text="Neural Network:").grid(
+        row=0, column=0, sticky=tk.W, padx=5, pady=5
+    )
+    nn_combo = ttk.Combobox(
+        nn_grid, textvariable=gui.net_set_var, width=25, state="readonly",
+        values=["C2RCC-Nets", "C2X-Nets", "C2X-COMPLEX-Nets"]
+    )
+    nn_combo.grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
+
+    ttk.Label(
+        nn_grid, text="C2RCC-Nets: Standard | C2X-Nets: Extended range | C2X-COMPLEX: Turbid waters",
+        font=("Arial", 8), foreground="gray"
+    ).grid(row=0, column=2, sticky=tk.W, padx=5, pady=5)
+
+    # DEM selection
+    ttk.Label(nn_grid, text="DEM Source:").grid(
+        row=1, column=0, sticky=tk.W, padx=5, pady=5
+    )
+    dem_combo = ttk.Combobox(
+        nn_grid, textvariable=gui.dem_name_var, width=25, state="readonly",
+        values=["Copernicus 30m Global DEM", "SRTM 3Sec", "GETASSE30"]
+    )
+    dem_combo.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
+
+    ttk.Label(
+        nn_grid, text="Digital Elevation Model for terrain correction",
+        font=("Arial", 8), foreground="gray"
+    ).grid(row=1, column=2, sticky=tk.W, padx=5, pady=5)
+
+    # Elevation override
+    ttk.Label(nn_grid, text="Elevation (m):").grid(
+        row=2, column=0, sticky=tk.W, padx=5, pady=5
+    )
+    ttk.Spinbox(
+        nn_grid, from_=0, to=5000, width=10,
+        textvariable=gui.elevation_var, increment=10
+    ).grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
+
+    ttk.Label(
+        nn_grid, text="Override elevation (0 = use DEM automatically)",
+        font=("Arial", 8), foreground="gray"
+    ).grid(row=2, column=2, sticky=tk.W, padx=5, pady=5)
 
 
 def _create_water_properties_section(parent, gui):

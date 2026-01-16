@@ -231,6 +231,7 @@ class UnifiedS2TSSGUI:
         # Processing options
         self.skip_existing_var = tk.BooleanVar(value=True)
         self.test_mode_var = tk.BooleanVar(value=False)
+        self.delete_intermediate_var = tk.BooleanVar(value=False)
         self.memory_limit_var = tk.StringVar(value="8")
         self.thread_count_var = tk.StringVar(value="4")
 
@@ -256,7 +257,7 @@ class UnifiedS2TSSGUI:
 
         # C2RCC configuration
         self.net_set_var = tk.StringVar(value="C2RCC-Nets")
-        self.dem_name_var = tk.StringVar(value="Copernicus 90m Global DEM")
+        self.dem_name_var = tk.StringVar(value="Copernicus 30m Global DEM")
         self.elevation_var = tk.DoubleVar(value=0.0)
 
         # Water and atmospheric parameters

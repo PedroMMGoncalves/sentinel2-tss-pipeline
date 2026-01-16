@@ -26,3 +26,4 @@ class ProcessingConfig:
     memory_limit_gb: int = 8
     thread_count: int = 4
     gpt_timeout: int = 10800  # 3 hours default (in seconds)
+    delete_intermediate_files: bool = False  # Delete .dim/.data after processing
