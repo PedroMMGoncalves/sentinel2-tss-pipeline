@@ -267,7 +267,7 @@ class UnifiedS2TSSProcessor:
 
             # Delete intermediate files if requested
             if getattr(self.config, 'delete_intermediate_files', False):
-                self._cleanup_intermediate_files(output_folder, product_name)
+                self._cleanup_intermediate_files(self.config.output_folder, product_name)
 
             # Progress estimation and scene separator
             if self.processed_count > 0 and current < total:
