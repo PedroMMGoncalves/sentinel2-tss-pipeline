@@ -138,6 +138,7 @@ def load_shapefile(shapefile_path: str) -> Tuple[Optional[str], str, bool]:
         logger.info(f"Loading shapefile: {shapefile_path}")
         combined_geometry = None
         info_msg = ""
+        crs_info = "Unknown CRS"
 
         # Method 1: Try Fiona first
         if HAS_FIONA:
@@ -145,6 +146,9 @@ def load_shapefile(shapefile_path: str) -> Tuple[Optional[str], str, bool]:
                 features = []
                 with fiona.open(shapefile_path) as src:
                     logger.info(f"Opened with Fiona - CRS: {src.crs}, Features: {len(src)}")
+                    # Extract CRS information from shapefile
+                    if src.crs:
+                        crs_info = str(src.crs)
                     for feature in src:
                         features.append(feature)
 
@@ -180,6 +184,15 @@ def load_shapefile(shapefile_path: str) -> Tuple[Optional[str], str, bool]:
 
                 layer = datasource.GetLayer()
                 feature_count = layer.GetFeatureCount()
+                # Extract CRS from OGR spatial reference
+                srs = layer.GetSpatialRef()
+                if srs:
+                    auth_name = srs.GetAuthorityName(None)
+                    auth_code = srs.GetAuthorityCode(None)
+                    if auth_name and auth_code:
+                        crs_info = f"{auth_name}:{auth_code}"
+                    else:
+                        crs_info = srs.ExportToProj4() or "Unknown CRS"
                 logger.info(f"Opened with OGR - Features: {feature_count}")
 
                 geometries = []
@@ -216,14 +229,14 @@ def load_shapefile(shapefile_path: str) -> Tuple[Optional[str], str, bool]:
             return None, f"Failed to convert geometry to WKT: {str(e)}", False
 
         # Add bounds information
-        info_msg = _add_bounds_info(combined_geometry, info_msg, "Assumed WGS84 (EPSG:4326)")
+        info_msg = _add_bounds_info(combined_geometry, info_msg, crs_info)
 
         logger.info(f"Successfully loaded geometry from: {os.path.basename(shapefile_path)}")
         return wkt_string, info_msg, True
 
     except Exception as e:
         logger.error(f"Critical error loading shapefile: {e}")
-        traceback.print_exc()
+        logger.error(traceback.format_exc())
         return None, f"Critical error loading shapefile: {str(e)}", False
 
 
@@ -341,7 +354,7 @@ def load_kml(kml_path: str) -> Tuple[Optional[str], str, bool]:
 
     except Exception as e:
         logger.error(f"Critical error loading KML: {e}")
-        traceback.print_exc()
+        logger.error(traceback.format_exc())
         return None, f"Critical error loading KML: {str(e)}", False
 
 
@@ -450,7 +463,7 @@ def load_geojson(geojson_path: str) -> Tuple[Optional[str], str, bool]:
 
     except Exception as e:
         logger.error(f"Critical error loading GeoJSON: {e}")
-        traceback.print_exc()
+        logger.error(traceback.format_exc())
         return None, f"Critical error loading GeoJSON: {str(e)}", False
 
 
@@ -595,17 +608,7 @@ def create_bbox_wkt(north: float, south: float, east: float, west: float) -> str
     return f"POLYGON (({west} {south}, {east} {south}, {east} {north}, {west} {north}, {west} {south}))"
 
 
-# Backwards compatibility aliases (deprecated, use new names)
-load_geometry_from_file = load_geometry
-load_shapefile_geometry = load_shapefile
-load_kml_geometry = load_kml
-load_geojson_geometry = load_geojson
-validate_wkt_geometry = validate_wkt
-get_area_name = generate_area_name
-
-
 __all__ = [
-    # New names (Action-Object convention)
     'load_geometry',
     'load_shapefile',
     'load_kml',
@@ -613,14 +616,6 @@ __all__ = [
     'validate_wkt',
     'generate_area_name',
     'create_bbox_wkt',
-    # Backwards compatibility
-    'load_geometry_from_file',
-    'load_shapefile_geometry',
-    'load_kml_geometry',
-    'load_geojson_geometry',
-    'validate_wkt_geometry',
-    'get_area_name',
-    # Feature flags
     'HAS_SHAPELY',
     'HAS_FIONA',
     'HAS_OGR',

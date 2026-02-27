@@ -42,6 +42,12 @@ def create_outputs_tab(gui, notebook):
     canvas.pack(side="left", fill="both", expand=True)
     scrollbar.pack(side="right", fill="y")
 
+    # Enable mousewheel scrolling (scoped to this tab)
+    def _on_mousewheel(event):
+        canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+    scrollable_frame.bind('<Enter>', lambda e: canvas.bind_all('<MouseWheel>', _on_mousewheel))
+    scrollable_frame.bind('<Leave>', lambda e: canvas.unbind_all('<MouseWheel>'))
+
     # SNAP products note
     _create_snap_note(scrollable_frame)
 
@@ -55,7 +61,7 @@ def create_outputs_tab(gui, notebook):
     _create_output_categories_section(scrollable_frame, gui)
 
     # Set initial visibility
-    _update_jiang_visibility(gui)
+    _update_tss_visibility(gui)
 
     return tab_index
 
@@ -88,7 +94,7 @@ def _create_jiang_section(parent, gui):
     ttk.Checkbutton(
         jiang_frame, text="Enable Jiang TSS processing",
         variable=gui.enable_jiang_var,
-        command=lambda: _update_jiang_visibility(gui)
+        command=lambda: _update_tss_visibility(gui)
     ).pack(anchor=tk.W, pady=2)
 
     # Jiang options (toggleable visibility)
@@ -215,7 +221,7 @@ def _create_output_categories_section(parent, gui):
         ).pack(anchor=tk.W, padx=(24, 0), pady=(0, 2))
 
 
-def _update_jiang_visibility(gui):
+def _update_tss_visibility(gui):
     """Update Jiang TSS options visibility."""
     if hasattr(gui, 'jiang_options_frame'):
         if gui.enable_jiang_var.get():

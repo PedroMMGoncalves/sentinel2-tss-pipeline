@@ -31,7 +31,7 @@ from .config import (
     ResamplingConfig,
     SubsetConfig,
     C2RCCConfig,
-    JiangTSSConfig,
+    TSSConfig,
     ProcessingConfig,
 )
 from .core import UnifiedS2TSSProcessor
@@ -49,7 +49,7 @@ def cli_main():
 Examples:
   python -m sentinel2_tss_pipeline -i D:/L1C_Products -o D:/Results
   python -m sentinel2_tss_pipeline -i /path/to/l1c -o /path/to/results --mode s2_processing_only
-  python -m sentinel2_tss_pipeline -i ./c2rcc_products -o ./tss_results --mode tss_processing_only --enable-jiang
+  python -m sentinel2_tss_pipeline -i ./c2rcc_products -o ./tss_results --mode tss_processing_only --enable-tss
         """
     )
 
@@ -66,7 +66,7 @@ Examples:
     parser.add_argument("--no-skip", action="store_true",
                        help="Process all products (don't skip existing outputs)")
 
-    parser.add_argument("--enable-jiang", action="store_true",
+    parser.add_argument("--enable-tss", action="store_true",
                        help="Enable Jiang TSS methodology (in addition to automatic SNAP TSM/CHL)")
 
     parser.add_argument("--no-ecmwf", action="store_true",
@@ -102,8 +102,8 @@ Examples:
     c2rcc_config = C2RCCConfig()
     c2rcc_config.use_ecmwf_aux_data = not args.no_ecmwf
 
-    jiang_config = JiangTSSConfig()
-    jiang_config.enable_jiang_tss = args.enable_jiang
+    tss_config = TSSConfig()
+    tss_config.enable_tss_processing = args.enable_tss
 
     resampling_config = ResamplingConfig()
     resampling_config.target_resolution = args.resolution
@@ -115,7 +115,7 @@ Examples:
         resampling_config=resampling_config,
         subset_config=SubsetConfig(),
         c2rcc_config=c2rcc_config,
-        jiang_config=jiang_config,
+        tss_config=tss_config,
         skip_existing=not args.no_skip,
         test_mode=args.test,
         memory_limit_gb=args.memory_limit,
@@ -131,7 +131,7 @@ Examples:
     print(f"Processing mode: {config.processing_mode.value}")
     print(f"Resolution: {config.resampling_config.target_resolution}m")
     print(f"ECMWF: {'Enabled' if config.c2rcc_config.use_ecmwf_aux_data else 'Disabled'}")
-    print(f"Jiang TSS: {'Enabled' if config.jiang_config.enable_jiang_tss else 'Disabled'}")
+    print(f"TSS Processing: {'Enabled' if config.tss_config.enable_tss_processing else 'Disabled'}")
     print(f"Skip existing: {config.skip_existing}")
     print(f"Test mode: {config.test_mode}")
     print(f"Memory limit: {config.memory_limit_gb} GB")
@@ -164,13 +164,26 @@ Examples:
 
 def _check_snap_installation():
     """Check and configure SNAP installation."""
-    # Set environment variable if not set (Windows default)
+    import shutil
+
+    # Set environment variable if not set
     if not os.environ.get('SNAP_HOME'):
         default_snap_paths = [
+            # Windows paths
             r"C:\Program Files\esa-snap",
             r"C:\Program Files (x86)\esa-snap",
-            r"D:\Program Files\esa-snap"
+            r"D:\Program Files\esa-snap",
         ]
+
+        # Add Linux/Mac paths
+        if not sys.platform.startswith('win'):
+            home = os.path.expanduser('~')
+            default_snap_paths.extend([
+                '/opt/snap',
+                '/usr/local/snap',
+                os.path.join(home, 'snap'),
+                os.path.join(home, 'esa-snap'),
+            ])
 
         snap_found = False
         for snap_path in default_snap_paths:
@@ -179,6 +192,16 @@ def _check_snap_installation():
                 logger.info(f"Auto-detected SNAP_HOME: {snap_path}")
                 snap_found = True
                 break
+
+        # Fallback: check if gpt is on PATH
+        if not snap_found:
+            gpt_name = 'gpt.exe' if sys.platform.startswith('win') else 'gpt'
+            gpt_on_path = shutil.which(gpt_name)
+            if gpt_on_path:
+                snap_home = os.path.dirname(os.path.dirname(os.path.realpath(gpt_on_path)))
+                os.environ['SNAP_HOME'] = snap_home
+                logger.info(f"Auto-detected SNAP_HOME from PATH: {snap_home}")
+                snap_found = True
 
         if not snap_found:
             return False, "SNAP_HOME not set and SNAP installation not found!"
@@ -270,6 +293,10 @@ def main():
         logger.info(f"Python: {sys.version}")
         logger.info(f"Platform: {sys.platform}")
         logger.info(f"Working Directory: {os.getcwd()}")
+        cwd_len = len(os.getcwd())
+        if cwd_len > 200:
+            logger.warning(f"Working directory path is very long ({cwd_len} chars). "
+                           "This may cause issues on Windows with MAX_PATH limits.")
         logger.info("=" * 80)
 
         # Check if command line arguments provided
@@ -303,8 +330,8 @@ def main():
                     f"A critical error occurred:\n\n{str(e)}\n\n"
                     "Check the log file for details."
                 )
-        except Exception:
-            pass
+        except Exception as dialog_err:
+            logger.debug(f"Could not show error dialog: {dialog_err}")
 
         sys.exit(1)
 

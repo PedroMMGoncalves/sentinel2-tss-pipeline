@@ -81,8 +81,8 @@ def update_subset_visibility(gui):
         gui.pixel_frame.pack_forget()
 
 
-def update_jiang_visibility(gui):
-    """Update Jiang options visibility."""
+def update_tss_visibility(gui):
+    """Update TSS options visibility."""
     if gui.enable_jiang_var.get():
         gui.jiang_options_frame.pack(fill=tk.X, pady=(10, 0))
     else:
@@ -201,8 +201,7 @@ def browse_output_dir(gui):
         gui.output_dir_var.set(directory)
 
         # Setup logging to output folder
-        global logger
-        logger, log_file = setup_enhanced_logging(
+        _, log_file = setup_enhanced_logging(
             log_level=logging.INFO,
             output_folder=directory
         )

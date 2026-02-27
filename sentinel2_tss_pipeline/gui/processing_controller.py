@@ -32,8 +32,7 @@ def start_processing(gui):
 
     # Setup logging to output folder
     output_folder = gui.output_dir_var.get()
-    global logger
-    logger, log_file = setup_enhanced_logging(
+    _, log_file = setup_enhanced_logging(
         log_level=logging.INFO,
         output_folder=output_folder
     )
@@ -146,6 +145,9 @@ def _run_processing_thread(gui, config, products):
     """
     Run processing in background thread.
 
+    All GUI updates are scheduled on the main thread via root.after()
+    to avoid tkinter thread-safety issues.
+
     Args:
         gui: GUI instance.
         config: ProcessingConfig object.
@@ -167,9 +169,10 @@ def _run_processing_thread(gui, config, products):
             if not gui.processing_active:  # Check for stop signal
                 break
 
-            # Update status
+            # Update status (thread-safe via root.after)
             product_name = os.path.basename(product_path)
-            gui.status_var.set(f"Processing {i+1}/{total_products}: {product_name}")
+            gui.root.after(0, lambda msg=f"Processing {i+1}/{total_products}: {product_name}":
+                           gui.status_var.set(msg))
 
             # Process product
             try:
@@ -177,30 +180,29 @@ def _run_processing_thread(gui, config, products):
             except Exception as e:
                 logger.error(f"Error processing {product_name}: {e}")
 
-            # Update progress
+            # Update progress (thread-safe)
             progress = ((i + 1) / total_products) * 100
-            gui.progress_var.set(progress)
+            gui.root.after(0, lambda p=progress: gui.progress_var.set(p))
 
-            # Update ETA
+            # Update ETA (thread-safe)
             status = gui.processor.get_processing_status()
             if status.eta_minutes > 0:
-                gui.eta_var.set(
-                    f"ETA: {status.eta_minutes:.1f} min | "
-                    f"Speed: {status.processing_speed:.1f} products/min"
-                )
+                eta_msg = (f"ETA: {status.eta_minutes:.1f} min | "
+                           f"Speed: {status.processing_speed:.1f} products/min")
+                gui.root.after(0, lambda msg=eta_msg: gui.eta_var.set(msg))
             else:
-                gui.eta_var.set("")
+                gui.root.after(0, lambda: gui.eta_var.set(""))
 
         # Processing completed
-        _on_processing_complete(gui)
+        gui.root.after(0, lambda: _on_processing_complete(gui))
 
     except Exception as e:
         logger.error(f"Processing thread error: {e}")
-        gui.status_var.set(f"Processing error: {str(e)}")
+        gui.root.after(0, lambda msg=str(e): gui.status_var.set(f"Processing error: {msg}"))
     finally:
         gui.processing_active = False
-        gui.start_button.config(state=tk.NORMAL)
-        gui.stop_button.config(state=tk.DISABLED)
+        gui.root.after(0, lambda: gui.start_button.config(state=tk.NORMAL))
+        gui.root.after(0, lambda: gui.stop_button.config(state=tk.DISABLED))
         if gui.processor:
             gui.processor.cleanup()
 

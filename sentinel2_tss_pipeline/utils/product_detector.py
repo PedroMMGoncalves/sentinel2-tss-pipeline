@@ -53,6 +53,9 @@ class ProductDetector:
 
         # Scan for files and directories
         for root, dirs, files in os.walk(folder_path):
+            # Skip SNAP .data folders (large intermediate binary data)
+            dirs[:] = [d for d in dirs if not d.endswith('.data')]
+
             # Check .dim files
             for file in files:
                 if file.endswith('.dim'):

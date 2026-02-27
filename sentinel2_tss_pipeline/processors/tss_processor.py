@@ -100,37 +100,37 @@ class TSSProcessor:
     """Complete implementation of Jiang et al. 2021 TSS methodology"""
 
     def __init__(self, config: TSSConfig):
-        """Initialize Jiang TSS Processor with configuration and marine visualization"""
+        """Initialize TSS Processor with configuration."""
         self.config = config
         self.constants = TSSConstants()
 
-        # Initialize marine visualization processor
-        if hasattr(config, 'enable_marine_visualization') and config.enable_marine_visualization:
-            self.marine_viz_processor = VisualizationProcessor(config.marine_viz_config)
-            logger.debug("Marine visualization processor initialized")
+        # Initialize visualization processor
+        if config.enable_visualization:
+            self.viz_processor = VisualizationProcessor(config.output_categories)
+            logger.debug("Visualization processor initialized")
         else:
-            self.marine_viz_processor = None
-            logger.debug("Marine visualization disabled")
+            self.viz_processor = None
+            logger.debug("Visualization disabled")
 
-        # Initialize advanced processor if enabled
-        if self.config.enable_advanced_algorithms:
-            self.advanced_processor = WaterQualityProcessor()
+        # Initialize water quality processor if enabled
+        if self.config.enable_water_quality:
+            self.water_quality_processor = WaterQualityProcessor()
             if self.config.water_quality_config is None:
                 self.config.water_quality_config = WaterQualityConfig()
         else:
-            self.advanced_processor = None
+            self.water_quality_processor = None
 
-        logger.debug("Initialized Jiang TSS Processor with enhanced methodology")
-        logger.debug(f"Jiang TSS enabled: {self.config.enable_jiang_tss}")
-        logger.debug(f"Advanced algorithms enabled: {self.config.enable_advanced_algorithms}")
-        logger.debug(f"Marine visualization enabled: {getattr(self.config, 'enable_marine_visualization', False)}")
+        logger.debug("Initialized TSS Processor")
+        logger.debug(f"TSS processing enabled: {self.config.enable_tss_processing}")
+        logger.debug(f"Water quality enabled: {self.config.enable_water_quality}")
+        logger.debug(f"Visualization enabled: {self.config.enable_visualization}")
 
-        if self.config.enable_advanced_algorithms and self.config.water_quality_config:
-            logger.debug("Working algorithms available:")
+        if self.config.enable_water_quality and self.config.water_quality_config:
+            logger.debug("Water quality algorithms available:")
             logger.debug(f"  Water Clarity: {self.config.water_quality_config.enable_water_clarity}")
             logger.debug(f"  HAB Detection: {self.config.water_quality_config.enable_hab_detection}")
 
-        logger.debug("Jiang TSS Processor initialization completed successfully")
+        logger.debug("TSS Processor initialization completed successfully")
 
     def _load_bands_data(self, band_paths: Dict[int, str]) -> Tuple[Optional[Dict], Optional[Dict]]:
         """Load band data arrays from file paths"""
@@ -172,12 +172,18 @@ class TSSProcessor:
             Returns None if NIR band not available
         """
         try:
-            if 865 not in bands_data:  # B8A (865nm)
-                logger.debug("Cannot create NIR water mask: 865nm not available")
+            # Try B8A (865nm) first, fall back to B8 (842nm)
+            if 865 in bands_data:
+                nir_wl = 865
+            elif 842 in bands_data:
+                nir_wl = 842
+                logger.debug("Using B8 (842nm) as fallback for water mask (B8A 865nm not available)")
+            else:
+                logger.debug("Cannot create NIR water mask: neither 865nm nor 842nm available")
                 return None
 
-            nir = bands_data[865]
-            threshold = self.config.water_mask_threshold  # Default 0.01
+            nir = bands_data[nir_wl]
+            threshold = self.config.water_mask_threshold  # Default 0.03
 
             valid = ~np.isnan(nir)
             water_mask = np.zeros_like(nir, dtype=bool)
@@ -527,7 +533,7 @@ class TSSProcessor:
                     logger.error(f"Shapefile not found: {self.config.water_mask_shapefile}")
 
             # Option 2: NIR threshold mask (if enabled and no shapefile)
-            elif hasattr(self.config, 'apply_nir_water_mask') and self.config.apply_nir_water_mask:
+            elif self.config.auto_water_mask:
                 logger.info(f"Using NIR threshold water mask (< {self.config.water_mask_threshold})")
                 water_mask = self._create_nir_water_mask(converted_bands_data)
 
@@ -541,12 +547,11 @@ class TSSProcessor:
 
             # Process advanced algorithms
             advanced_results = {}
-            if (hasattr(self.config, 'enable_advanced_algorithms') and
-                self.config.enable_advanced_algorithms and
-                hasattr(self, 'advanced_processor') and
-                self.advanced_processor is not None):
+            if (self.config.enable_water_quality and
+                hasattr(self, 'water_quality_processor') and
+                self.water_quality_processor is not None):
 
-                logger.debug("Processing advanced algorithms")
+                logger.debug("Processing water quality products")
                 advanced_results = self._process_water_quality_products(
                     c2rcc_path, jiang_results, converted_bands_data, product_name
                 )
@@ -554,7 +559,7 @@ class TSSProcessor:
                 if advanced_results is None:
                     advanced_results = {}
 
-                logger.debug(f"Advanced algorithms completed: {len(advanced_results)} additional products")
+                logger.debug(f"Water quality processing completed: {len(advanced_results)} additional products")
 
             # Combine all results
             all_algorithm_results = jiang_results.copy()
@@ -576,11 +581,10 @@ class TSSProcessor:
                     advanced_result.output_path = saved_results[key].output_path
                     final_results[key] = advanced_result
 
-            # Marine visualization processing
-            if (hasattr(self.config, 'enable_marine_visualization') and
-                self.config.enable_marine_visualization and
-                hasattr(self, 'marine_viz_processor') and
-                self.marine_viz_processor is not None):
+            # Visualization processing (RGB composites + spectral indices)
+            if (self.config.enable_visualization and
+                hasattr(self, 'viz_processor') and
+                self.viz_processor is not None):
 
                 logger.debug("Processing marine visualizations")
 
@@ -610,7 +614,7 @@ class TSSProcessor:
                     if os.path.exists(geometric_path):
                         logger.debug("Geometric products found for marine visualization")
 
-                        viz_results = self.marine_viz_processor.process_marine_visualizations(
+                        viz_results = self.viz_processor.process_marine_visualizations(
                             c2rcc_path, output_folder, product_name, intermediate_paths
                         )
 
@@ -623,7 +627,7 @@ class TSSProcessor:
                         # Cleanup intermediate products
                         logger.debug("Starting intermediate products cleanup...")
                         try:
-                            cleanup_success = self.marine_viz_processor._cleanup_intermediate_products(
+                            cleanup_success = self.viz_processor._cleanup_intermediate_products(
                                 output_folder, product_name)
                             if cleanup_success:
                                 logger.debug("Geometric products cleanup completed successfully")
@@ -682,26 +686,26 @@ class TSSProcessor:
 
     def _process_water_quality_products(self, c2rcc_path: str, jiang_results: Dict,
                                         rrs_bands_data: Dict, product_name: str) -> Dict[str, ProcessingResult]:
-        """Process water quality products (clarity, HAB) with converted Rrs data."""
+        """Process water quality products gated by OutputCategoryConfig toggles."""
         try:
-            logger.debug("Processing advanced algorithms with unit-converted data")
+            logger.debug("Processing water quality algorithms")
             advanced_results = {}
 
             config = self.config.water_quality_config
-
             if config is None:
-                logger.warning("No advanced config available, using defaults")
                 config = WaterQualityConfig()
 
-            # Water clarity calculation
-            if config.enable_water_clarity and 'absorption' in jiang_results and 'backscattering' in jiang_results:
+            categories = self.config.output_categories
+
+            # Water clarity calculation — gated by output_categories.enable_water_clarity
+            if categories.enable_water_clarity and 'absorption' in jiang_results and 'backscattering' in jiang_results:
                 logger.debug("Calculating water clarity indices")
 
                 absorption = jiang_results['absorption']
                 backscattering = jiang_results['backscattering']
 
                 try:
-                    clarity_results = self.advanced_processor.calculate_water_clarity(
+                    clarity_results = self.water_quality_processor.calculate_water_clarity(
                         absorption, backscattering, config.solar_zenith_angle
                     )
 
@@ -710,31 +714,24 @@ class TSSProcessor:
                             stats = RasterIO.calculate_statistics(value)
                             stats['numpy_data'] = value
                             stats['product_type'] = 'water_clarity'
-                            stats['algorithm'] = 'advanced_aquatic'
-                            stats['description'] = f"Water clarity {key} - Advanced Aquatic Processing"
-                            stats['processing_date'] = datetime.now().isoformat()
+                            stats['description'] = f"Water clarity {key}"
 
                             advanced_results[f'advanced_clarity_{key}'] = ProcessingResult(
-                                success=True,
-                                output_path="",
-                                stats=stats,
-                                error_message=None
+                                success=True, output_path="", stats=stats, error_message=None
                             )
 
-                    logger.debug(f"Water clarity calculation completed: {len(clarity_results)} products")
+                    logger.debug(f"Water clarity completed: {len(clarity_results)} products")
 
                 except Exception as e:
                     logger.error(f"Water clarity calculation failed: {e}")
 
-            # HAB detection
-            if config.enable_hab_detection and rrs_bands_data:
-                logger.debug("Detecting harmful algal blooms using converted Rrs data")
+            # HAB detection — gated by output_categories.enable_hab
+            if categories.enable_hab and rrs_bands_data:
+                logger.debug("Detecting harmful algal blooms")
 
                 try:
-                    hab_results = self.advanced_processor.detect_harmful_algal_blooms(
-                        chlorophyll=None,
-                        phycocyanin=None,
-                        rrs_bands=rrs_bands_data
+                    hab_results = self.water_quality_processor.detect_harmful_algal_blooms(
+                        chlorophyll=None, phycocyanin=None, rrs_bands=rrs_bands_data
                     )
 
                     for key, value in hab_results.items():
@@ -742,32 +739,62 @@ class TSSProcessor:
                             stats = RasterIO.calculate_statistics(value)
                             stats['numpy_data'] = value
                             stats['product_type'] = 'hab_detection'
-                            stats['algorithm'] = 'advanced_aquatic'
-                            stats['description'] = f"HAB {key} - Advanced Aquatic Processing"
-                            stats['processing_date'] = datetime.now().isoformat()
+                            stats['description'] = f"HAB {key}"
                             stats['biomass_threshold'] = config.hab_biomass_threshold
                             stats['extreme_threshold'] = config.hab_extreme_threshold
 
                             advanced_results[f'advanced_hab_{key}'] = ProcessingResult(
-                                success=True,
-                                output_path="",
-                                stats=stats,
-                                error_message=None
+                                success=True, output_path="", stats=stats, error_message=None
                             )
 
                     logger.debug(f"HAB detection completed: {len(hab_results)} products")
 
                 except Exception as e:
                     logger.error(f"HAB detection failed: {e}")
-            else:
-                logger.warning("No suitable converted spectral bands available for HAB detection")
 
-            logger.debug(f"Advanced algorithms completed: {len(advanced_results)} products generated")
+            # Trophic State Index — gated by output_categories.enable_trophic_state
+            if categories.enable_trophic_state:
+                logger.debug("Calculating Trophic State Index (Carlson 1977)")
+
+                try:
+                    # Get chlorophyll from SNAP C2RCC output
+                    chl_data = self._extract_snap_chlorophyll(c2rcc_path)
+
+                    if chl_data is not None:
+                        # Get Secchi depth from clarity results if available
+                        secchi_depth = None
+                        secchi_key = 'advanced_clarity_secchi_depth'
+                        if secchi_key in advanced_results:
+                            secchi_depth = advanced_results[secchi_key].stats.get('numpy_data')
+
+                        tsi_results = self.water_quality_processor.calculate_trophic_state(
+                            chl_data, secchi_depth
+                        )
+
+                        for key, value in tsi_results.items():
+                            if value is not None and isinstance(value, np.ndarray):
+                                stats = RasterIO.calculate_statistics(value)
+                                stats['numpy_data'] = value
+                                stats['product_type'] = 'trophic_state'
+                                stats['description'] = f"Trophic state {key} (Carlson 1977)"
+
+                                advanced_results[f'advanced_tsi_{key}'] = ProcessingResult(
+                                    success=True, output_path="", stats=stats, error_message=None
+                                )
+
+                        logger.debug(f"Trophic state completed: {len(tsi_results)} products")
+                    else:
+                        logger.warning("Trophic state skipped: SNAP chlorophyll not available")
+
+                except Exception as e:
+                    logger.error(f"Trophic state calculation failed: {e}")
+
+            logger.debug(f"Water quality processing completed: {len(advanced_results)} products")
             return advanced_results
 
         except Exception as e:
-            logger.error(f"Error in advanced algorithms processing: {e}")
-            traceback.print_exc()
+            logger.error(f"Error in water quality processing: {e}")
+            logger.error(traceback.format_exc())
             return {}
 
     def _extract_snap_chlorophyll(self, c2rcc_path: str) -> Optional[np.ndarray]:
@@ -810,9 +837,13 @@ class TSSProcessor:
             pixel_results = self._process_valid_pixels(rrs_data, valid_mask)
 
             absorption[valid_mask] = pixel_results['absorption']
-            backscattering[valid_mask] = pixel_results['backscattering']
+            backscattering[valid_mask] = np.maximum(pixel_results['backscattering'], 0)  # bbp must be >= 0
             reference_band[valid_mask] = pixel_results['reference_band']
             tss_concentration[valid_mask] = pixel_results['tss']
+
+            # Clamp TSS to physically valid range
+            tss_min, tss_max = self.config.tss_valid_range
+            tss_concentration[valid_mask] = np.clip(tss_concentration[valid_mask], tss_min, tss_max)
 
             ref_bands = pixel_results['reference_band']
 
@@ -874,28 +905,113 @@ class TSSProcessor:
 
     def _process_valid_pixels(self, rrs_data: Dict[int, np.ndarray],
                               valid_mask: np.ndarray) -> Dict[str, np.ndarray]:
-        """Pixel processing using exact R algorithm"""
-        valid_pixels = {}
+        """Vectorized pixel processing using exact Jiang et al. (2021) algorithm.
+
+        Replaces pixel-by-pixel loop with NumPy array operations.
+        Mathematically identical to _estimate_tss_single_pixel but ~100-1000x faster.
+        """
+        aw = self.constants.PURE_WATER_ABSORPTION
+        bbw = self.constants.PURE_WATER_BACKSCATTERING
+        tsf = self.constants.TSS_CONVERSION_FACTORS
+
+        # Extract valid pixel arrays
+        vp = {}
         for wavelength, data in rrs_data.items():
-            valid_pixels[wavelength] = data[valid_mask]
+            vp[wavelength] = data[valid_mask]
 
-        n_pixels = len(valid_pixels[443])
-        logger.debug(f"Processing {n_pixels} valid pixels with corrected Jiang algorithm")
+        n_pixels = len(vp[443])
+        logger.debug(f"Processing {n_pixels} valid pixels with vectorized Jiang algorithm")
 
+        # Step 1: Below-water rrs conversion for all wavelengths
+        # rrs = Rrs / (0.52 + 1.7 * Rrs)  — Lee et al. (2002)
+        rrs = {}
+        for wl, Rrs_val in vp.items():
+            rrs[wl] = Rrs_val / (0.52 + 1.7 * Rrs_val)
+
+        # Step 2: Compute u for all wavelengths
+        # u = (-g0 + sqrt(g0^2 + 4*g1*rrs)) / (2*g1)  where g0=0.089, g1=0.125
+        u = {}
+        for wl, rrs_val in rrs.items():
+            discriminant = 0.007921 + 0.5 * rrs_val  # 0.089^2 + 4*0.125*rrs
+            u_val = np.full_like(rrs_val, np.nan)
+            pos = (rrs_val > 0) & (discriminant >= 0)
+            u_val[pos] = (-0.089 + np.sqrt(discriminant[pos])) / 0.25
+            u[wl] = u_val
+
+        # Step 3: Estimate Rrs620 for water type classification
+        coeffs = self.constants.RRS620_COEFFICIENTS
+        rrs665_orig = vp[665]
+        rrs620 = (coeffs['a'] * rrs665_orig**3 + coeffs['b'] * rrs665_orig**2 +
+                  coeffs['c'] * rrs665_orig + coeffs['d'])
+
+        # Step 4: Classify water types (vectorized boolean masks)
+        type1 = vp[490] > vp[560]                                                  # Clear
+        type2 = (~type1) & (vp[490] > rrs620)                                      # Moderate
+        type4 = (~type1) & (~type2) & (vp[740] > vp[490]) & (vp[740] > 0.010)      # Extreme
+        type3 = (~type1) & (~type2) & (~type4)                                      # Turbid (default)
+
+        # Initialize output arrays
         absorption_out = np.full(n_pixels, np.nan, dtype=np.float32)
         backscattering_out = np.full(n_pixels, np.nan, dtype=np.float32)
         reference_band_out = np.full(n_pixels, np.nan, dtype=np.float32)
         tss_out = np.full(n_pixels, np.nan, dtype=np.float32)
 
-        for i in range(n_pixels):
-            pixel_rrs = {wl: valid_pixels[wl][i] for wl in valid_pixels.keys()}
-            result = self._estimate_tss_single_pixel(pixel_rrs)
+        # Step 5: Type I (Clear Water) — 560nm reference
+        if np.any(type1):
+            m = type1
+            numerator = rrs[443][m] + rrs[490][m]
+            denominator = rrs[560][m] + 5.0 * rrs[665][m]**2 / rrs[490][m]
+            ratio = numerator / denominator
+            x = np.full_like(ratio, np.nan)
+            valid_r = ratio > 0
+            x[valid_r] = np.log10(ratio[valid_r])
+            a560 = aw[560] + 10.0**(-1.146 - 1.366 * x - 0.469 * x**2)
+            denom_u = 1.0 - u[560][m]
+            safe = np.abs(denom_u) > 1e-10
+            bbp = np.full_like(a560, np.nan)
+            bbp[safe] = (u[560][m][safe] * a560[safe]) / denom_u[safe] - bbw[560]
+            absorption_out[m] = a560
+            backscattering_out[m] = bbp
+            reference_band_out[m] = 560
+            tss_out[m] = tsf[560] * bbp
 
-            if result is not None:
-                absorption_out[i] = result['a']
-                backscattering_out[i] = result['bbp']
-                reference_band_out[i] = result['band']
-                tss_out[i] = result['tss']
+        # Step 6: Type II (Moderately Turbid) — 665nm reference
+        if np.any(type2):
+            m = type2
+            ratio = vp[665][m] / (vp[443][m] + vp[490][m])
+            a665 = aw[665] + 0.39 * np.power(ratio, 1.14)
+            denom_u = 1.0 - u[665][m]
+            safe = np.abs(denom_u) > 1e-10
+            bbp = np.full_like(a665, np.nan)
+            bbp[safe] = (u[665][m][safe] * a665[safe]) / denom_u[safe] - bbw[665]
+            absorption_out[m] = a665
+            backscattering_out[m] = bbp
+            reference_band_out[m] = 665
+            tss_out[m] = tsf[665] * bbp
+
+        # Step 7: Type III (Highly Turbid) — 740nm reference
+        if np.any(type3):
+            m = type3
+            denom_u = 1.0 - u[740][m]
+            safe = np.abs(denom_u) > 1e-10
+            bbp = np.full_like(denom_u, np.nan)
+            bbp[safe] = (u[740][m][safe] * aw[740]) / denom_u[safe] - bbw[740]
+            absorption_out[m] = aw[740]
+            backscattering_out[m] = bbp
+            reference_band_out[m] = 740
+            tss_out[m] = tsf[740] * bbp
+
+        # Step 8: Type IV (Extremely Turbid) — 865nm reference
+        if np.any(type4):
+            m = type4
+            denom_u = 1.0 - u[865][m]
+            safe = np.abs(denom_u) > 1e-10
+            bbp = np.full_like(denom_u, np.nan)
+            bbp[safe] = (u[865][m][safe] * aw[865]) / denom_u[safe] - bbw[865]
+            absorption_out[m] = aw[865]
+            backscattering_out[m] = bbp
+            reference_band_out[m] = 865
+            tss_out[m] = tsf[865] * bbp
 
         return {
             'absorption': absorption_out,
@@ -1085,10 +1201,12 @@ class TSSProcessor:
             # Create scene-based output structure
             scene_folder = OutputStructure.get_scene_folder(output_folder, scene_name)
             tss_folder = OutputStructure.get_category_folder(scene_folder, OutputStructure.TSS_FOLDER)
-            advanced_folder = OutputStructure.get_category_folder(scene_folder, OutputStructure.ADVANCED_FOLDER)
 
-            # Core Jiang products - using new naming convention
-            jiang_products = {
+            # Core Jiang products - gated by output_categories.enable_tss
+            if not self.config.output_categories.enable_tss:
+                logger.debug("TSS output category disabled - skipping core TSS products")
+
+            jiang_products = {} if not self.config.output_categories.enable_tss else {
                 'absorption': {
                     'data': results.get('absorption'),
                     'filename': f"{scene_name}_Absorption.tif",
@@ -1127,39 +1245,29 @@ class TSSProcessor:
                 }
             }
 
-            # Advanced algorithm products - organized by subcategory
+            # Advanced algorithm products - routed to scene-level category folders
             advanced_products = {}
             for key, data in results.items():
                 if key.startswith('advanced_'):
                     if 'clarity' in key or 'secchi' in key or 'euphotic' in key or 'kd' in key:
-                        subcategory = OutputStructure.WATER_CLARITY_FOLDER
-                        description = "Water clarity analysis - Advanced Aquatic Processing"
-                        # Create subcategory folder
-                        subfolder = os.path.join(advanced_folder, subcategory)
-                        os.makedirs(subfolder, exist_ok=True)
+                        category = OutputStructure.WATER_CLARITY_FOLDER
+                        description = "Water clarity analysis"
                     elif 'hab' in key or 'cyano' in key or 'bloom' in key:
-                        subcategory = OutputStructure.HAB_FOLDER
-                        description = "Harmful Algal Bloom detection - Advanced Aquatic Processing"
-                        subfolder = os.path.join(advanced_folder, subcategory)
-                        os.makedirs(subfolder, exist_ok=True)
-                    elif 'tsi' in key:
-                        subcategory = None
-                        subfolder = advanced_folder
-                        description = "Trophic state assessment - Advanced Aquatic Processing"
+                        category = OutputStructure.HAB_FOLDER
+                        description = "Harmful Algal Bloom detection"
+                    elif 'tsi' in key or 'trophic' in key:
+                        category = OutputStructure.TROPHIC_STATE_FOLDER
+                        description = "Trophic state assessment"
                     else:
-                        subcategory = None
-                        subfolder = advanced_folder
+                        category = OutputStructure.TSS_FOLDER
                         description = "Advanced algorithm product"
 
-                    # Create clean product name
-                    clean_key = key.replace('advanced_', '')
-                    # Convert to proper case (e.g., secchi_depth -> SecchiDepth)
-                    product_type = ''.join(word.title() for word in clean_key.split('_'))
+                    subfolder = OutputStructure.get_category_folder(scene_folder, category)
 
-                    if subcategory:
-                        filename = f"{scene_name}_{subcategory}_{product_type}.tif"
-                    else:
-                        filename = f"{scene_name}_{product_type}.tif"
+                    # Create clean product name (e.g., secchi_depth -> SecchiDepth)
+                    clean_key = key.replace('advanced_', '')
+                    product_type = ''.join(word.title() for word in clean_key.split('_'))
+                    filename = f"{scene_name}_{product_type}.tif"
 
                     advanced_products[key] = {
                         'data': data,
@@ -1168,7 +1276,7 @@ class TSSProcessor:
                         'folder': subfolder
                     }
 
-            # NOTE: RGB composites and spectral indices are now handled by marine_viz.py
+            # NOTE: RGB composites and spectral indices are now handled by visualization_processor.py
             # They are saved directly there with proper band naming
             rgb_products = {}
             spectral_products = {}
@@ -1342,42 +1450,19 @@ DOI: https://doi.org/10.1016/j.rse.2021.112386
                             f.write(f"+ {os.path.basename(filepath)}\n")
                             total_count += 1
 
-                # ADVANCED ALGORITHM PRODUCTS (from Advanced subfolder)
-                advanced_folder = os.path.join(output_folder, 'Advanced')
-                if os.path.exists(advanced_folder):
-                    for category in ['HAB', 'WaterClarity']:
-                        cat_folder = os.path.join(advanced_folder, category)
-                        if os.path.exists(cat_folder):
-                            cat_files = sorted(glob.glob(os.path.join(cat_folder, '*.tif')))
-                            if cat_files:
-                                f.write(f"\n{category.upper()} PRODUCTS:\n")
-                                f.write(f"{'-'*30}\n")
-                                for filepath in cat_files:
-                                    f.write(f"+ {os.path.basename(filepath)}\n")
-                                    total_count += 1
-
-                # MARINE VISUALIZATIONS (from Visualizations subfolder)
-                viz_folder = os.path.join(output_folder, 'Visualizations')
-                if os.path.exists(viz_folder):
-                    # RGB composites
-                    rgb_folder = os.path.join(viz_folder, 'RGB')
-                    if os.path.exists(rgb_folder):
-                        rgb_files = sorted(glob.glob(os.path.join(rgb_folder, '*.tif')))
-                        if rgb_files:
-                            f.write(f"\nRGB COMPOSITES:\n")
+                # Additional output categories
+                for cat_name, cat_label in [('RGB', 'RGB COMPOSITES'),
+                                             ('Indices', 'SPECTRAL INDICES'),
+                                             ('WaterClarity', 'WATER CLARITY PRODUCTS'),
+                                             ('HAB', 'HAB PRODUCTS'),
+                                             ('TrophicState', 'TROPHIC STATE PRODUCTS')]:
+                    cat_folder = os.path.join(output_folder, cat_name)
+                    if os.path.exists(cat_folder):
+                        cat_files = sorted(glob.glob(os.path.join(cat_folder, '*.tif')))
+                        if cat_files:
+                            f.write(f"\n{cat_label}:\n")
                             f.write(f"{'-'*30}\n")
-                            for filepath in rgb_files:
-                                f.write(f"+ {os.path.basename(filepath)}\n")
-                                total_count += 1
-
-                    # Spectral indices
-                    indices_folder = os.path.join(viz_folder, 'Indices')
-                    if os.path.exists(indices_folder):
-                        idx_files = sorted(glob.glob(os.path.join(indices_folder, '*.tif')))
-                        if idx_files:
-                            f.write(f"\nSPECTRAL INDICES:\n")
-                            f.write(f"{'-'*30}\n")
-                            for filepath in idx_files:
+                            for filepath in cat_files:
                                 f.write(f"+ {os.path.basename(filepath)}\n")
                                 total_count += 1
 

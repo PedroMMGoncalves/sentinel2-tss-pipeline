@@ -69,26 +69,6 @@ class VisualizationProcessor:
         self.logger.debug("Initialized Visualization Processor")
         self.logger.debug(f"  RGB enabled: {self.output_categories.enable_rgb}")
         self.logger.debug(f"  Indices enabled: {self.output_categories.enable_indices}")
-        self.logger.debug(f"  Contrast enhancement: {self.config.apply_contrast_enhancement}")
-        self.logger.debug(f"  Contrast method: {self.config.contrast_method}")
-        self.logger.debug(f"  Export metadata: {self.config.export_metadata}")
-        self.logger.debug(f"  Create overview images: {self.config.create_overview_images}")
-
-        # Estimate expected products
-        expected_rgb = 0
-        if self.config.generate_natural_color: expected_rgb += 2
-        if self.config.generate_false_color: expected_rgb += 2
-        if self.config.generate_water_specific: expected_rgb += 6
-        if self.config.generate_research_combinations: expected_rgb += 10
-
-        expected_indices = 0
-        if self.config.generate_water_quality_indices: expected_indices += 7
-        if self.config.generate_chlorophyll_indices: expected_indices += 3  # PC, FAI removed
-        if self.config.generate_turbidity_indices: expected_indices += 2
-        if self.config.generate_advanced_indices: expected_indices += 3  # FUI removed, RDI added
-
-        self.logger.debug(f"Expected products: ~{expected_rgb} RGB composites + ~{expected_indices} spectral indices")
-        self.logger.debug("Marine visualization processor ready for processing")
 
     def process_marine_visualizations(self, c2rcc_path: str, output_folder: str,
                                     product_name: str, intermediate_paths: Optional[Dict[str, str]] = None) -> Dict[str, ProcessingResult]:
@@ -553,7 +533,6 @@ class VisualizationProcessor:
                             'description': config['description'],
                             'application': config['application'],
                             'bands_used': f"R:{config['red']}nm, G:{config['green']}nm, B:{config['blue']}nm",
-                            'priority': config['priority'],
                             'file_size_mb': file_size_mb,
                             'coverage_percent': coverage_percent,
                             'output_path': output_path
@@ -583,8 +562,7 @@ class VisualizationProcessor:
             available_wavelengths = set(bands_data.keys())
             self.logger.debug(f"Available wavelengths for indices: {sorted(available_wavelengths)}")
 
-            # Note: Water masking is controlled by JiangTSSConfig and applied at save time
-            # Marine viz no longer applies its own mask
+            # Note: Water masking is controlled by TSSConfig and applied at save time
             water_mask = None
 
             # 14 spectral indices (SDD removed - WaterClarity SecchiDepth is more rigorous)
@@ -595,9 +573,9 @@ class VisualizationProcessor:
             spectral_indices = {
                 # Water Quality (7)
                 'NDWI': {
-                    'formula': '(B3 - B8A) / (B3 + B8A)',
-                    'required_bands': [560, 865],
-                    'description': 'Normalized Difference Water Index',
+                    'formula': '(B3 - B8) / (B3 + B8)',
+                    'required_bands': [560, 842],
+                    'description': 'Normalized Difference Water Index (McFeeters 1996)',
                     'application': 'Water body delineation',
                     'enabled': indices_enabled,
                     'category': 'water_quality'
@@ -794,8 +772,8 @@ class VisualizationProcessor:
             # Water Quality Indices
             if index_name == 'NDWI':
                 b3 = bands_data[bands_to_use[0]]  # 560nm
-                b8a = bands_data[bands_to_use[1]]  # 865nm
-                return (b3 - b8a) / (b3 + b8a + 1e-8)
+                b8 = bands_data[bands_to_use[1]]  # 842nm (B8, broad NIR)
+                return (b3 - b8) / (b3 + b8 + 1e-8)
 
             elif index_name == 'MNDWI':
                 b3 = bands_data[bands_to_use[0]]  # 560nm
@@ -890,7 +868,7 @@ class VisualizationProcessor:
             return None
 
     # Note: _create_water_mask() removed - water masking is now controlled by
-    # JiangTSSConfig (shapefile mask or NIR threshold) and applied centrally
+    # TSSConfig (shapefile mask or NIR threshold) and applied centrally
 
     def _create_rgb_composite(self, red: np.ndarray, green: np.ndarray, blue: np.ndarray) -> np.ndarray:
         """Create RGB composite with percentile-based normalization."""
@@ -982,13 +960,7 @@ class VisualizationProcessor:
             dataset.SetMetadataItem('CREATION_DATE', datetime.now().isoformat())
             dataset.SetMetadataItem('SOURCE', 'Unified S2 TSS Pipeline - Marine Visualization')
 
-            if self.config.export_metadata:
-                dataset.SetMetadataItem('PROCESSING_METHOD', 'Marine RGB Composite')
-                dataset.SetMetadataItem('CONTRAST_ENHANCEMENT', str(self.config.apply_contrast_enhancement))
-                dataset.SetMetadataItem('CONTRAST_METHOD', self.config.contrast_method)
-
-            if self.config.create_overview_images:
-                dataset.BuildOverviews('AVERAGE', [2, 4, 8, 16])
+            dataset.SetMetadataItem('PROCESSING_METHOD', 'Marine RGB Composite')
 
             dataset.FlushCache()
             dataset = None
@@ -1051,12 +1023,8 @@ class VisualizationProcessor:
             dataset.SetMetadataItem('CREATION_DATE', datetime.now().isoformat())
             dataset.SetMetadataItem('SOURCE', 'Unified S2 TSS Pipeline - Marine Visualization')
 
-            if self.config.export_metadata:
-                dataset.SetMetadataItem('PROCESSING_METHOD', 'Spectral Index Calculation')
-                dataset.SetMetadataItem('UNITS', 'Dimensionless')
-
-            if self.config.create_overview_images:
-                dataset.BuildOverviews('AVERAGE', [2, 4, 8, 16])
+            dataset.SetMetadataItem('PROCESSING_METHOD', 'Spectral Index Calculation')
+            dataset.SetMetadataItem('UNITS', 'Dimensionless')
 
             dataset.FlushCache()
             dataset = None
@@ -1149,25 +1117,10 @@ class VisualizationProcessor:
                             else:
                                 f.write("  Error: Unknown failure\n\n")
 
-                f.write("CONFIGURATION SETTINGS:\n")
+                f.write("OUTPUT CATEGORIES:\n")
                 f.write("-" * 40 + "\n")
-                f.write(f"  RGB Format: {self.config.rgb_format}\n")
-                f.write(f"  Contrast Enhancement: {self.config.apply_contrast_enhancement}\n")
-                f.write(f"  Contrast Method: {self.config.contrast_method}\n")
-                f.write(f"  Percentile Range: {self.config.percentile_range}\n")
-                f.write(f"  Export Metadata: {self.config.export_metadata}\n")
-                f.write(f"  Create Overviews: {self.config.create_overview_images}\n\n")
-
-                f.write("ENABLED FEATURES:\n")
-                f.write("-" * 40 + "\n")
-                f.write(f"  Natural Color RGB: {self.config.generate_natural_color}\n")
-                f.write(f"  False Color RGB: {self.config.generate_false_color}\n")
-                f.write(f"  Water-specific RGB: {self.config.generate_water_specific}\n")
-                f.write(f"  Research RGB: {self.config.generate_research_combinations}\n")
-                f.write(f"  Water Quality Indices: {self.config.generate_water_quality_indices}\n")
-                f.write(f"  Chlorophyll Indices: {self.config.generate_chlorophyll_indices}\n")
-                f.write(f"  Turbidity Indices: {self.config.generate_turbidity_indices}\n")
-                f.write(f"  Advanced Indices: {self.config.generate_advanced_indices}\n\n")
+                f.write(f"  RGB Composites: {self.output_categories.enable_rgb}\n")
+                f.write(f"  Spectral Indices: {self.output_categories.enable_indices}\n\n")
 
                 f.write("OUTPUT FILES:\n")
                 f.write("-" * 40 + "\n")

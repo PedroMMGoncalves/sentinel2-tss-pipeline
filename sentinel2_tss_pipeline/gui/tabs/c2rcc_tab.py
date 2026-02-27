@@ -41,6 +41,12 @@ def create_c2rcc_tab(gui, notebook):
     canvas.pack(side="left", fill="both", expand=True)
     scrollbar.pack(side="right", fill="y")
 
+    # Enable mousewheel scrolling (scoped to this tab)
+    def _on_mousewheel(event):
+        canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+    scrollable_frame.bind('<Enter>', lambda e: canvas.bind_all('<MouseWheel>', _on_mousewheel))
+    scrollable_frame.bind('<Leave>', lambda e: canvas.unbind_all('<MouseWheel>'))
+
     # Title
     ttk.Label(
         scrollable_frame, text="C2RCC Atmospheric Correction Parameters",

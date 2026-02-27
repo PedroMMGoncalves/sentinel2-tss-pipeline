@@ -206,10 +206,19 @@ def load_config(gui):
 
         # Check config version
         version = config.get('version', '1.0')
-        if version < '2.0':
+        try:
+            if float(version) < 2.0:
+                messagebox.showerror(
+                    "Config Error",
+                    "This config file uses an outdated format (v1.x).\n"
+                    "Please reconfigure using the GUI and save a new config.",
+                    parent=gui.root
+                )
+                return
+        except (ValueError, TypeError):
             messagebox.showerror(
                 "Config Error",
-                "This config file uses an outdated format (v1.x).\n"
+                f"Unrecognized config version: '{version}'.\n"
                 "Please reconfigure using the GUI and save a new config.",
                 parent=gui.root
             )

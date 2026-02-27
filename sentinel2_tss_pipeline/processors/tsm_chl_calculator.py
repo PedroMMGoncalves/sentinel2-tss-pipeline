@@ -12,8 +12,8 @@ Reference:
 import os
 import logging
 import traceback
-from typing import Dict
-from dataclasses import dataclass
+from typing import Dict, Optional
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -28,7 +28,8 @@ class ProcessingResult:
     success: bool
     output_path: str
     stats: dict
-    error_message: str = None
+    error_message: Optional[str] = None
+    intermediate_paths: Optional[dict] = field(default_factory=dict)
 
 
 class TSMCHLCalculator:
@@ -117,7 +118,7 @@ class TSMCHLCalculator:
                         logger.error(f"Error in CHL calculation: {calc_error}")
                         chl_concentration = np.full_like(apig_data, np.nan, dtype=np.float32)
 
-                # Save CHL concentration
+                # Save CHL to .data folder (standard SNAP BEAM-DIMAP practice)
                 output_path = os.path.join(data_folder, 'conc_chl.img')
                 success = RasterIO.write_raster(
                     chl_concentration, output_path, metadata,
@@ -221,7 +222,7 @@ class TSMCHLCalculator:
 
                 tsm_data, tsm_meta = RasterIO.read_raster(tsm_path)
 
-                # Simple uncertainty model: 20% of TSM value + 0.1 g/m3 base uncertainty
+                # Simplified uncertainty model (no in-situ data available for full error propagation)
                 unc_tsm_data = np.where(
                     tsm_data > 0,
                     tsm_data * 0.20 + 0.1,  # 20% relative + 0.1 g/m3 absolute

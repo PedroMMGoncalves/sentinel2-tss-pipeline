@@ -44,10 +44,6 @@ class OutputStructure:
     IOP_FOLDER = "IOP"
     LOGS_FOLDER = "Logs"
 
-    # Deprecated: kept temporarily for jiang_processor.py compatibility (remove in Task 10)
-    SNAP_FOLDER = "SNAP"
-    ADVANCED_FOLDER = "Advanced"
-
     # RGB band mappings (wavelength -> band number)
     WAVELENGTH_TO_BAND = {
         443: '1',    # B1 - Coastal aerosol
@@ -230,7 +226,7 @@ class OutputStructure:
         Args:
             output_root: Root output directory
             scene_name: Clean scene name
-            category: Category (TSS, SNAP, RGB, Indices, Advanced)
+            category: Category (TSS, RGB, Indices, WaterClarity, HAB, TrophicState)
             product_type: Product type (TSS, NDWI, etc.)
             suffix: Optional suffix for filename
             subcategory: Optional subcategory folder (e.g., HAB, IOP)

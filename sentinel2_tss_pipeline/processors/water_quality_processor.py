@@ -100,6 +100,12 @@ class WaterQualityProcessor:
             # Beam attenuation coefficient (approximate)
             beam_attenuation = absorption + backscattering
 
+            # Physical range clamping
+            kd = np.clip(kd, 0, 20)                         # m^-1, max for extremely turbid
+            secchi_depth = np.clip(secchi_depth, 0, 100)     # meters, max for clearest ocean
+            euphotic_depth = np.clip(euphotic_depth, 0, 200) # meters
+            beam_attenuation = np.clip(beam_attenuation, 0, 50)  # m^-1
+
             # Relative turbidity index (dimensionless, 0-1 scale)
             # Note: This is NOT calibrated NTU - use for relative comparison only
             relative_turbidity_index = np.clip(backscattering * 100, 0, 1)
@@ -184,7 +190,7 @@ class WaterQualityProcessor:
                     results['ndci_values'] = ndci_values
 
                     # Add to probability calculation
-                    hab_probability += ndci_bloom * 0.3
+                    hab_probability += ndci_bloom * 0.5
                     algorithms_applied.append("NDCI")
 
                     logger.debug(f"NDCI calculated for {np.sum(valid_mask)} pixels")
@@ -205,16 +211,16 @@ class WaterQualityProcessor:
                 valid_mask = (
                     (~np.isnan(band_665)) &
                     (~np.isnan(band_705)) &
-                    (~np.isnan(band_740)) &
-                    (~np.isnan(band_865))
+                    (~np.isnan(band_740))
                 )
 
                 if np.any(valid_mask):
-                    # MCI calculation (simplified for S2 bands)
-                    slope = (740 - 665) / (865 - 665)
+                    # MCI: height of 705nm peak above 665-740nm baseline
+                    # Adapted for Sentinel-2 from Binding et al. (2013)
+                    slope = (705 - 665) / (740 - 665)  # = 0.533
                     mci_values[valid_mask] = (
                         band_705[valid_mask] - band_665[valid_mask] -
-                        slope * (band_865[valid_mask] - band_665[valid_mask])
+                        slope * (band_740[valid_mask] - band_665[valid_mask])
                     )
 
                     # MCI bloom threshold
@@ -223,7 +229,7 @@ class WaterQualityProcessor:
                     results['mci_values'] = mci_values
 
                     # Add to probability calculation
-                    hab_probability += mci_bloom * 0.3
+                    hab_probability += mci_bloom * 0.5
                     algorithms_applied.append("MCI")
 
                     logger.debug(f"MCI calculated for {np.sum(valid_mask)} pixels")
@@ -273,7 +279,7 @@ class WaterQualityProcessor:
         except Exception as e:
             logger.error(f"Error in HAB detection: {e}")
             import traceback
-            traceback.print_exc()
+            logger.error(traceback.format_exc())
             return {}
 
     def calculate_trophic_state(self, chlorophyll: np.ndarray,
@@ -310,7 +316,9 @@ class WaterQualityProcessor:
 
             tsi_chl = np.full(shape, np.nan, dtype=np.float32)
             if np.any(valid_chl):
-                tsi_chl[valid_chl] = 9.81 * np.log(chlorophyll[valid_chl]) + 30.6
+                tsi_chl[valid_chl] = np.clip(
+                    9.81 * np.log(chlorophyll[valid_chl]) + 30.6, 0, 100
+                )
                 results['tsi_chlorophyll'] = tsi_chl
                 logger.info(f"TSI(CHL) calculated for {np.sum(valid_chl)} pixels")
 
@@ -319,7 +327,9 @@ class WaterQualityProcessor:
                 valid_sd = (secchi_depth > 0) & (~np.isnan(secchi_depth))
                 tsi_sd = np.full(shape, np.nan, dtype=np.float32)
                 if np.any(valid_sd):
-                    tsi_sd[valid_sd] = 60.0 - 14.41 * np.log(secchi_depth[valid_sd])
+                    tsi_sd[valid_sd] = np.clip(
+                        60.0 - 14.41 * np.log(secchi_depth[valid_sd]), 0, 100
+                    )
                     results['tsi_secchi'] = tsi_sd
                     logger.info(f"TSI(SD) calculated for {np.sum(valid_sd)} pixels")
 
@@ -357,7 +367,7 @@ class WaterQualityProcessor:
         except Exception as e:
             logger.error(f"Error calculating trophic state: {e}")
             import traceback
-            traceback.print_exc()
+            logger.error(traceback.format_exc())
             return {}
 
 

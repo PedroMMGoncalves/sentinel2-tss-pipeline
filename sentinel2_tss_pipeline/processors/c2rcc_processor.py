@@ -107,9 +107,9 @@ class C2RCCProcessor:
 
         if mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.S2_PROCESSING_ONLY]:
             if self.config.subset_config.geometry_wkt or self.config.subset_config.pixel_start_x is not None:
-                self.main_graph_file = self.create_s2_graph_with_subset()
+                self.main_graph_file = os.path.abspath(self.create_s2_graph_with_subset())
             else:
-                self.main_graph_file = self.create_s2_graph_no_subset()
+                self.main_graph_file = os.path.abspath(self.create_s2_graph_no_subset())
 
         logger.debug(f"Processing graph created for mode: {mode.value}")
 
@@ -468,7 +468,7 @@ class C2RCCProcessor:
                     # Verify required bands exist for potential TSS processing
                     data_folder = c2rcc_output_path.replace('.dim', '.data')
                     required_bands = ['conc_tsm.img', 'conc_chl.img', 'unc_tsm.img', 'unc_chl.img']
-                    if self.config.jiang_config.enable_jiang_tss:
+                    if self.config.tss_config.enable_tss_processing:
                         required_bands.extend(['rhow_B1.img', 'rhow_B2.img', 'rhow_B3.img', 'rhow_B4.img',
                                             'rhow_B5.img', 'rhow_B6.img', 'rhow_B7.img', 'rhow_B8A.img'])
 
@@ -489,7 +489,7 @@ class C2RCCProcessor:
                             results['clean_product_name'] = clean_name  # For cleanup tracking
 
                             # C2RCCProcessor stops here - no TSS processing
-                            # TSS processing is handled by UnifiedS2TSSProcessor/JiangTSSProcessor
+                            # TSS processing is handled by UnifiedS2TSSProcessor/TSSProcessor
                             logger.debug("S2 processing completed - ready for TSS processing")
 
                             return results
@@ -553,7 +553,7 @@ class C2RCCProcessor:
 
                     # C2RCCProcessor only does S2 processing - TSS handled separately
                     logger.debug("S2 processing completed - ready for TSS processing")
-                    logger.debug("TSS processing (Jiang + Marine Viz) handled by separate processors")
+                    logger.debug("TSS processing handled by separate processors")
 
                     # Clean up memory after S2 processing
                     try:
@@ -585,6 +585,19 @@ class C2RCCProcessor:
     def _run_s2_processing(self, input_path: str, output_path: str) -> bool:
         """Run S2 processing using GPT"""
         try:
+            # Check disk space before GPT processing
+            import shutil as _shutil
+            try:
+                disk_usage = _shutil.disk_usage(os.path.dirname(output_path))
+                free_gb = disk_usage.free / (1024**3)
+                if free_gb < 5:
+                    logger.error(f"Critical: Only {free_gb:.1f} GB free. GPT processing may fail.")
+                    return False
+                elif free_gb < 25:
+                    logger.warning(f"Low disk space: {free_gb:.1f} GB free (recommend >= 25 GB)")
+            except Exception as disk_err:
+                logger.debug(f"Could not check disk space: {disk_err}")
+
             # Prepare GPT command
             gpt_cmd = self.get_gpt_command()
 
@@ -617,7 +630,7 @@ class C2RCCProcessor:
             logger.debug(f"GPT command: {' '.join(cmd)}")
 
             # Run GPT processing with timeout and proper process management
-            gpt_timeout = getattr(self.config, 'gpt_timeout', 10800)  # Default 3 hours
+            gpt_timeout = self.config.gpt_timeout if hasattr(self.config, 'gpt_timeout') else 10800
             logger.debug(f"Executing GPT processing (timeout: {gpt_timeout//3600}h {(gpt_timeout%3600)//60}m)...")
 
             # Use Popen for proper process control (allows killing on timeout)
@@ -631,6 +644,12 @@ class C2RCCProcessor:
             try:
                 stdout, stderr = process.communicate(timeout=gpt_timeout)
                 returncode = process.returncode
+
+                # Log any SNAP progress output
+                if stdout:
+                    for line in stdout.splitlines():
+                        if '%' in line or 'done' in line.lower():
+                            logger.debug(f"GPT: {line.strip()}")
 
                 # Check processing results
                 if returncode == 0:
@@ -759,29 +778,29 @@ class C2RCCProcessor:
 
             logger.debug(f"IOP products: {iop_count}/6 available")
 
-            # Check rhow bands for Jiang TSS
+            # Check rhow bands for TSS processing
             rhow_bands = self._check_rhow_bands_availability(c2rcc_path)
             rhow_count = len(rhow_bands)
 
             if rhow_count >= 6:
-                ready_for_jiang = True
+                ready_for_tss = True
             else:
-                ready_for_jiang = False
+                ready_for_tss = False
                 if rhow_count > 0:
-                    logger.warning(f"Only {rhow_count}/8 rhow bands available - Jiang TSS may fail")
+                    logger.warning(f"Only {rhow_count}/8 rhow bands available - TSS processing may fail")
                 else:
-                    logger.warning("No rhow bands found - Jiang TSS will not run")
+                    logger.warning("No rhow bands found - TSS processing will not run")
 
             # Overall assessment
-            if has_tsm and has_chl and ready_for_jiang:
+            if has_tsm and has_chl and ready_for_tss:
                 overall_status = "good"
-                logger.debug(f"Jiang TSS: Ready ({rhow_count}/8 bands)")
-            elif ready_for_jiang:
+                logger.debug(f"TSS processing: Ready ({rhow_count}/8 bands)")
+            elif ready_for_tss:
                 overall_status = "adequate"
-                logger.debug(f"Jiang TSS: Ready ({rhow_count}/8 bands), TSM/CHL will be calculated")
+                logger.debug(f"TSS processing: Ready ({rhow_count}/8 bands), TSM/CHL will be calculated")
             else:
                 overall_status = "limited"
-                logger.warning("Jiang TSS: Not ready - missing bands")
+                logger.warning("TSS processing: Not ready - missing bands")
 
             # Return comprehensive stats
             stats = {
@@ -791,7 +810,7 @@ class C2RCCProcessor:
                 'has_uncertainties': has_uncertainties,
                 'iop_count': iop_count,
                 'rhow_bands_count': rhow_count,
-                'ready_for_jiang_tss': ready_for_jiang,
+                'ready_for_tss_tss': ready_for_tss,
                 'overall_status': overall_status,
                 'rhow_bands': rhow_bands
             }
@@ -801,7 +820,7 @@ class C2RCCProcessor:
         except Exception as e:
             logger.error(f"Unexpected error verifying C2RCC output {c2rcc_path}: {e}")
             import traceback
-            traceback.print_exc()
+            logger.error(traceback.format_exc())
             return None
 
     def _verify_file_integrity(self, file_path: str, min_size_kb: int = 1) -> tuple:
@@ -1011,5 +1030,5 @@ class C2RCCProcessor:
             if graph_file and os.path.exists(graph_file):
                 try:
                     os.remove(graph_file)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Graph cleanup: {e}")

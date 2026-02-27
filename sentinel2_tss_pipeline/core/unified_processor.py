@@ -14,6 +14,7 @@ Reference:
 
 import os
 import gc
+import glob
 import time
 import logging
 from typing import Dict, List
@@ -47,7 +48,8 @@ class UnifiedS2TSSProcessor:
         self.processed_count = 0
         self.failed_count = 0
         self.skipped_count = 0
-        self.start_time = time.time()
+        self.total_products = 0
+        self.start_time = None
 
         # System monitoring
         self.system_monitor = SystemMonitor()
@@ -89,6 +91,10 @@ class UnifiedS2TSSProcessor:
 
             logger.info(f"Found {len(products)} products to process")
             logger.info(f"Processing mode: {self.config.processing_mode.value}")
+
+            # Track batch size and reset start time for accurate progress/ETA
+            self.total_products = len(products)
+            self.start_time = time.time()
 
             # Process each product
             for i, product_path in enumerate(products, 1):
@@ -263,8 +269,9 @@ class UnifiedS2TSSProcessor:
                         gc.collect()
 
                     # Check memory again after cleanup
-                    current_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
-                    logger.debug(f"Memory usage after cleanup: {current_memory:.1f}MB")
+                    if HAS_PSUTIL:
+                        current_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+                        logger.debug(f"Memory usage after cleanup: {current_memory:.1f}MB")
 
             except Exception as cleanup_error:
                 logger.debug(f"Memory cleanup warning: {cleanup_error}")
@@ -287,7 +294,7 @@ class UnifiedS2TSSProcessor:
             error_msg = f"Unexpected error: {str(e)}"
             logger.error(error_msg)
             import traceback
-            traceback.print_exc()
+            logger.error(traceback.format_exc())
             self.failed_count += 1
 
     def _extract_product_name(self, product_path: str) -> str:
@@ -322,12 +329,12 @@ class UnifiedS2TSSProcessor:
             scene_name = OutputStructure.extract_clean_scene_name(product_name)
 
             if mode == ProcessingMode.COMPLETE_PIPELINE:
-                # Check for C2RCC output in Intermediate folder
+                # Check for C2RCC output in Intermediate folder (glob for flexible naming)
                 c2rcc_folder = OutputStructure.get_intermediate_folder(
                     self.config.output_folder, OutputStructure.C2RCC_FOLDER
                 )
-                c2rcc_path = os.path.join(c2rcc_folder, f"Resampled_{product_name}_Subset_C2RCC.dim")
-                if not os.path.exists(c2rcc_path):
+                c2rcc_pattern = os.path.join(c2rcc_folder, f"*{product_name}*C2RCC*.dim")
+                if not glob.glob(c2rcc_pattern):
                     return False
 
                 # Check for TSS output if TSS processing is enabled (in scene folder)
@@ -340,12 +347,12 @@ class UnifiedS2TSSProcessor:
                 return True
 
             elif mode == ProcessingMode.S2_PROCESSING_ONLY:
-                # Check for C2RCC output
+                # Check for C2RCC output (glob for flexible naming)
                 c2rcc_folder = OutputStructure.get_intermediate_folder(
                     self.config.output_folder, OutputStructure.C2RCC_FOLDER
                 )
-                c2rcc_path = os.path.join(c2rcc_folder, f"Resampled_{product_name}_Subset_C2RCC.dim")
-                return os.path.exists(c2rcc_path)
+                c2rcc_pattern = os.path.join(c2rcc_folder, f"*{product_name}*C2RCC*.dim")
+                return len(glob.glob(c2rcc_pattern)) > 0
 
             elif mode == ProcessingMode.TSS_PROCESSING_ONLY:
                 # Check for TSS output in scene folder
@@ -359,6 +366,22 @@ class UnifiedS2TSSProcessor:
             logger.debug(f"Error checking existing outputs: {e}")
             return False
 
+    @staticmethod
+    def _safe_rmtree(path, retries=3, delay=1.0):
+        """Remove directory tree with Windows file-lock retry."""
+        import shutil
+        for attempt in range(retries):
+            try:
+                shutil.rmtree(path)
+                return True
+            except PermissionError:
+                if attempt < retries - 1:
+                    logger.debug(f"File locked, retrying in {delay}s... ({attempt+1}/{retries})")
+                    time.sleep(delay)
+                else:
+                    logger.warning(f"Could not delete {path} after {retries} attempts (file locked)")
+                    return False
+
     def _cleanup_intermediate_files(self, output_folder: str, product_name: str):
         """
         Delete intermediate .dim/.data files after successful processing.
@@ -370,8 +393,6 @@ class UnifiedS2TSSProcessor:
             output_folder: Base output directory
             product_name: Name of the processed product
         """
-        import shutil
-
         try:
             # Get intermediate folders
             geometric_folder = OutputStructure.get_intermediate_folder(
@@ -391,7 +412,7 @@ class UnifiedS2TSSProcessor:
                 os.remove(resampled_dim)
                 deleted_count += 1
             if os.path.exists(resampled_data):
-                shutil.rmtree(resampled_data)
+                self._safe_rmtree(resampled_data)
                 deleted_count += 1
 
             # Delete C2RCC product (.dim and .data folder)
@@ -410,7 +431,7 @@ class UnifiedS2TSSProcessor:
                     os.remove(c2rcc_dim)
                     deleted_count += 1
                 if os.path.exists(c2rcc_data):
-                    shutil.rmtree(c2rcc_data)
+                    self._safe_rmtree(c2rcc_data)
                     deleted_count += 1
 
             if deleted_count > 0:
@@ -457,7 +478,8 @@ class UnifiedS2TSSProcessor:
         if self.c2rcc_processor:
             return self.c2rcc_processor.get_processing_status()
         else:
-            total = self.processed_count + self.failed_count + self.skipped_count
+            completed = self.processed_count + self.failed_count + self.skipped_count
+            total = max(self.total_products, completed)
             elapsed_time = time.time() - self.start_time
 
             return ProcessingStatus(
@@ -467,7 +489,7 @@ class UnifiedS2TSSProcessor:
                 skipped=self.skipped_count,
                 current_product="",
                 current_stage="",
-                progress_percent=(total / max(total, 1)) * 100,
+                progress_percent=(completed / max(total, 1)) * 100,
                 eta_minutes=0.0,
                 processing_speed=(self.processed_count / elapsed_time) * 60 if elapsed_time > 0 else 0.0
             )

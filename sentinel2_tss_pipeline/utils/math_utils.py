@@ -2,7 +2,8 @@
 Safe mathematical operations for NumPy arrays.
 
 Provides overflow-protected operations for division, square root,
-logarithm, and power calculations.
+logarithm, and power calculations. All functions return NaN for
+invalid inputs (consistent sentinel value).
 """
 
 import numpy as np
@@ -15,14 +16,14 @@ class SafeMathNumPy:
     """Safe mathematical operations for NumPy arrays"""
 
     @staticmethod
-    def safe_divide(numerator, denominator, default_value=0.0, min_denominator=1e-10):
+    def safe_divide(numerator, denominator, default_value=np.nan, min_denominator=1e-10):
         """
         Safely divide arrays with protection against division by zero.
 
         Args:
             numerator: Numerator array or scalar
             denominator: Denominator array or scalar
-            default_value: Value to use when division is not possible
+            default_value: Value to use when division is not possible (default: NaN)
             min_denominator: Minimum absolute value for denominator
 
         Returns:
@@ -35,24 +36,20 @@ class SafeMathNumPy:
 
         result = np.full_like(numerator, default_value, dtype=np.float32)
 
-        if isinstance(denominator, (int, float)):
-            if abs(denominator) >= min_denominator:
-                result = numerator / denominator
-        else:
-            valid_mask = np.abs(denominator) >= min_denominator
-            result[valid_mask] = numerator[valid_mask] / denominator[valid_mask]
+        valid_mask = np.abs(denominator) >= min_denominator
+        result[valid_mask] = numerator[valid_mask] / denominator[valid_mask]
 
         return result
 
     @staticmethod
-    def safe_sqrt(value, min_value=0.0, default_value=0.0):
+    def safe_sqrt(value, min_value=0.0, default_value=np.nan):
         """
         Safely calculate square root.
 
         Args:
             value: Input array or scalar
             min_value: Minimum value allowed for sqrt
-            default_value: Value to use for invalid inputs
+            default_value: Value to use for invalid inputs (default: NaN)
 
         Returns:
             Square root result array
@@ -67,7 +64,7 @@ class SafeMathNumPy:
         return result
 
     @staticmethod
-    def safe_log(value, base=10, min_value=1e-10, default_value=-999):
+    def safe_log(value, base=10, min_value=1e-10, default_value=np.nan):
         """
         Safely calculate logarithm.
 
@@ -75,7 +72,7 @@ class SafeMathNumPy:
             value: Input array or scalar
             base: Logarithm base (default: 10)
             min_value: Minimum value for valid log
-            default_value: Value to use for invalid inputs
+            default_value: Value to use for invalid inputs (default: NaN)
 
         Returns:
             Logarithm result array
@@ -85,17 +82,13 @@ class SafeMathNumPy:
 
         result = np.full_like(value, default_value, dtype=np.float32)
 
-        if isinstance(value, (int, float)):
-            if value > min_value:
-                result = np.log(value) / np.log(base)
-        else:
-            valid_mask = value > min_value
-            result[valid_mask] = np.log(value[valid_mask]) / np.log(base)
+        valid_mask = value > min_value
+        result[valid_mask] = np.log(value[valid_mask]) / np.log(base)
 
         return result
 
     @staticmethod
-    def safe_power(base, exponent, min_base=1e-10, max_exponent=100, default_value=0.0):
+    def safe_power(base, exponent, min_base=1e-10, max_exponent=100, default_value=np.nan):
         """
         Safely calculate power operations.
 
@@ -104,7 +97,7 @@ class SafeMathNumPy:
             exponent: Exponent array or scalar
             min_base: Minimum base value
             max_exponent: Maximum absolute exponent
-            default_value: Value to use for invalid inputs
+            default_value: Value to use for invalid inputs (default: NaN)
 
         Returns:
             Power result array
@@ -120,9 +113,10 @@ class SafeMathNumPy:
         valid_mask = (base >= min_base) & (np.abs(exponent) <= max_exponent)
 
         if np.any(valid_mask):
-            try:
-                result[valid_mask] = np.power(base[valid_mask], exponent[valid_mask])
-            except (OverflowError, RuntimeWarning):
-                logger.warning("Power calculation overflow detected, using default values")
+            with np.errstate(over='ignore', invalid='ignore'):
+                try:
+                    result[valid_mask] = np.power(base[valid_mask], exponent[valid_mask])
+                except (OverflowError, FloatingPointError):
+                    logger.warning("Power calculation overflow detected, using default values")
 
         return result

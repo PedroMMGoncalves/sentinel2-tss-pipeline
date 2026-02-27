@@ -23,7 +23,8 @@ class TSSConfig:
     """TSS processing and output configuration.
 
     Replaces the old JiangTSSConfig. Controls TSS algorithm settings,
-    water masking, and output category selection.
+    water masking, visualization, water quality sub-processing,
+    and output category selection.
     """
     enable_tss_processing: bool = True
     output_intermediates: bool = True
@@ -31,9 +32,23 @@ class TSSConfig:
     output_comparison_stats: bool = True
 
     # Water masking - auto-detect enabled by default
-    # NDWI+NIR mask: water = (NDWI > 0) AND (NIR < 0.03)
+    # NIR mask: water = NIR(865nm) < water_mask_threshold
     auto_water_mask: bool = True  # ENABLED by default (fixes land contamination)
     water_mask_shapefile: Optional[str] = None  # User override for exact coastline
+    water_mask_threshold: float = 0.03  # NIR Rrs threshold for water detection
+
+    # Water quality sub-processing (HAB, clarity, trophic state)
+    enable_water_quality: bool = True
+    water_quality_config: Optional[object] = None  # WaterQualityConfig, lazy init
+
+    # Visualization sub-processing (RGB composites + spectral indices)
+    enable_visualization: bool = True
 
     # Output categories (replaces 13 sub-toggles with 6 clear categories)
     output_categories: OutputCategoryConfig = field(default_factory=OutputCategoryConfig)
+
+    def __post_init__(self):
+        """Initialize water quality config if enabled and not provided."""
+        if self.water_quality_config is None and self.enable_water_quality:
+            from .water_quality_config import WaterQualityConfig
+            self.water_quality_config = WaterQualityConfig()

@@ -11,6 +11,17 @@ import logging
 logger = logging.getLogger('sentinel2_tss_pipeline')
 
 
+def _validate_numeric(value_if_allowed):
+    """Validate spinbox input is numeric."""
+    if value_if_allowed == "":
+        return True
+    try:
+        int(value_if_allowed)
+        return True
+    except ValueError:
+        return False
+
+
 def create_processing_tab(gui, notebook):
     """
     Create the Processing Mode tab.
@@ -119,16 +130,21 @@ def create_processing_tab(gui, notebook):
     perf_frame = ttk.Frame(right_options)
     perf_frame.pack(anchor=tk.W)
 
+    # Numeric validation for spinboxes
+    vcmd = (gui.root.register(_validate_numeric), '%P')
+
     ttk.Label(perf_frame, text="Memory Limit (GB):").pack(side=tk.LEFT)
     ttk.Spinbox(
         perf_frame, from_=4, to=32, width=5,
-        textvariable=gui.memory_limit_var
+        textvariable=gui.memory_limit_var,
+        validate='key', validatecommand=vcmd
     ).pack(side=tk.LEFT, padx=(5, 20))
 
     ttk.Label(perf_frame, text="Thread Count:").pack(side=tk.LEFT)
     ttk.Spinbox(
         perf_frame, from_=1, to=16, width=5,
-        textvariable=gui.thread_count_var
+        textvariable=gui.thread_count_var,
+        validate='key', validatecommand=vcmd
     ).pack(side=tk.LEFT, padx=(5, 0))
 
     # Bind input directory change to validation
@@ -167,7 +183,6 @@ def _browse_directory(gui, dir_type):
             gui.output_dir_var.set(directory)
             # Setup logging to output folder
             from ...utils.logging_utils import setup_enhanced_logging
-            global logger
-            logger, _ = setup_enhanced_logging(
+            setup_enhanced_logging(
                 log_level=logging.INFO, output_folder=directory
             )

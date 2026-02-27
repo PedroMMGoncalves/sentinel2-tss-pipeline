@@ -46,11 +46,13 @@ def find_proj_data_paths() -> list:
         # OSGeo4W (Windows)
         'C:/OSGeo4W64/share/proj',
         'C:/OSGeo4W/share/proj',
-        # QGIS installations (Windows)
-        'C:/Program Files/QGIS 3.42.3/share/proj',
-        'C:/Program Files/QGIS 3.34/share/proj',
-        'C:/Program Files/QGIS 3.28/share/proj',
     ]
+
+    # Dynamically find any QGIS installation (Windows)
+    import glob as _glob
+    for qgis_proj in _glob.glob('C:/Program Files/QGIS */share/proj'):
+        if qgis_proj not in common_paths:
+            common_paths.append(qgis_proj)
 
     for path in common_paths:
         if os.path.exists(path) and path not in proj_data_paths:
@@ -102,10 +104,7 @@ def test_proj_configuration() -> bool:
         bool: True if PROJ is working correctly, False otherwise.
     """
     try:
-        from osgeo import gdal, osr
-
-        # Enable GDAL exceptions
-        gdal.UseExceptions()
+        from osgeo import osr
 
         # Test PROJ functionality with WGS84
         source_srs = osr.SpatialReference()
