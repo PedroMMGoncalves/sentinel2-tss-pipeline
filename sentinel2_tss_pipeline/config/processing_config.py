@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from .enums import ProcessingMode
 from .s2_config import ResamplingConfig, SubsetConfig, C2RCCConfig
-from .jiang_config import JiangTSSConfig
+from .tss_config import TSSConfig
 
 
 @dataclass
@@ -20,7 +20,7 @@ class ProcessingConfig:
     resampling_config: ResamplingConfig
     subset_config: SubsetConfig
     c2rcc_config: C2RCCConfig
-    jiang_config: JiangTSSConfig
+    tss_config: TSSConfig
     skip_existing: bool = True
     test_mode: bool = False
     memory_limit_gb: int = 8

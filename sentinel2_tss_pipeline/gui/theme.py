@@ -1,8 +1,10 @@
 """
-Theme Manager for GUI v2.
+Theme Manager
 
 Provides centralized styling with a professional color palette
 and custom ttk styles for all widgets.
+
+Part of the sentinel2_tss_pipeline package.
 """
 
 import tkinter as tk

@@ -28,9 +28,9 @@ from ..config import ProcessingConfig, ProcessingMode
 from ..utils.product_detector import ProductDetector, SystemMonitor
 from ..utils.memory_manager import MemoryManager
 from ..utils.output_structure import OutputStructure
-from ..processors.snap_calculator import ProcessingResult
-from ..processors.s2_processor import S2Processor, ProcessingStatus
-from ..processors.jiang_processor import JiangTSSProcessor
+from ..processors.tsm_chl_calculator import ProcessingResult
+from ..processors.c2rcc_processor import C2RCCProcessor, ProcessingStatus
+from ..processors.tss_processor import TSSProcessor
 
 logger = logging.getLogger('sentinel2_tss_pipeline')
 
@@ -40,8 +40,8 @@ class UnifiedS2TSSProcessor:
 
     def __init__(self, config: ProcessingConfig):
         self.config = config
-        self.s2_processor = None
-        self.jiang_processor = None
+        self.c2rcc_processor = None
+        self.tss_processor = None
 
         # Processing statistics
         self.processed_count = 0
@@ -63,11 +63,11 @@ class UnifiedS2TSSProcessor:
         mode = self.config.processing_mode
 
         if mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.S2_PROCESSING_ONLY]:
-            self.s2_processor = S2Processor(self.config)
-            self.s2_processor.system_monitor = self.system_monitor
+            self.c2rcc_processor = C2RCCProcessor(self.config)
+            self.c2rcc_processor.system_monitor = self.system_monitor
 
         if mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.TSS_PROCESSING_ONLY]:
-            self.jiang_processor = JiangTSSProcessor(self.config.jiang_config)
+            self.tss_processor = TSSProcessor(self.config.tss_config)
 
     def process_batch(self) -> Dict[str, int]:
         """
@@ -129,7 +129,7 @@ class UnifiedS2TSSProcessor:
 
         try:
             product_name = self._extract_product_name(product_path)
-            clean_product_name = product_name  # Will be updated with actual clean name from S2Processor
+            clean_product_name = product_name  # Will be updated with actual clean name from C2RCCProcessor
 
             logger.info(f"Processing {current}/{total}: {product_name}")
 
@@ -146,12 +146,12 @@ class UnifiedS2TSSProcessor:
                 # S2 Processing milestone
                 logger.info("  S2 Processing (Resampling + C2RCC)...")
                 s2_start = time.time()
-                s2_results = self.s2_processor.process_single_product(product_path, self.config.output_folder)
+                s2_results = self.c2rcc_processor.process_single_product(product_path, self.config.output_folder)
                 s2_time = time.time() - s2_start
                 logger.info(f"  S2 Processing... done ({s2_time/60:.1f} min)")
                 results.update(s2_results)
 
-                # Get clean product name for cleanup (S2Processor uses shorter naming)
+                # Get clean product name for cleanup (C2RCCProcessor uses shorter naming)
                 clean_product_name = s2_results.get('clean_product_name', product_name)
 
                 # Check if S2 processing succeeded
@@ -162,9 +162,9 @@ class UnifiedS2TSSProcessor:
                     return
 
                 # TSS Processing (if enabled and processor exists)
-                if (self.config.jiang_config.enable_jiang_tss and
-                    hasattr(self, 'jiang_processor') and
-                    self.jiang_processor is not None):
+                if (self.config.tss_config.enable_tss_processing and
+                    hasattr(self, 'tss_processor') and
+                    self.tss_processor is not None):
 
                     # TSS + Visualization milestone
                     logger.info("  TSS + Visualization (Jiang et al. 2021)...")
@@ -180,10 +180,10 @@ class UnifiedS2TSSProcessor:
                         )
                         c2rcc_output_path = os.path.join(c2rcc_folder, f"Resampled_{product_name}_Subset_C2RCC.dim")
 
-                    # Process TSS - use main output folder (jiang_processor creates scene subfolder)
+                    # Process TSS - use main output folder (tss_processor creates scene subfolder)
                     try:
                         s2_result = s2_results.get('s2_processing')
-                        tss_results = self.jiang_processor.process_jiang_tss(
+                        tss_results = self.tss_processor.process_tss(
                             c2rcc_output_path, self.config.output_folder, product_name, s2_result
                         )
                         results.update(tss_results)
@@ -198,32 +198,32 @@ class UnifiedS2TSSProcessor:
                         logger.error(f"  TSS processing error: {str(tss_error)}")
                         results['tss_error'] = ProcessingResult(False, "", None, str(tss_error))
 
-                elif self.config.jiang_config.enable_jiang_tss:
-                    logger.warning("  Jiang TSS enabled but processor not initialized")
+                elif self.config.tss_config.enable_tss_processing:
+                    logger.warning("  TSS processing enabled but processor not initialized")
                 else:
-                    logger.debug("Jiang TSS disabled - using SNAP TSM/CHL products only")
+                    logger.debug("TSS processing disabled - using SNAP TSM/CHL products only")
 
             elif self.config.processing_mode == ProcessingMode.S2_PROCESSING_ONLY:
                 # S2 processing only milestone
                 logger.info("  S2 Processing (Resampling + C2RCC)...")
                 s2_start = time.time()
-                results = self.s2_processor.process_single_product(product_path, self.config.output_folder)
+                results = self.c2rcc_processor.process_single_product(product_path, self.config.output_folder)
                 s2_time = time.time() - s2_start
                 logger.info(f"  S2 Processing... done ({s2_time/60:.1f} min)")
 
             elif self.config.processing_mode == ProcessingMode.TSS_PROCESSING_ONLY:
                 # TSS processing only milestone
-                if hasattr(self, 'jiang_processor') and self.jiang_processor is not None:
+                if hasattr(self, 'tss_processor') and self.tss_processor is not None:
                     logger.info("  TSS + Visualization (Jiang et al. 2021)...")
                     tss_start = time.time()
-                    results = self.jiang_processor.process_jiang_tss(
+                    results = self.tss_processor.process_tss(
                         product_path, self.config.output_folder, product_name
                     )
                     tss_time = time.time() - tss_start
                     logger.info(f"  TSS + Visualization... done ({tss_time/60:.1f} min)")
                 else:
-                    logger.error("  Jiang processor not initialized for TSS_PROCESSING_ONLY mode")
-                    results = {'error': ProcessingResult(False, "", None, "Jiang processor not initialized")}
+                    logger.error("  TSS processor not initialized for TSS_PROCESSING_ONLY mode")
+                    results = {'error': ProcessingResult(False, "", None, "TSS processor not initialized")}
 
             processing_time = time.time() - processing_start
 
@@ -330,8 +330,8 @@ class UnifiedS2TSSProcessor:
                 if not os.path.exists(c2rcc_path):
                     return False
 
-                # Check for TSS output if Jiang is enabled (in scene folder)
-                if self.config.jiang_config.enable_jiang_tss:
+                # Check for TSS output if TSS processing is enabled (in scene folder)
+                if self.config.tss_config.enable_tss_processing:
                     scene_folder = os.path.join(self.config.output_folder, scene_name)
                     tss_path = os.path.join(scene_folder, OutputStructure.TSS_FOLDER, f"{scene_name}_TSS.tif")
                     if not os.path.exists(tss_path):
@@ -440,11 +440,12 @@ class UnifiedS2TSSProcessor:
         logger.info(f"|-- {self.config.output_folder}/")
         if self.config.processing_mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.TSS_PROCESSING_ONLY]:
             logger.info(f"    |-- <scene_name>/")
-            logger.info(f"    |   |-- TSS/           (Jiang TSS products)")
-            logger.info(f"    |   |-- SNAP/          (SNAP TSM/CHL)")
+            logger.info(f"    |   |-- TSS/           (TSS products)")
             logger.info(f"    |   |-- RGB/           (RGB composites)")
             logger.info(f"    |   |-- Indices/       (Spectral indices)")
-            logger.info(f"    |   |-- Advanced/      (HAB, WaterClarity)")
+            logger.info(f"    |   |-- WaterClarity/  (if enabled)")
+            logger.info(f"    |   |-- HAB/           (if enabled)")
+            logger.info(f"    |   |-- TrophicState/  (if enabled)")
         if self.config.processing_mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.S2_PROCESSING_ONLY]:
             logger.info(f"    |-- Intermediate/")
             logger.info(f"    |   |-- Geometric/     (Resampled L1C)")
@@ -453,8 +454,8 @@ class UnifiedS2TSSProcessor:
 
     def get_processing_status(self) -> ProcessingStatus:
         """Get current processing status"""
-        if self.s2_processor:
-            return self.s2_processor.get_processing_status()
+        if self.c2rcc_processor:
+            return self.c2rcc_processor.get_processing_status()
         else:
             total = self.processed_count + self.failed_count + self.skipped_count
             elapsed_time = time.time() - self.start_time
@@ -475,5 +476,5 @@ class UnifiedS2TSSProcessor:
         """Cleanup resources"""
         self.system_monitor.stop_monitoring()
 
-        if self.s2_processor:
-            self.s2_processor.cleanup()
+        if self.c2rcc_processor:
+            self.c2rcc_processor.cleanup()

@@ -15,7 +15,7 @@ Reference:
 __version__ = "2.0.0"
 __author__ = "Pedro Gonçalves"
 
-# Import main config classes for convenience
+# Import main config classes
 from .config import (
     ProcessingMode,
     ProductType,
@@ -23,8 +23,8 @@ from .config import (
     SubsetConfig,
     C2RCCConfig,
     WaterQualityConfig,
-    MarineVisualizationConfig,
-    JiangTSSConfig,
+    OutputCategoryConfig,
+    TSSConfig,
     ProcessingConfig,
 )
 
@@ -40,35 +40,23 @@ from .utils import (
     SystemMonitor,
 )
 
-# Import processor classes (new names)
+# Import processor classes
 from .processors import (
-    TSMChlorophyllCalculator,
+    TSMCHLCalculator,
     ProcessingResult,
-    RGBCompositeDefinitions,
     VisualizationProcessor,
     WaterQualityConstants,
     WaterQualityProcessor,
-    JiangTSSConstants,
-    JiangTSSProcessor,
-    S2Processor,
+    TSSConstants,
+    TSSProcessor,
+    C2RCCProcessor,
     ProcessingStatus,
-    create_water_quality_processor,
-    process_water_quality_from_c2rcc,
-)
-
-# Backwards compatibility aliases
-from .processors import (
-    SNAPTSMCHLCalculator,
-    S2MarineRGBGenerator,
-    S2MarineVisualizationProcessor,
-    create_advanced_processor,
-    integrate_with_existing_pipeline,
 )
 
 # Import core classes
 from .core import UnifiedS2TSSProcessor
 
-# Import GUI classes (transitional - imports from main module)
+# Import GUI classes
 from .gui import UnifiedS2TSSGUI, bring_window_to_front
 
 __all__ = [
@@ -79,8 +67,8 @@ __all__ = [
     'SubsetConfig',
     'C2RCCConfig',
     'WaterQualityConfig',
-    'MarineVisualizationConfig',
-    'JiangTSSConfig',
+    'OutputCategoryConfig',
+    'TSSConfig',
     'ProcessingConfig',
     # Utility classes
     'ColoredFormatter',
@@ -91,25 +79,16 @@ __all__ = [
     'RasterIO',
     'ProductDetector',
     'SystemMonitor',
-    # Processor classes (new names)
-    'TSMChlorophyllCalculator',
+    # Processor classes
+    'TSMCHLCalculator',
     'ProcessingResult',
-    'RGBCompositeDefinitions',
     'VisualizationProcessor',
     'WaterQualityConstants',
     'WaterQualityProcessor',
-    'JiangTSSConstants',
-    'JiangTSSProcessor',
-    'S2Processor',
+    'TSSConstants',
+    'TSSProcessor',
+    'C2RCCProcessor',
     'ProcessingStatus',
-    'create_water_quality_processor',
-    'process_water_quality_from_c2rcc',
-    # Backwards compatibility aliases
-    'SNAPTSMCHLCalculator',
-    'S2MarineRGBGenerator',
-    'S2MarineVisualizationProcessor',
-    'create_advanced_processor',
-    'integrate_with_existing_pipeline',
     # Core classes
     'UnifiedS2TSSProcessor',
     # GUI classes

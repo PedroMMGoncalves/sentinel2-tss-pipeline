@@ -22,7 +22,7 @@ from ..config import ProcessingConfig, ProcessingMode
 from ..utils.raster_io import RasterIO
 from ..utils.product_detector import ProductDetector, SystemMonitor
 from ..utils.output_structure import OutputStructure
-from .snap_calculator import TSMChlorophyllCalculator, ProcessingResult
+from .tsm_chl_calculator import TSMCHLCalculator, ProcessingResult
 
 logger = logging.getLogger('sentinel2_tss_pipeline')
 
@@ -40,7 +40,7 @@ class ProcessingStatus(NamedTuple):
     processing_speed: float
 
 
-class S2Processor:
+class C2RCCProcessor:
     """Enhanced S2 processor with complete pipeline"""
 
     def __init__(self, config: ProcessingConfig):
@@ -488,7 +488,7 @@ class S2Processor:
                                                                     c2rcc_stats, None)
                             results['clean_product_name'] = clean_name  # For cleanup tracking
 
-                            # S2Processor stops here - no TSS processing
+                            # C2RCCProcessor stops here - no TSS processing
                             # TSS processing is handled by UnifiedS2TSSProcessor/JiangTSSProcessor
                             logger.debug("S2 processing completed - ready for TSS processing")
 
@@ -520,7 +520,7 @@ class S2Processor:
                     # Calculate SNAP TSM/CHL from IOPs if missing
                     if not c2rcc_stats['has_tsm'] or not c2rcc_stats['has_chl']:
                         logger.debug("Calculating missing SNAP TSM/CHL concentrations from IOP products...")
-                        snap_calculator = TSMChlorophyllCalculator(
+                        snap_calculator = TSMCHLCalculator(
                             tsm_fac=self.config.c2rcc_config.tsm_fac,
                             tsm_exp=self.config.c2rcc_config.tsm_exp,
                             chl_fac=self.config.c2rcc_config.chl_fac,
@@ -551,7 +551,7 @@ class S2Processor:
                             logger.debug("UPDATED SNAP PRODUCTS STATUS:")
                             logger.debug(f"   TSM={final_stats['has_tsm']}, CHL={final_stats['has_chl']}, Uncertainties={final_stats['has_uncertainties']}")
 
-                    # S2Processor only does S2 processing - TSS handled separately
+                    # C2RCCProcessor only does S2 processing - TSS handled separately
                     logger.debug("S2 processing completed - ready for TSS processing")
                     logger.debug("TSS processing (Jiang + Marine Viz) handled by separate processors")
 

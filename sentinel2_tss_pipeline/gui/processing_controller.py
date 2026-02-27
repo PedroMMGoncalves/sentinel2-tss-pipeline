@@ -73,7 +73,7 @@ def start_processing(gui):
             resampling_config=gui.resampling_config,
             subset_config=gui.subset_config,
             c2rcc_config=gui.c2rcc_config,
-            jiang_config=gui.jiang_config,
+            tss_config=gui.tss_config,
             skip_existing=gui.skip_existing_var.get(),
             test_mode=gui.test_mode_var.get(),
             memory_limit_gb=int(gui.memory_limit_var.get()),
@@ -132,7 +132,7 @@ def _confirm_processing(gui, config, products):
     confirm_msg += f"ECMWF: {'Enabled' if config.c2rcc_config.use_ecmwf_aux_data else 'Disabled'}\n"
 
     if config.processing_mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.TSS_PROCESSING_ONLY]:
-        if config.jiang_config.enable_jiang_tss:
+        if config.tss_config.enable_tss_processing:
             confirm_msg += "Jiang TSS: Enabled\n"
         else:
             confirm_msg += "Jiang TSS: Disabled (SNAP TSM/CHL only)\n"

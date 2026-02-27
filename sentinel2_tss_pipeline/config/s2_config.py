@@ -86,3 +86,23 @@ class C2RCCConfig:
     tsm_exp: float = 0.942
     chl_fac: float = 21.0
     chl_exp: float = 1.04
+
+    def apply_nn_presets(self):
+        """Auto-adjust thresholds based on selected neural network.
+
+        C2X-COMPLEX-Nets is designed for extreme/turbid waters and
+        benefits from relaxed thresholds to include surf zone pixels
+        that standard C2RCC-Nets would reject.
+        """
+        presets = {
+            'C2RCC-Nets': {'b8_max': 0.1, 'rtosa_oos': 0.05, 'ac_oos': 0.1},
+            'C2X-Nets': {'b8_max': 0.15, 'rtosa_oos': 0.08, 'ac_oos': 0.15},
+            'C2X-COMPLEX-Nets': {'b8_max': 0.2, 'rtosa_oos': 0.1, 'ac_oos': 0.2},
+        }
+        if self.net_set not in presets:
+            raise ValueError(f"Unknown neural network set: {self.net_set}. "
+                           f"Valid options: {list(presets.keys())}")
+        p = presets[self.net_set]
+        self.valid_pixel_expression = f"B8 > 0 && B8 < {p['b8_max']}"
+        self.threshold_rtosa_oos = p['rtosa_oos']
+        self.threshold_ac_reflec_oos = p['ac_oos']

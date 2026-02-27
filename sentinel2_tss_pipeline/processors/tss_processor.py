@@ -27,17 +27,17 @@ from typing import Dict, Optional, Tuple
 
 import numpy as np
 
-from ..config import JiangTSSConfig, WaterQualityConfig, MarineVisualizationConfig
+from ..config import TSSConfig, WaterQualityConfig
 from ..utils.raster_io import RasterIO
 from ..utils.output_structure import OutputStructure
-from .snap_calculator import ProcessingResult
+from .tsm_chl_calculator import ProcessingResult
 from .water_quality_processor import WaterQualityProcessor
-from .marine_viz import VisualizationProcessor
+from .visualization_processor import VisualizationProcessor
 
 logger = logging.getLogger('sentinel2_tss_pipeline')
 
 
-class JiangTSSConstants:
+class TSSConstants:
     """
     Complete TSS configuration constants from Jiang et al. (2021).
 
@@ -96,13 +96,13 @@ class JiangTSSConstants:
     }
 
 
-class JiangTSSProcessor:
+class TSSProcessor:
     """Complete implementation of Jiang et al. 2021 TSS methodology"""
 
-    def __init__(self, config: JiangTSSConfig):
+    def __init__(self, config: TSSConfig):
         """Initialize Jiang TSS Processor with configuration and marine visualization"""
         self.config = config
-        self.constants = JiangTSSConstants()
+        self.constants = TSSConstants()
 
         # Initialize marine visualization processor
         if hasattr(config, 'enable_marine_visualization') and config.enable_marine_visualization:
@@ -445,7 +445,7 @@ class JiangTSSProcessor:
 
         return found_bands
 
-    def process_jiang_tss(self, c2rcc_path: str, output_folder: str, product_name: str,
+    def process_tss(self, c2rcc_path: str, output_folder: str, product_name: str,
                         intermediate_paths: Optional[Dict[str, str]] = None) -> Dict[str, ProcessingResult]:
         """Process Jiang TSS methodology from C2RCC outputs"""
         try:

@@ -1,51 +1,36 @@
 """
 Processors module for Sentinel-2 TSS Pipeline.
 
-Provides specialized processors for TSS, CHL, water quality estimation,
-marine visualization (RGB composites and spectral indices), Jiang TSS methodology,
-and S2 processing via SNAP GPT.
+Provides specialized processors for:
+- TSM/CHL calculation from C2RCC IOPs
+- TSS estimation using Jiang et al. (2021) methodology
+- RGB composite and spectral index visualization
+- Water quality analysis (HAB, clarity, trophic state)
+- C2RCC atmospheric correction via SNAP GPT
 """
 
-from .snap_calculator import TSMChlorophyllCalculator, ProcessingResult
-from .marine_viz import RGBCompositeDefinitions, VisualizationProcessor
+from .tsm_chl_calculator import TSMCHLCalculator, ProcessingResult
+from .visualization_processor import VisualizationProcessor
 from .water_quality_processor import (
     WaterQualityConstants,
     WaterQualityProcessor,
-    create_water_quality_processor,
-    process_water_quality_from_c2rcc,
 )
-from .jiang_processor import JiangTSSConstants, JiangTSSProcessor
-from .s2_processor import S2Processor, ProcessingStatus
-
-# Backwards compatibility aliases
-SNAPTSMCHLCalculator = TSMChlorophyllCalculator
-S2MarineRGBGenerator = RGBCompositeDefinitions
-S2MarineVisualizationProcessor = VisualizationProcessor
-create_advanced_processor = create_water_quality_processor
-integrate_with_existing_pipeline = process_water_quality_from_c2rcc
+from .tss_processor import TSSConstants, TSSProcessor
+from .c2rcc_processor import C2RCCProcessor, ProcessingStatus
 
 __all__ = [
     # TSM/CHL Calculator
-    'TSMChlorophyllCalculator',
+    'TSMCHLCalculator',
     'ProcessingResult',
     # Visualization
-    'RGBCompositeDefinitions',
     'VisualizationProcessor',
     # Water Quality
     'WaterQualityConstants',
     'WaterQualityProcessor',
-    'create_water_quality_processor',
-    'process_water_quality_from_c2rcc',
-    # Jiang TSS
-    'JiangTSSConstants',
-    'JiangTSSProcessor',
-    # S2 Processor
-    'S2Processor',
+    # TSS
+    'TSSConstants',
+    'TSSProcessor',
+    # C2RCC Processor
+    'C2RCCProcessor',
     'ProcessingStatus',
-    # Backwards compatibility
-    'SNAPTSMCHLCalculator',
-    'S2MarineRGBGenerator',
-    'S2MarineVisualizationProcessor',
-    'create_advanced_processor',
-    'integrate_with_existing_pipeline',
 ]

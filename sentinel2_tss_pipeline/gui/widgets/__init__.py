@@ -1,12 +1,10 @@
 """
-Custom widgets for GUI v2.
+Custom widgets for the GUI.
 
 Provides modern, reusable widgets:
 - CollapsibleFrame: Expandable/collapsible sections
 - CheckboxGroup: Compact multi-column checkbox layouts
 - Tooltip: Hover tooltips with delay
-- RecentDirectories: Directory dropdown with history
-- ValidationEntry: Entry with visual validation feedback
 """
 
 from .collapsible_frame import CollapsibleFrame

@@ -6,11 +6,12 @@ Manages scene-based output folder structure for Sentinel-2 TSS Pipeline.
 Output Structure:
     Output/
     ├── S2A_20190105_T29TNF/           # Scene folder
-    │   ├── TSS/                        # Jiang TSS products
-    │   ├── SNAP/                       # SNAP C2RCC products (TSM, CHL, IOPs)
-    │   ├── RGB/                        # RGB composites
-    │   ├── Indices/                    # Spectral indices
-    │   └── Advanced/                   # Advanced products (HAB, WaterClarity)
+    │   ├── TSS/                        # TSS products (Jiang et al. 2021)
+    │   ├── RGB/                        # RGB composites (15 unique)
+    │   ├── Indices/                    # Spectral indices (14 indices)
+    │   ├── WaterClarity/              # Water clarity products
+    │   ├── HAB/                        # Harmful algal bloom detection
+    │   └── TrophicState/              # Trophic state index (Carlson 1977)
     ├── Intermediate/                   # Deletable after processing
     │   ├── C2RCC/
     │   └── Geometric/
@@ -28,19 +29,24 @@ logger = logging.getLogger('sentinel2_tss_pipeline')
 class OutputStructure:
     """Manages scene-based output folder structure."""
 
-    # Subfolder names
+    # Scene-level output category folders
     TSS_FOLDER = "TSS"
-    SNAP_FOLDER = "SNAP"
     RGB_FOLDER = "RGB"
     INDICES_FOLDER = "Indices"
-    ADVANCED_FOLDER = "Advanced"
-    HAB_FOLDER = "HAB"
     WATER_CLARITY_FOLDER = "WaterClarity"
+    HAB_FOLDER = "HAB"
+    TROPHIC_STATE_FOLDER = "TrophicState"
+
+    # Infrastructure folders
     INTERMEDIATE_FOLDER = "Intermediate"
     C2RCC_FOLDER = "C2RCC"
     GEOMETRIC_FOLDER = "Geometric"
     IOP_FOLDER = "IOP"
     LOGS_FOLDER = "Logs"
+
+    # Deprecated: kept temporarily for jiang_processor.py compatibility (remove in Task 10)
+    SNAP_FOLDER = "SNAP"
+    ADVANCED_FOLDER = "Advanced"
 
     # RGB band mappings (wavelength -> band number)
     WAVELENGTH_TO_BAND = {
@@ -267,14 +273,18 @@ class OutputStructure:
 
     @staticmethod
     def create_scene_structure(output_root: str, scene_name: str,
-                               include_advanced: bool = False) -> Dict[str, str]:
+                               enable_water_clarity: bool = False,
+                               enable_hab: bool = False,
+                               enable_trophic_state: bool = False) -> Dict[str, str]:
         """
         Create complete scene folder structure.
 
         Args:
             output_root: Root output directory
             scene_name: Clean scene name
-            include_advanced: Whether to create Advanced subfolder
+            enable_water_clarity: Create WaterClarity folder
+            enable_hab: Create HAB folder
+            enable_trophic_state: Create TrophicState folder
 
         Returns:
             Dictionary of folder paths
@@ -284,28 +294,29 @@ class OutputStructure:
         scene_folder = OutputStructure.get_scene_folder(output_root, scene_name)
         folders['scene'] = scene_folder
 
-        # Create standard folders
+        # Always create core output folders
         for category in [OutputStructure.TSS_FOLDER,
-                         OutputStructure.SNAP_FOLDER,
                          OutputStructure.RGB_FOLDER,
                          OutputStructure.INDICES_FOLDER]:
             folders[category.lower()] = OutputStructure.get_category_folder(
                 scene_folder, category
             )
 
-        # Create Advanced folder if needed
-        if include_advanced:
-            advanced_folder = OutputStructure.get_category_folder(
-                scene_folder, OutputStructure.ADVANCED_FOLDER
+        # Create optional category folders based on OutputCategoryConfig
+        if enable_water_clarity:
+            folders['waterclarity'] = OutputStructure.get_category_folder(
+                scene_folder, OutputStructure.WATER_CLARITY_FOLDER
             )
-            folders['advanced'] = advanced_folder
 
-            # Create Advanced subfolders
-            for subcategory in [OutputStructure.HAB_FOLDER,
-                                OutputStructure.WATER_CLARITY_FOLDER]:
-                subfolder = os.path.join(advanced_folder, subcategory)
-                os.makedirs(subfolder, exist_ok=True)
-                folders[f'advanced_{subcategory.lower()}'] = subfolder
+        if enable_hab:
+            folders['hab'] = OutputStructure.get_category_folder(
+                scene_folder, OutputStructure.HAB_FOLDER
+            )
+
+        if enable_trophic_state:
+            folders['trophicstate'] = OutputStructure.get_category_folder(
+                scene_folder, OutputStructure.TROPHIC_STATE_FOLDER
+            )
 
         logger.debug(f"Created scene structure for {scene_name}")
         return folders

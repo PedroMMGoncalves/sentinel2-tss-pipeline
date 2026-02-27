@@ -3,30 +3,28 @@ Visualization Processor.
 
 Generate RGB composites and spectral indices from Sentinel-2 imagery.
 
-This module provides:
-- RGBCompositeDefinitions: Defines 20 RGB combinations and 15 spectral indices
-- VisualizationProcessor: Complete visualization processor
-
-RGB Categories:
-- Natural Color (2): natural_color, natural_with_contrast
+RGB Composites (15 unique, deduplicated):
+- Natural Color (2): natural_color, natural_enhanced
 - False Color (2): false_color_infrared, false_color_nir
-- Water-Specific (6): turbidity, chlorophyll, coastal, sediment, water_quality, atmospheric
-- Research (10): NASA Ocean Color, HAB detection, coastal turbidity, deep water, riverine, CDOM, etc.
+- Water-Specific (4): turbidity_enhanced, chlorophyll_enhanced, coastal_aerosol, water_quality
+- Research (7): sediment_transport, atmospheric_penetration, ocean_color_standard,
+               coastal_turbidity, cdom_enhanced, water_change_detection, advanced_atmospheric
 
-Spectral Index Categories:
+Spectral Indices (14):
 - Water Quality (7): NDWI, MNDWI, NDTI, NDMI, AWEI, WI, WRI
 - Chlorophyll & Algae (3): NDCI, CHL_RED_EDGE, GNDVI
-- Turbidity & Sediment (2): TSI, NGRDI
-- Advanced (3): SDD, CDOM, RDI (Relative Depth Index)
+- Turbidity & Sediment (2): TSI_Turbidity, NGRDI
+- Advanced (2): CDOM, RDI (Relative Depth Index)
 
 Note: PC, FAI, FUI removed - require spectral bands not available in Sentinel-2.
+Note: SDD removed - WaterClarity SecchiDepth (IOP-derived) is more rigorous.
+
+Part of the sentinel2_tss_pipeline package.
 """
 
 import os
 import logging
 import shutil
-import subprocess
-import platform
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -43,424 +41,34 @@ except ImportError:
         gdal = None
         GDAL_AVAILABLE = False
 
-from ..config import MarineVisualizationConfig
+from ..config.output_categories import OutputCategoryConfig
 from ..utils.raster_io import RasterIO
 from ..utils.output_structure import OutputStructure
-from .snap_calculator import ProcessingResult
+from .tsm_chl_calculator import ProcessingResult
 
 logger = logging.getLogger('sentinel2_tss_pipeline')
 
-
-class RGBCompositeDefinitions:
-    """Define RGB combinations and spectral indices for visualization."""
-
-    def __init__(self):
-        # Marine-optimized RGB combinations using Sentinel-2 bands
-        self.rgb_combinations = {
-            # =================================================================
-            # NATURAL COLOR COMBINATIONS (2 combinations)
-            # =================================================================
-            'natural_color': {
-                'red': 665, 'green': 560, 'blue': 490,  # B4, B3, B2
-                'description': 'Natural color (True color)',
-                'application': 'General visualization, publications',
-                'priority': 'essential'
-            },
-            'natural_with_contrast': {
-                'red': 665, 'green': 560, 'blue': 443,  # B4, B3, B1
-                'description': 'Natural color with enhanced contrast',
-                'application': 'Better water-land contrast',
-                'priority': 'important'
-            },
-
-            # =================================================================
-            # FALSE COLOR COMBINATIONS (2 combinations)
-            # =================================================================
-            'false_color_infrared': {
-                'red': 842, 'green': 665, 'blue': 560,  # B8, B4, B3
-                'description': 'False color infrared',
-                'application': 'Vegetation (red), clear water (dark)',
-                'priority': 'important'
-            },
-            'false_color_nir': {
-                'red': 865, 'green': 665, 'blue': 560,  # B8A, B4, B3
-                'description': 'False color NIR',
-                'application': 'Enhanced vegetation/water contrast',
-                'priority': 'important'
-            },
-
-            # =================================================================
-            # WATER-SPECIFIC COMBINATIONS (3 combinations)
-            # =================================================================
-            'turbidity_enhanced': {
-                'red': 865, 'green': 705, 'blue': 560,  # B8A, B5, B3
-                'description': 'Turbidity and suspended sediment',
-                'application': 'Sediment plumes, river discharge',
-                'priority': 'marine'
-            },
-            'chlorophyll_enhanced': {
-                'red': 705, 'green': 665, 'blue': 560,  # B5, B4, B3
-                'description': 'Chlorophyll and algae detection',
-                'application': 'Algal blooms, phytoplankton',
-                'priority': 'marine'
-            },
-            'coastal_aerosol': {
-                'red': 865, 'green': 665, 'blue': 443,  # B8A, B4, B1
-                'description': 'Coastal aerosol enhanced',
-                'application': 'Atmospheric correction, haze penetration',
-                'priority': 'marine'
-            },
-
-            # =================================================================
-            # SPECIALIZED MARINE COMBINATIONS (3 combinations)
-            # =================================================================
-            'sediment_transport': {
-                'red': 2190, 'green': 865, 'blue': 665,  # B12, B8A, B4
-                'description': 'Sediment transport visualization',
-                'application': 'River plumes, coastal erosion',
-                'priority': 'marine'
-            },
-            'water_quality': {
-                'red': 842, 'green': 705, 'blue': 490,  # B8, B5, B2
-                'description': 'Water quality assessment',
-                'application': 'Turbidity, organic matter',
-                'priority': 'marine'
-            },
-            'atmospheric_penetration': {
-                'red': 2190, 'green': 1610, 'blue': 865,  # B12, B11, B8A
-                'description': 'Atmospheric penetration',
-                'application': 'Hazy conditions, atmospheric interference',
-                'priority': 'optional'
-            },
-
-            # =================================================================
-            # RESEARCH COMBINATIONS - EXISTING (2 combinations)
-            # =================================================================
-            'research_marine': {
-                'red': 740, 'green': 705, 'blue': 665,  # B6, B5, B4
-                'description': 'Marine research combination',
-                'application': 'Red edge analysis, chlorophyll research',
-                'priority': 'research'
-            },
-            'bathymetric': {
-                'red': 560, 'green': 490, 'blue': 443,  # B3, B2, B1
-                'description': 'Bathymetric analysis',
-                'application': 'Shallow water depth estimation',
-                'priority': 'research'
-            },
-
-            # =================================================================
-            # RESEARCH COMBINATIONS - NEW ADDITIONS (8 combinations)
-            # Based on latest 2023-2024 scientific literature
-            # =================================================================
-
-            # 1. Ocean Color Research Standard (NASA/ESA protocol)
-            'ocean_color_standard': {
-                'red': 490, 'green': 560, 'blue': 443,  # B2, B3, B1
-                'description': 'NASA Ocean Color standard composite',
-                'application': 'Ocean color research, international standard protocol',
-                'priority': 'research',
-                'reference': "O'Reilly et al. (1998) - Ocean color chlorophyll algorithms for SeaWiFS",
-                'doi': '10.1029/98JC02160'
-            },
-
-            # 2. Enhanced Harmful Algal Bloom Detection
-            'algal_bloom_enhanced': {
-                'red': 705, 'green': 665, 'blue': 560,  # B5, B4, B3
-                'description': 'Red edge enhanced for algal bloom detection',
-                'application': 'Harmful algal bloom monitoring and early detection',
-                'priority': 'research',
-                'reference': 'Caballero et al. (2020) - New capabilities of Sentinel-2A/B for HAB monitoring',
-                'doi': '10.1038/s41598-020-65600-1'
-            },
-
-            # 3. Coastal Turbidity Monitoring
-            'coastal_turbidity': {
-                'red': 865, 'green': 740, 'blue': 490,  # B8A, B6, B2
-                'description': 'NIR-enhanced for coastal sediment monitoring',
-                'application': 'Coastal sediment transport and turbidity assessment',
-                'priority': 'research',
-                'reference': 'Nechad et al. (2010) - Generic multisensor algorithm for TSM mapping',
-                'doi': '10.1016/j.rse.2009.11.022'
-            },
-
-            # 4. Deep Water Clarity Analysis
-            'deep_water_clarity': {
-                'red': 560, 'green': 490, 'blue': 443,  # B3, B2, B1
-                'description': 'Blue-enhanced for deep water penetration',
-                'application': 'Deep water clarity and depth estimation',
-                'priority': 'research',
-                'reference': 'Lee et al. (2002) - Deriving inherent optical properties from water color',
-                'doi': '10.1364/AO.41.005755'
-            },
-
-            # 5. River and Estuarine Waters
-            'riverine_waters': {
-                'red': 740, 'green': 705, 'blue': 665,  # B6, B5, B4
-                'description': 'Red edge focus for riverine environments',
-                'application': 'River discharge monitoring and estuarine mixing',
-                'priority': 'research',
-                'reference': 'Pahlevan et al. (2017) - Sentinel-2 MSI data processing for aquatic science',
-                'doi': '10.1016/j.rse.2017.08.033'
-            },
-
-            # 6. CDOM Enhanced Visualization
-            'cdom_enhanced': {
-                'red': 490, 'green': 443, 'blue': 560,  # B2, B1, B3 (blue-shifted)
-                'description': 'Blue-shifted for CDOM visualization',
-                'application': 'Colored dissolved organic matter detection',
-                'priority': 'research',
-                'reference': 'Mannino et al. (2008) - Algorithm development for DOC and CDOM distributions',
-                'doi': '10.1029/2007JC004493'
-            },
-
-            # 7. Multi-temporal Water Change Detection
-            'water_change_detection': {
-                'red': 865, 'green': 1610, 'blue': 560,  # B8A, B11, B3
-                'description': 'SWIR-enhanced for change detection',
-                'application': 'Water body change detection and temporal monitoring',
-                'priority': 'research',
-                'reference': 'Pekel et al. (2016) - High-resolution mapping of global surface water changes',
-                'doi': '10.1038/nature20584'
-            },
-
-            # 8. Advanced Atmospheric Correction
-            'advanced_atmospheric': {
-                'red': 1375, 'green': 945, 'blue': 705,  # B10, B9, B5
-                'description': 'Atmospheric correction enhanced',
-                'application': 'Atmospheric interference reduction, water vapor correction',
-                'priority': 'research',
-                'reference': 'Vanhellemont & Ruddick (2018) - Atmospheric correction of metre-scale optical satellite data',
-                'doi': '10.1016/j.rse.2018.02.047'
-            }
-        }
-
-
-        # Spectral indices for marine applications
-        self.spectral_indices = {
-            # =================================================================
-            # WATER QUALITY INDICES (7 indices)
-            # =================================================================
-            'NDWI': {
-                'formula': '(B3 - B8A) / (B3 + B8A)',
-                'required_bands': [560, 865],
-                'description': 'Normalized Difference Water Index',
-                'application': 'Water body delineation',
-                'range': '(-1, 1)',
-                'interpretation': 'Higher values indicate water',
-                'enabled_by': 'generate_water_quality_indices',
-                'category': 'water_quality',
-                'priority': 'essential'
-            },
-            'MNDWI': {
-                'formula': '(B3 - B11) / (B3 + B11)',
-                'required_bands': [560, 1610],
-                'fallback_bands': [560, 865],
-                'description': 'Modified Normalized Difference Water Index',
-                'application': 'Enhanced water detection',
-                'range': '(-1, 1)',
-                'interpretation': 'Higher values indicate water',
-                'enabled_by': 'generate_water_quality_indices',
-                'category': 'water_quality',
-                'priority': 'important'
-            },
-            'NDTI': {
-                'formula': '(B4 - B3) / (B4 + B3)',
-                'required_bands': [665, 560],
-                'description': 'Normalized Difference Turbidity Index',
-                'application': 'Turbidity assessment',
-                'range': '(-1, 1)',
-                'interpretation': 'Higher values indicate turbidity',
-                'enabled_by': 'generate_water_quality_indices',
-                'category': 'water_quality',
-                'priority': 'essential'
-            },
-            'NDMI': {
-                'formula': '(B8A - B11) / (B8A + B11)',
-                'required_bands': [865, 1610],
-                'fallback_bands': [842, 1610],
-                'description': 'Normalized Difference Moisture Index',
-                'application': 'Water vs non-water separation',
-                'range': '(-1, 1)',
-                'interpretation': 'Higher values indicate more water/moisture',
-                'enabled_by': 'generate_water_quality_indices',
-                'category': 'water_quality',
-                'priority': 'important'
-            },
-            'AWEI': {
-                'formula': '4 * (B3 - B11) - (0.25 * B8A + 2.75 * B12)',
-                'required_bands': [560, 1610, 865, 2190],
-                'fallback_bands': [560, 1610, 842, 2190],
-                'description': 'Automated Water Extraction Index',
-                'application': 'Enhanced water body extraction',
-                'range': '(-inf, inf)',
-                'interpretation': 'Positive values indicate water',
-                'enabled_by': 'generate_water_quality_indices',
-                'category': 'water_quality',
-                'priority': 'important'
-            },
-            'WI': {
-                'formula': 'B2 / (B3 + B8A)',
-                'required_bands': [490, 560, 865],
-                'fallback_bands': [490, 560, 842],
-                'description': 'Water Index',
-                'application': 'Turbid water detection',
-                'range': '(0, inf)',
-                'interpretation': 'Higher values indicate clearer water',
-                'enabled_by': 'generate_water_quality_indices',
-                'category': 'water_quality',
-                'priority': 'marine'
-            },
-            'WRI': {
-                'formula': '(B3 + B4) / (B8A + B11)',
-                'required_bands': [560, 665, 865, 1610],
-                'fallback_bands': [560, 665, 842, 1610],
-                'description': 'Water Ratio Index',
-                'application': 'Water/land separation',
-                'range': '(0, inf)',
-                'interpretation': 'Higher values indicate water presence',
-                'enabled_by': 'generate_water_quality_indices',
-                'category': 'water_quality',
-                'priority': 'marine'
-            },
-
-            # =================================================================
-            # CHLOROPHYLL & ALGAE INDICES (5 indices)
-            # =================================================================
-            'NDCI': {
-                'formula': '(B5 - B4) / (B5 + B4)',
-                'required_bands': [705, 665],
-                'description': 'Normalized Difference Chlorophyll Index',
-                'application': 'Chlorophyll concentration',
-                'range': '(-1, 1)',
-                'interpretation': 'Higher values indicate chlorophyll',
-                'enabled_by': 'generate_chlorophyll_indices',
-                'category': 'chlorophyll',
-                'priority': 'marine'
-            },
-            'CHL_RED_EDGE': {
-                'formula': '(B5 / B4) - 1',
-                'required_bands': [705, 665],
-                'description': 'Chlorophyll Red Edge',
-                'application': 'Chlorophyll using red edge',
-                'range': '(0, inf)',
-                'interpretation': 'Higher values indicate chlorophyll',
-                'enabled_by': 'generate_chlorophyll_indices',
-                'category': 'chlorophyll',
-                'priority': 'marine'
-            },
-            'GNDVI': {
-                'formula': '(B8 - B3) / (B8 + B3)',
-                'required_bands': [842, 560],
-                'description': 'Green Normalized Difference Vegetation Index',
-                'application': 'Aquatic vegetation',
-                'range': '(-1, 1)',
-                'interpretation': 'Higher values indicate vegetation',
-                'enabled_by': 'generate_chlorophyll_indices',
-                'category': 'chlorophyll',
-                'priority': 'important'
-            },
-            # PC (Phycocyanin Index) - REMOVED: Requires 620nm band (S2 lacks this band)
-            # FAI (Floating Algae Index) - REMOVED: Requires SWIR at 20m (not available in resampled C2RCC)
-
-            # =================================================================
-            # TURBIDITY & SEDIMENT INDICES (2 indices)
-            # =================================================================
-            'TSI': {
-                'formula': '(B4 + B3) / 2',
-                'required_bands': [665, 560],
-                'description': 'Turbidity Spectral Index',
-                'application': 'Turbidity estimation',
-                'range': '(0, inf)',
-                'interpretation': 'Higher values indicate turbidity',
-                'enabled_by': 'generate_turbidity_indices',
-                'category': 'turbidity',
-                'priority': 'essential'
-            },
-            'NGRDI': {
-                'formula': '(B3 - B4) / (B3 + B4)',
-                'required_bands': [560, 665],
-                'description': 'Normalized Green Red Difference Index',
-                'application': 'Water-vegetation separation',
-                'range': '(-1, 1)',
-                'interpretation': 'Higher values indicate vegetation',
-                'enabled_by': 'generate_turbidity_indices',
-                'category': 'turbidity',
-                'priority': 'marine'
-            },
-
-            # =================================================================
-            # ADVANCED WATER PROPERTIES (3 indices)
-            # =================================================================
-            # FUI (Forel-Ule Index) - REMOVED: Requires CIE chromaticity conversion (current formula scientifically incorrect)
-            'SDD': {
-                'formula': 'ln(0.14 / B4) / 1.7',
-                'required_bands': [665],
-                'description': 'Secchi Disk Depth proxy',
-                'application': 'Water transparency',
-                'range': '(0, inf)',
-                'interpretation': 'Higher values indicate clearer water',
-                'enabled_by': 'generate_advanced_indices',
-                'category': 'advanced',
-                'priority': 'advanced'
-            },
-            'CDOM': {
-                'formula': 'B1 / B3',
-                'required_bands': [443, 560],
-                'description': 'Colored Dissolved Organic Matter proxy',
-                'application': 'CDOM concentration',
-                'range': '(0, inf)',
-                'interpretation': 'Higher values indicate more CDOM',
-                'enabled_by': 'generate_advanced_indices',
-                'category': 'advanced',
-                'priority': 'advanced'
-            },
-            'RDI': {
-                'formula': 'ln(B2) / ln(B3)',
-                'required_bands': [490, 560],
-                'description': 'Relative Depth Index (Stumpf et al. 2003)',
-                'application': 'Time-series bathymetric change detection, sediment deposition monitoring',
-                'range': '(0, 1)',
-                'interpretation': 'Higher values indicate deeper water (relative, not calibrated)',
-                'limitations': 'Valid only in clear, shallow water (<20m). Users should mask high-TSS areas.',
-                'reference': 'Stumpf et al. (2003) Limnol. Oceanogr. 48(1):547-556',
-                'enabled_by': 'generate_advanced_indices',
-                'category': 'advanced',
-                'priority': 'advanced'
-            }
-        }
 
 
 class VisualizationProcessor:
     """Process RGB composites and spectral indices from Sentinel-2 data."""
 
-    def __init__(self, config: Optional[MarineVisualizationConfig] = None):
-        """Initialize marine visualization processor with configuration and logging"""
-        # Check GDAL availability
+    def __init__(self, output_categories: Optional[OutputCategoryConfig] = None):
+        """Initialize visualization processor.
+
+        Args:
+            output_categories: Controls which RGB/Index categories are generated.
+                             If None, uses defaults (RGB + Indices ON).
+        """
         if not GDAL_AVAILABLE:
             logger.warning("GDAL not available - visualization functionality will be limited")
 
-        # Configuration setup
-        self.config = config or MarineVisualizationConfig()
-
-        # Initialize RGB generator
-        self.rgb_generator = RGBCompositeDefinitions()
-
-        # Use global logger (updated for centralized logging)
+        self.output_categories = output_categories or OutputCategoryConfig()
         self.logger = logger
 
-        # Log initialization details
-        self.logger.debug("Initialized S2 Marine Visualization Processor")
-        self.logger.debug(f"Configuration settings:")
-        self.logger.debug(f"  Natural color RGB: {self.config.generate_natural_color}")
-        self.logger.debug(f"  False color RGB: {self.config.generate_false_color}")
-        self.logger.debug(f"  Water-specific RGB: {self.config.generate_water_specific}")
-        self.logger.debug(f"  Research RGB: {self.config.generate_research_combinations}")
-        self.logger.debug(f"  Water quality indices: {self.config.generate_water_quality_indices}")
-        self.logger.debug(f"  Chlorophyll indices: {self.config.generate_chlorophyll_indices}")
-        self.logger.debug(f"  Turbidity indices: {self.config.generate_turbidity_indices}")
-        self.logger.debug(f"  Advanced indices: {self.config.generate_advanced_indices}")
-        self.logger.debug(f"  Output format: {self.config.rgb_format}")
+        self.logger.debug("Initialized Visualization Processor")
+        self.logger.debug(f"  RGB enabled: {self.output_categories.enable_rgb}")
+        self.logger.debug(f"  Indices enabled: {self.output_categories.enable_indices}")
         self.logger.debug(f"  Contrast enhancement: {self.config.apply_contrast_enhancement}")
         self.logger.debug(f"  Contrast method: {self.config.contrast_method}")
         self.logger.debug(f"  Export metadata: {self.config.export_metadata}")
@@ -802,137 +410,112 @@ class VisualizationProcessor:
             available_wavelengths = set(bands_data.keys())
             self.logger.debug(f"Available wavelengths for RGB: {sorted(available_wavelengths)}")
 
+            # 15 unique RGB composites (3 duplicates removed: algal_bloom_enhanced=turbidity_enhanced,
+            # deep_water_clarity=ocean_color_standard bands, riverine_waters=water_quality bands)
+            rgb_enabled = self.output_categories.enable_rgb
+
             rgb_combinations = {
+                # Natural Color (2)
                 'natural_color': {
                     'red': 665, 'green': 560, 'blue': 490,
                     'description': 'Natural color (True color)',
                     'application': 'General visualization, publications',
-                    'priority': 'essential',
-                    'enabled': self.config.generate_natural_color
+                    'enabled': rgb_enabled
                 },
                 'natural_enhanced': {
                     'red': 665, 'green': 560, 'blue': 443,
                     'description': 'Natural color with enhanced contrast',
                     'application': 'Better water-land contrast',
-                    'priority': 'important',
-                    'enabled': self.config.generate_natural_color
+                    'enabled': rgb_enabled
                 },
+                # False Color (2)
                 'false_color_infrared': {
                     'red': 842, 'green': 665, 'blue': 560,
                     'description': 'False color infrared',
                     'application': 'Vegetation (red), clear water (dark)',
-                    'priority': 'important',
-                    'enabled': self.config.generate_false_color
+                    'enabled': rgb_enabled
                 },
                 'false_color_nir': {
                     'red': 865, 'green': 665, 'blue': 560,
                     'description': 'False color NIR',
                     'application': 'Enhanced vegetation/water contrast',
-                    'priority': 'important',
-                    'enabled': self.config.generate_false_color
+                    'enabled': rgb_enabled
                 },
+                # Water-Specific (4)
                 'turbidity_enhanced': {
                     'red': 705, 'green': 665, 'blue': 560,
                     'description': 'Turbidity-enhanced RGB',
                     'application': 'Enhanced turbidity visualization',
-                    'priority': 'marine',
-                    'enabled': self.config.generate_water_specific
+                    'enabled': rgb_enabled
                 },
                 'chlorophyll_enhanced': {
                     'red': 705, 'green': 665, 'blue': 490,
                     'description': 'Chlorophyll-enhanced RGB',
                     'application': 'Enhanced chlorophyll visualization',
-                    'priority': 'marine',
-                    'enabled': self.config.generate_water_specific
+                    'enabled': rgb_enabled
                 },
                 'coastal_aerosol': {
                     'red': 665, 'green': 490, 'blue': 443,
                     'description': 'Coastal aerosol RGB',
                     'application': 'Coastal water analysis',
-                    'priority': 'marine',
-                    'enabled': self.config.generate_water_specific
+                    'enabled': rgb_enabled
                 },
                 'water_quality': {
                     'red': 740, 'green': 665, 'blue': 560,
                     'description': 'Water quality RGB',
                     'application': 'General water quality assessment',
-                    'priority': 'marine',
-                    'enabled': self.config.generate_water_specific
+                    'enabled': rgb_enabled
                 },
+                # Research (7) - duplicates removed
                 'sediment_transport': {
                     'red': 783, 'green': 705, 'blue': 665,
                     'description': 'Sediment transport RGB',
                     'application': 'Sediment plume visualization',
-                    'priority': 'research',
-                    'enabled': self.config.generate_research_combinations
+                    'enabled': rgb_enabled
                 },
                 'atmospheric_penetration': {
                     'red': 865, 'green': 783, 'blue': 740,
                     'description': 'Atmospheric penetration RGB',
                     'application': 'Deep water analysis',
-                    'priority': 'research',
-                    'enabled': self.config.generate_research_combinations
+                    'enabled': rgb_enabled
                 },
                 'ocean_color_standard': {
                     'red': 490, 'green': 560, 'blue': 443,
                     'description': 'NASA Ocean Color standard composite',
-                    'application': 'Ocean color research, international standard protocol',
-                    'priority': 'research',
-                    'enabled': self.config.generate_research_combinations
+                    'application': 'Ocean color research',
+                    'enabled': rgb_enabled
                 },
-                'algal_bloom_enhanced': {
-                    'red': 705, 'green': 665, 'blue': 560,
-                    'description': 'Red edge enhanced for algal bloom detection',
-                    'application': 'Harmful algal bloom monitoring and early detection',
-                    'priority': 'research',
-                    'enabled': self.config.generate_research_combinations
-                },
+                # algal_bloom_enhanced REMOVED: identical bands (705,665,560) as turbidity_enhanced
                 'coastal_turbidity': {
                     'red': 865, 'green': 740, 'blue': 490,
                     'description': 'NIR-enhanced for coastal sediment monitoring',
-                    'application': 'Coastal sediment transport and turbidity assessment',
-                    'priority': 'research',
-                    'enabled': self.config.generate_research_combinations
+                    'application': 'Coastal sediment transport and turbidity',
+                    'enabled': rgb_enabled
                 },
-                'deep_water_clarity': {
-                    'red': 560, 'green': 490, 'blue': 443,
-                    'description': 'Blue-enhanced for deep water penetration',
-                    'application': 'Deep water clarity and depth estimation',
-                    'priority': 'research',
-                    'enabled': self.config.generate_research_combinations
-                },
-                'riverine_waters': {
-                    'red': 740, 'green': 705, 'blue': 665,
-                    'description': 'Red edge focus for riverine environments',
-                    'application': 'River discharge monitoring and estuarine mixing',
-                    'priority': 'research',
-                    'enabled': self.config.generate_research_combinations
-                },
+                # deep_water_clarity REMOVED: identical bands (560,490,443) as ocean_color_standard
+                # riverine_waters REMOVED: identical bands (740,705,665) as water_quality
                 'cdom_enhanced': {
                     'red': 490, 'green': 443, 'blue': 560,
                     'description': 'Blue-shifted for CDOM visualization',
                     'application': 'Colored dissolved organic matter detection',
-                    'priority': 'research',
-                    'enabled': self.config.generate_research_combinations
+                    'enabled': rgb_enabled
                 },
                 'water_change_detection': {
                     'red': 865, 'green': 1610, 'blue': 560,
                     'description': 'SWIR-enhanced for change detection',
-                    'application': 'Water body change detection and temporal monitoring',
-                    'priority': 'research',
-                    'enabled': self.config.generate_research_combinations
+                    'application': 'Water body change detection',
+                    'enabled': rgb_enabled
                 },
                 'advanced_atmospheric': {
                     'red': 1375, 'green': 945, 'blue': 705,
                     'description': 'Atmospheric correction enhanced',
-                    'application': 'Atmospheric interference reduction, water vapor correction',
-                    'priority': 'research',
-                    'enabled': self.config.generate_research_combinations
+                    'application': 'Atmospheric interference reduction',
+                    'enabled': rgb_enabled
                 }
             }
 
             active_combinations = {name: config for name, config in rgb_combinations.items()
-                                if config['enabled'] and config['priority'] in ['essential', 'important', 'marine', 'research']}
+                                if config['enabled']}
 
             self.logger.debug(f"Processing {len(active_combinations)} RGB combinations")
 
@@ -1004,13 +587,19 @@ class VisualizationProcessor:
             # Marine viz no longer applies its own mask
             water_mask = None
 
+            # 14 spectral indices (SDD removed - WaterClarity SecchiDepth is more rigorous)
+            # TSI renamed to TSI_Turbidity to avoid collision with Trophic State Index
+            # RDI added (was defined but missing from this dict - bug B1)
+            indices_enabled = self.output_categories.enable_indices
+
             spectral_indices = {
+                # Water Quality (7)
                 'NDWI': {
                     'formula': '(B3 - B8A) / (B3 + B8A)',
                     'required_bands': [560, 865],
                     'description': 'Normalized Difference Water Index',
                     'application': 'Water body delineation',
-                    'enabled': self.config.generate_water_quality_indices,
+                    'enabled': indices_enabled,
                     'category': 'water_quality'
                 },
                 'MNDWI': {
@@ -1019,7 +608,7 @@ class VisualizationProcessor:
                     'fallback_bands': [560, 865],
                     'description': 'Modified Normalized Difference Water Index',
                     'application': 'Enhanced water detection',
-                    'enabled': self.config.generate_water_quality_indices,
+                    'enabled': indices_enabled,
                     'category': 'water_quality'
                 },
                 'NDTI': {
@@ -1027,7 +616,7 @@ class VisualizationProcessor:
                     'required_bands': [665, 560],
                     'description': 'Normalized Difference Turbidity Index',
                     'application': 'Turbidity assessment',
-                    'enabled': self.config.generate_water_quality_indices,
+                    'enabled': indices_enabled,
                     'category': 'water_quality'
                 },
                 'NDMI': {
@@ -1036,7 +625,7 @@ class VisualizationProcessor:
                     'fallback_bands': [842, 1610],
                     'description': 'Normalized Difference Moisture Index',
                     'application': 'Water vs non-water separation, moisture content',
-                    'enabled': self.config.generate_water_quality_indices,
+                    'enabled': indices_enabled,
                     'category': 'water_quality'
                 },
                 'AWEI': {
@@ -1045,7 +634,7 @@ class VisualizationProcessor:
                     'fallback_bands': [560, 1610, 842, 2190],
                     'description': 'Automated Water Extraction Index',
                     'application': 'Enhanced water body extraction',
-                    'enabled': self.config.generate_water_quality_indices,
+                    'enabled': indices_enabled,
                     'category': 'water_quality'
                 },
                 'WI': {
@@ -1054,7 +643,7 @@ class VisualizationProcessor:
                     'fallback_bands': [490, 560, 842],
                     'description': 'Water Index',
                     'application': 'Turbid water detection and delineation',
-                    'enabled': self.config.generate_water_quality_indices,
+                    'enabled': indices_enabled,
                     'category': 'water_quality'
                 },
                 'WRI': {
@@ -1063,15 +652,16 @@ class VisualizationProcessor:
                     'fallback_bands': [560, 665, 842, 1610],
                     'description': 'Water Ratio Index',
                     'application': 'Water/land separation and water quality assessment',
-                    'enabled': self.config.generate_water_quality_indices,
+                    'enabled': indices_enabled,
                     'category': 'water_quality'
                 },
+                # Chlorophyll & Algae (3)
                 'NDCI': {
                     'formula': '(B5 - B4) / (B5 + B4)',
                     'required_bands': [705, 665],
                     'description': 'Normalized Difference Chlorophyll Index',
                     'application': 'Chlorophyll concentration',
-                    'enabled': self.config.generate_chlorophyll_indices,
+                    'enabled': indices_enabled,
                     'category': 'chlorophyll'
                 },
                 'CHL_RED_EDGE': {
@@ -1079,7 +669,7 @@ class VisualizationProcessor:
                     'required_bands': [705, 665],
                     'description': 'Chlorophyll Red Edge',
                     'application': 'Chlorophyll using red edge',
-                    'enabled': self.config.generate_chlorophyll_indices,
+                    'enabled': indices_enabled,
                     'category': 'chlorophyll'
                 },
                 'GNDVI': {
@@ -1087,17 +677,16 @@ class VisualizationProcessor:
                     'required_bands': [842, 560],
                     'description': 'Green Normalized Difference Vegetation Index',
                     'application': 'Aquatic vegetation',
-                    'enabled': self.config.generate_chlorophyll_indices,
+                    'enabled': indices_enabled,
                     'category': 'chlorophyll'
                 },
-                # PC (Phycocyanin) REMOVED: Requires 620nm band for phycocyanin absorption - S2 lacks this
-                # FAI (Floating Algae Index) REMOVED: Formula mathematically undefined for S2 band set
-                'TSI': {
+                # Turbidity & Sediment (2) - TSI renamed to TSI_Turbidity
+                'TSI_Turbidity': {
                     'formula': '(B4 + B3) / 2',
                     'required_bands': [665, 560],
                     'description': 'Turbidity Spectral Index',
                     'application': 'Turbidity estimation',
-                    'enabled': self.config.generate_turbidity_indices,
+                    'enabled': indices_enabled,
                     'category': 'turbidity'
                 },
                 'NGRDI': {
@@ -1105,24 +694,24 @@ class VisualizationProcessor:
                     'required_bands': [560, 665],
                     'description': 'Normalized Green Red Difference Index',
                     'application': 'Water-vegetation separation',
-                    'enabled': self.config.generate_turbidity_indices,
+                    'enabled': indices_enabled,
                     'category': 'turbidity'
                 },
-                # FUI (Forel-Ule Index) REMOVED: Requires CIE chromaticity conversion, arctan2 formula scientifically invalid
-                'SDD': {
-                    'formula': 'ln(0.14 / B4) / 1.7',
-                    'required_bands': [665],
-                    'description': 'Secchi Disk Depth proxy (Gordon 1989)',
-                    'application': 'Water transparency - Kd*SD=1.7 relationship',
-                    'enabled': self.config.generate_advanced_indices,
-                    'category': 'advanced'
-                },
+                # Advanced (2) - SDD removed (WaterClarity SecchiDepth is IOP-derived, more rigorous)
                 'CDOM': {
                     'formula': 'B1 / B3',
                     'required_bands': [443, 560],
                     'description': 'Colored Dissolved Organic Matter proxy',
                     'application': 'CDOM concentration',
-                    'enabled': self.config.generate_advanced_indices,
+                    'enabled': indices_enabled,
+                    'category': 'advanced'
+                },
+                'RDI': {
+                    'formula': 'ln(B2) / ln(B3)',
+                    'required_bands': [490, 560],
+                    'description': 'Relative Depth Index (Stumpf et al. 2003)',
+                    'application': 'Bathymetric change detection',
+                    'enabled': indices_enabled,
                     'category': 'advanced'
                 }
             }
@@ -1262,7 +851,7 @@ class VisualizationProcessor:
             # PC, FAI removed: require spectral bands not available in Sentinel-2
 
             # Turbidity & Sediment Indices
-            elif index_name == 'TSI':
+            elif index_name == 'TSI_Turbidity':
                 b4 = bands_data[bands_to_use[0]]  # 665nm
                 b3 = bands_data[bands_to_use[1]]  # 560nm
                 return (b4 + b3) / 2
@@ -1272,15 +861,7 @@ class VisualizationProcessor:
                 b4 = bands_data[bands_to_use[1]]  # 665nm
                 return (b3 - b4) / (b3 + b4 + 1e-8)
 
-            # Advanced Water Properties
-            # PC, FAI, FUI removed: require bands/methods not available in Sentinel-2
-
-            elif index_name == 'SDD':
-                # Secchi Disk Depth proxy using Gordon (1989) Kd*SD=1.7 relationship
-                # 0.14 = empirical reflectance threshold for Secchi visibility
-                # Reference: Gordon, H.R. (1989). Limnol. Oceanogr. 34(8):1389-1409
-                b4 = bands_data[bands_to_use[0]]  # 665nm
-                return np.log(0.14 / (b4 + 1e-8)) / 1.7
+            # SDD removed: WaterClarity SecchiDepth (IOP-derived) is more rigorous
 
             elif index_name == 'CDOM':
                 b1 = bands_data[bands_to_use[0]]  # 443nm
@@ -1349,47 +930,6 @@ class VisualizationProcessor:
         except Exception as e:
             self.logger.error(f"Error in RGB composite creation: {e}")
             return np.zeros((red.shape[0], red.shape[1], 3), dtype=np.float32)
-
-    def _apply_contrast_enhancement(self, rgb_array: np.ndarray) -> np.ndarray:
-        """Apply contrast enhancement based on configuration."""
-        try:
-            if self.config.contrast_method == 'percentile_stretch':
-                for i in range(3):
-                    channel = rgb_array[:, :, i]
-                    valid_mask = channel > 0
-                    valid_data = channel[valid_mask]
-
-                    if len(valid_data) > 100:
-                        p_low, p_high = self.config.percentile_range
-                        p_low_val, p_high_val = np.percentile(valid_data, [p_low, p_high])
-
-                        if p_high_val > p_low_val:
-                            enhanced_channel = np.clip(
-                                (channel - p_low_val) / (p_high_val - p_low_val),
-                                0, 1
-                            )
-                            rgb_array[:, :, i] = enhanced_channel
-
-            elif self.config.contrast_method == 'histogram_equalization':
-                for i in range(3):
-                    channel = rgb_array[:, :, i]
-                    valid_mask = channel > 0
-
-                    if np.any(valid_mask):
-                        valid_data = channel[valid_mask]
-                        if len(np.unique(valid_data)) > 10:
-                            hist, bins = np.histogram(valid_data, bins=256, range=(0, 1))
-                            cdf = hist.cumsum()
-                            cdf = cdf / cdf[-1]
-                            enhanced_data = np.interp(valid_data, bins[:-1], cdf)
-                            channel[valid_mask] = enhanced_data
-                            rgb_array[:, :, i] = channel
-
-            return rgb_array
-
-        except Exception as e:
-            self.logger.warning(f"Error in additional contrast enhancement: {e}")
-            return rgb_array
 
     def _save_rgb_geotiff(self, rgb_array: np.ndarray, output_path: str,
                         metadata: Dict, description: str) -> bool:
@@ -1715,57 +1255,11 @@ class VisualizationProcessor:
                     logger.debug(f"Cleanup successful: Deleted all geometric products ({total_size_mb:.1f} MB freed)")
                     return True
                 else:
-                    logger.warning(f"Partial cleanup: {len(remaining_resampled)} items remain")
-
-            except Exception as e:
-                logger.warning(f"Cleanup with shutil failed: {e}")
-
-            # Method 2: System commands for remaining items
-            try:
-                logger.debug("Using system commands for cleanup...")
-
-                current_items = os.listdir(geometric_folder) if os.path.exists(geometric_folder) else []
-                current_resampled = [item for item in current_items if item.startswith('Resampled_')]
-
-                if platform.system() == "Windows":
-                    for item in current_resampled:
-                        item_path = os.path.join(geometric_folder, item)
-                        if os.path.exists(item_path):
-                            try:
-                                if os.path.isdir(item_path):
-                                    subprocess.run(['rmdir', '/s', '/q', f'"{item_path}"'],
-                                                shell=True, capture_output=True, timeout=30)
-                                else:
-                                    subprocess.run(['del', '/f', '/q', f'"{item_path}"'],
-                                                shell=True, capture_output=True, timeout=30)
-                            except subprocess.TimeoutExpired:
-                                logger.warning(f"Timeout deleting {item}")
-                            except Exception as e:
-                                logger.warning(f"Command failed for {item}: {e}")
-                else:
-                    for item in current_resampled:
-                        item_path = os.path.join(geometric_folder, item)
-                        if os.path.exists(item_path):
-                            try:
-                                subprocess.run(['rm', '-rf', item_path],
-                                            capture_output=True, timeout=30)
-                            except subprocess.TimeoutExpired:
-                                logger.warning(f"Timeout deleting {item}")
-                            except Exception as e:
-                                logger.warning(f"Command failed for {item}: {e}")
-
-                final_remaining = os.listdir(geometric_folder) if os.path.exists(geometric_folder) else []
-                final_resampled = [item for item in final_remaining if item.startswith('Resampled_')]
-
-                if not final_resampled:
-                    logger.debug(f"Cleanup successful (Method 2): All geometric products deleted ({total_size_mb:.1f} MB freed)")
-                    return True
-                else:
-                    logger.error(f"Cleanup failed: {len(final_resampled)} items still remain: {final_resampled}")
+                    logger.error(f"Cleanup failed: {len(remaining_resampled)} items remain: {remaining_resampled}")
                     return False
 
             except Exception as e:
-                logger.error(f"System command cleanup failed: {e}")
+                logger.error(f"Cleanup with shutil failed: {e}")
                 return False
 
         except Exception as e:
@@ -1774,64 +1268,3 @@ class VisualizationProcessor:
             logger.error(f"Cleanup traceback: {traceback.format_exc()}")
             return False
 
-    def _calculate_rgb_statistics(self, rgb_array: np.ndarray) -> Dict:
-        """Calculate statistics for RGB composite"""
-        try:
-            stats = {}
-
-            valid_pixels = np.sum(np.any(rgb_array > 0, axis=2))
-            total_pixels = rgb_array.shape[0] * rgb_array.shape[1]
-            stats['coverage_percent'] = (valid_pixels / total_pixels) * 100
-
-            for i, channel_name in enumerate(['red', 'green', 'blue']):
-                channel = rgb_array[:, :, i]
-                valid_data = channel[channel > 0]
-
-                if len(valid_data) > 0:
-                    stats[f'{channel_name}_min'] = float(np.min(valid_data))
-                    stats[f'{channel_name}_max'] = float(np.max(valid_data))
-                    stats[f'{channel_name}_mean'] = float(np.mean(valid_data))
-                    stats[f'{channel_name}_std'] = float(np.std(valid_data))
-                else:
-                    stats[f'{channel_name}_min'] = 0.0
-                    stats[f'{channel_name}_max'] = 0.0
-                    stats[f'{channel_name}_mean'] = 0.0
-                    stats[f'{channel_name}_std'] = 0.0
-
-            return stats
-
-        except Exception as e:
-            self.logger.warning(f"Error calculating RGB statistics: {e}")
-            return {'coverage_percent': 0.0}
-
-    def _calculate_band_statistics(self, data: np.ndarray, band_name: str) -> Dict:
-        """Calculate statistics for single band data"""
-        try:
-            valid_data = data[~np.isnan(data)]
-
-            if len(valid_data) > 0:
-                stats = {
-                    'band_name': band_name,
-                    'min_value': float(np.min(valid_data)),
-                    'max_value': float(np.max(valid_data)),
-                    'mean_value': float(np.mean(valid_data)),
-                    'std_value': float(np.std(valid_data)),
-                    'valid_pixels': len(valid_data),
-                    'coverage_percent': (len(valid_data) / data.size) * 100
-                }
-            else:
-                stats = {
-                    'band_name': band_name,
-                    'min_value': 0.0,
-                    'max_value': 0.0,
-                    'mean_value': 0.0,
-                    'std_value': 0.0,
-                    'valid_pixels': 0,
-                    'coverage_percent': 0.0
-                }
-
-            return stats
-
-        except Exception as e:
-            self.logger.warning(f"Error calculating band statistics for {band_name}: {e}")
-            return {'band_name': band_name, 'coverage_percent': 0.0}

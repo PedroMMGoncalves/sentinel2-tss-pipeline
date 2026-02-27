@@ -1,35 +1,22 @@
 """
 GUI module for Sentinel-2 TSS Pipeline.
 
-Contains the unified GUI for processing and TSS estimation.
-
-Modular structure:
-    - tabs/ - Individual tab modules (processing, resampling, subset, c2rcc, tss, monitoring)
-    - handlers.py - Event handlers and presets
-    - config_io.py - Configuration save/load
-    - processing_controller.py - Background processing management
-    - unified_gui.py - Main GUI class (transitional)
+5-tab interface:
+    1. Processing - Mode, I/O, options
+    2. Spatial - Resampling + subset + map preview
+    3. C2RCC - Atmospheric correction parameters
+    4. Outputs - 6 category toggles, Jiang config, water mask
+    5. Monitor - Progress, system info, statistics
 """
 
-from .unified_gui import (
-    UnifiedS2TSSGUI,
-    bring_window_to_front,
-    # Geometry utilities (re-exported for backwards compatibility)
-    load_geometry_from_file,
-    validate_wkt_geometry,
-    get_area_name,
-    load_geometry,
-    validate_wkt,
-    generate_area_name,
-)
+from .unified_gui import UnifiedS2TSSGUI, bring_window_to_front
 
 # Tab creation functions
 from .tabs import (
     create_processing_tab,
-    create_resampling_tab,
-    create_subset_tab,
+    create_spatial_tab,
     create_c2rcc_tab,
-    create_tss_tab,
+    create_outputs_tab,
     create_monitoring_tab,
 )
 
@@ -37,19 +24,7 @@ from .tabs import (
 from .handlers import (
     on_mode_change,
     update_tab_visibility,
-    update_subset_visibility,
-    update_jiang_visibility,
-    on_ecmwf_toggle,
-    on_rhow_toggle,
     validate_input_directory,
-    validate_geometry,
-    browse_input_dir,
-    browse_output_dir,
-    apply_water_preset,
-    apply_snap_defaults,
-    apply_essential_outputs,
-    apply_scientific_outputs,
-    reset_all_outputs,
     on_closing,
 )
 
@@ -73,27 +48,16 @@ __all__ = [
     # Main GUI
     'UnifiedS2TSSGUI',
     'bring_window_to_front',
-    # Geometry utilities
-    'load_geometry_from_file',
-    'validate_wkt_geometry',
-    'get_area_name',
-    'load_geometry',
-    'validate_wkt',
-    'generate_area_name',
     # Tab creators
     'create_processing_tab',
-    'create_resampling_tab',
-    'create_subset_tab',
+    'create_spatial_tab',
     'create_c2rcc_tab',
-    'create_tss_tab',
+    'create_outputs_tab',
     'create_monitoring_tab',
     # Handlers
     'on_mode_change',
     'update_tab_visibility',
     'validate_input_directory',
-    'browse_input_dir',
-    'browse_output_dir',
-    'apply_snap_defaults',
     'on_closing',
     # Config I/O
     'update_configurations',

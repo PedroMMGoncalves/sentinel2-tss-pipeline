@@ -33,7 +33,7 @@ def update_tab_visibility(gui):
         # Show/hide tabs based on mode
         if mode in ["complete_pipeline", "s2_processing_only"]:
             # Show S2 processing tabs
-            for tab_name in ['resampling', 'subset', 'c2rcc']:
+            for tab_name in ['spatial', 'c2rcc']:
                 if tab_name in gui.tab_indices:
                     try:
                         gui.notebook.tab(gui.tab_indices[tab_name], state="normal")
@@ -41,24 +41,24 @@ def update_tab_visibility(gui):
                         pass
         else:
             # Hide S2 processing tabs for TSS-only mode
-            for tab_name in ['resampling', 'subset', 'c2rcc']:
+            for tab_name in ['spatial', 'c2rcc']:
                 if tab_name in gui.tab_indices:
                     try:
                         gui.notebook.tab(gui.tab_indices[tab_name], state="hidden")
                     except tk.TclError:
                         pass
 
-        # TSS tab visibility
+        # Outputs tab visibility
         if mode in ["complete_pipeline", "tss_processing_only"]:
-            if 'tss' in gui.tab_indices:
+            if 'outputs' in gui.tab_indices:
                 try:
-                    gui.notebook.tab(gui.tab_indices['tss'], state="normal")
+                    gui.notebook.tab(gui.tab_indices['outputs'], state="normal")
                 except tk.TclError:
                     pass
         else:
-            if 'tss' in gui.tab_indices:
+            if 'outputs' in gui.tab_indices:
                 try:
-                    gui.notebook.tab(gui.tab_indices['tss'], state="hidden")
+                    gui.notebook.tab(gui.tab_indices['outputs'], state="hidden")
                 except tk.TclError:
                     pass
 
