@@ -685,7 +685,7 @@ class VisualizationProcessor:
                     'category': 'advanced'
                 },
                 'RDI': {
-                    'formula': 'ln(B2) / ln(B3)',
+                    'formula': 'ln(B3) / ln(B2)',
                     'required_bands': [490, 560],
                     'description': 'Relative Depth Index (Stumpf et al. 2003)',
                     'application': 'Bathymetric change detection',
@@ -848,15 +848,13 @@ class VisualizationProcessor:
 
             elif index_name == 'RDI':
                 # Relative Depth Index (Stumpf et al. 2003)
-                # Without in-situ calibration, produces relative depth index (unitless)
-                # Ideal for time-series analysis of bathymetric changes
+                # RDI = ln(Rrs_green) / ln(Rrs_blue) — unitless, uncalibrated
+                # Shallow water → higher values, deep water → lower values
                 blue = bands_data[bands_to_use[0]]   # 490nm (B2)
                 green = bands_data[bands_to_use[1]]  # 560nm (B3)
                 valid_mask = (blue > 0) & (green > 0)
                 rdi = np.full_like(blue, np.nan, dtype=np.float32)
-                rdi[valid_mask] = np.log(blue[valid_mask]) / np.log(green[valid_mask])
-                # Mask optically deep water where ratio breaks down (>1.0)
-                rdi = np.where(rdi > 1.0, np.nan, rdi)
+                rdi[valid_mask] = np.log(green[valid_mask]) / np.log(blue[valid_mask])
                 return rdi
 
             else:

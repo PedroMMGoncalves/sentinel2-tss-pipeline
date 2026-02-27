@@ -164,6 +164,8 @@ def _run_processing_thread(gui, config, products):
 
         # Process products
         total_products = len(products)
+        gui.processor.total_products = total_products
+        gui.processor.start_time = time.time()
 
         for i, product_path in enumerate(products):
             if not gui.processing_active:  # Check for stop signal

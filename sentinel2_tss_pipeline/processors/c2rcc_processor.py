@@ -615,12 +615,13 @@ class C2RCCProcessor:
                 # Memory optimization: use file-based tile cache to avoid DataBuffer errors
                 '-Dsnap.gpf.useFileTileCache=true',
                 '-Dsnap.gpf.disableTileCache=false',
+                # GPT options must come BEFORE the graph file
+                '-c', f'{self.config.memory_limit_gb}G',
+                '-q', str(self.config.thread_count),
                 self.main_graph_file,
                 f'-PsourceProduct={input_path}',
                 f'-PtargetProduct={output_path}',
                 f'-PgeometricProduct={geometric_output_path}',
-                f'-c', f'{self.config.memory_limit_gb}G',
-                f'-q', str(self.config.thread_count)
             ]
 
             logger.debug(f"GPT processing paths:")

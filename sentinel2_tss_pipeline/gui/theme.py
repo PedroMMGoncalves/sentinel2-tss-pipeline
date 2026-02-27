@@ -105,28 +105,46 @@ class ThemeManager:
         """
         Apply theme to the application.
 
+        Tries sv-ttk (Azure/Sun Valley) first for modern look,
+        falls back to clam/vista with custom styling.
+
         Args:
             root: tk root window
         """
         self.style = ttk.Style(root)
+        self._has_sv_ttk = False
 
-        # Try to use a modern base theme
-        available_themes = self.style.theme_names()
-        if 'clam' in available_themes:
-            self.style.theme_use('clam')
-        elif 'vista' in available_themes:
-            self.style.theme_use('vista')
+        # Try modern Sun Valley theme first
+        try:
+            import sv_ttk
+            sv_ttk.set_theme("light")
+            self._has_sv_ttk = True
+            logger.info("Applied Sun Valley (Azure) light theme")
+        except ImportError:
+            # Fallback to built-in theme
+            available_themes = self.style.theme_names()
+            if 'clam' in available_themes:
+                self.style.theme_use('clam')
+            elif 'vista' in available_themes:
+                self.style.theme_use('vista')
+            logger.info("sv-ttk not installed, using fallback theme")
 
-        self._configure_frame_styles()
-        self._configure_label_styles()
+        # Apply custom styles on top of base theme
+        if not self._has_sv_ttk:
+            # Full custom styling needed without sv-ttk
+            self._configure_frame_styles()
+            self._configure_label_styles()
+            self._configure_entry_styles()
+            self._configure_checkbox_styles()
+            self._configure_radiobutton_styles()
+            self._configure_notebook_styles()
+            self._configure_labelframe_styles()
+            self._configure_scrollbar_styles()
+
+        # Always apply these (custom named styles used by the app)
         self._configure_button_styles()
-        self._configure_entry_styles()
-        self._configure_checkbox_styles()
-        self._configure_radiobutton_styles()
         self._configure_progressbar_styles()
-        self._configure_notebook_styles()
-        self._configure_labelframe_styles()
-        self._configure_scrollbar_styles()
+        self._configure_custom_named_styles()
 
         logger.info("Theme applied successfully")
 
@@ -358,6 +376,30 @@ class ThemeManager:
             borderwidth=0,
             arrowsize=14
         )
+
+    def _configure_custom_named_styles(self):
+        """Configure custom named styles that must exist regardless of theme."""
+        # Collapsible frame header
+        self.style.configure(
+            'Collapsible.TFrame',
+            background=self.COLORS['bg_hover']
+        )
+        # Card frame
+        self.style.configure(
+            'Card.TFrame',
+            background=self.COLORS['bg_card'],
+            relief='flat'
+        )
+        # Status labels
+        for name, color_key in [('Success', 'success'), ('Warning', 'warning'),
+                                 ('Error', 'error'), ('Info', 'info')]:
+            self.style.configure(f'{name}.TLabel', foreground=self.COLORS[color_key])
+        # Title/heading labels
+        self.style.configure('Title.TLabel', font=self.FONTS['title'])
+        self.style.configure('Subtitle.TLabel', font=self.FONTS['subtitle'])
+        self.style.configure('Heading.TLabel', font=self.FONTS['heading'])
+        self.style.configure('Muted.TLabel', foreground=self.COLORS['text_muted'],
+                             font=self.FONTS['small'])
 
     def get_color(self, name):
         """Get a color by name."""

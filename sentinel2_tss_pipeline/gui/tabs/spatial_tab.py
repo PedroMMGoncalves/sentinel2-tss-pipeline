@@ -311,6 +311,7 @@ def _load_geometry(gui):
         gui.subset_method_var.set("geometry")
         _update_subset_visibility(gui)
         _update_map_preview(gui)
+        _zoom_to_geometry(gui)
         gui.status_var.set("Geometry loaded")
         logger.info(info)
     else:
@@ -364,7 +365,7 @@ def _update_map_preview(gui):
         # Draw new polygon (tkintermapview uses (lat, lon) tuples)
         gui._map_polygon = gui.map_widget.set_polygon(
             coords,
-            fill_color="#2563eb33",
+            fill_color="#93b5f5",
             outline_color="#2563eb",
             border_width=2
         )
@@ -379,7 +380,7 @@ def _update_map_preview(gui):
             )
 
     except Exception as e:
-        logger.debug(f"Map preview update error: {e}")
+        logger.warning(f"Map preview update error: {e}")
 
 
 def _zoom_to_geometry(gui):
