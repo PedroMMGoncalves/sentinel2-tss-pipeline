@@ -615,8 +615,6 @@ class C2RCCProcessor:
                 # Memory optimization: use file-based tile cache to avoid DataBuffer errors
                 '-Dsnap.gpf.useFileTileCache=true',
                 '-Dsnap.gpf.disableTileCache=false',
-                # Override snap.properties parallelism (-q alone is unreliable, SNAP-632)
-                f'-Dsnap.parallelism={self.config.thread_count}',
                 # GPT options must come BEFORE the graph file
                 '-c', f'{self.config.memory_limit_gb}G',
                 '-q', str(self.config.thread_count),
@@ -626,7 +624,7 @@ class C2RCCProcessor:
                 f'-PgeometricProduct={geometric_output_path}',
             ]
 
-            logger.info(f"  GPT resources: heap={self.config.memory_limit_gb}G, parallelism={self.config.thread_count}")
+            logger.info(f"  GPT resources: memory={self.config.memory_limit_gb}G, threads={self.config.thread_count}")
             logger.debug(f"GPT processing paths:")
             logger.debug(f"  Input: {os.path.basename(input_path)}")
             logger.debug(f"  C2RCC Output: {os.path.basename(output_path)}")
@@ -637,17 +635,12 @@ class C2RCCProcessor:
             gpt_timeout = self.config.gpt_timeout if hasattr(self.config, 'gpt_timeout') else 10800
             logger.debug(f"Executing GPT processing (timeout: {gpt_timeout//3600}h {(gpt_timeout%3600)//60}m)...")
 
-            # Force JVM heap limit (overrides gpt.vmoptions -Xmx179G)
-            env = os.environ.copy()
-            env['_JAVA_OPTIONS'] = f'-Xmx{self.config.memory_limit_gb}G'
-
             # Use Popen for proper process control (allows killing on timeout)
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True,
-                env=env
+                text=True
             )
 
             try:

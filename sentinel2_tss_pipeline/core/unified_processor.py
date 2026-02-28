@@ -29,6 +29,7 @@ from ..config import ProcessingConfig, ProcessingMode
 from ..utils.product_detector import ProductDetector, SystemMonitor
 from ..utils.memory_manager import MemoryManager
 from ..utils.output_structure import OutputStructure
+from ..utils.logging_utils import StepTracker
 from ..processors.tsm_chl_calculator import ProcessingResult
 from ..processors.c2rcc_processor import C2RCCProcessor, ProcessingStatus
 from ..processors.tss_processor import TSSProcessor
@@ -55,6 +56,9 @@ class UnifiedS2TSSProcessor:
         self.system_monitor = SystemMonitor()
         self.system_monitor.start_monitoring()
 
+        # Structured logging
+        self.tracker = StepTracker(logger)
+
         # Initialize processors based on mode
         self._initialize_processors()
 
@@ -79,18 +83,28 @@ class UnifiedS2TSSProcessor:
             Processing statistics
         """
         try:
-            logger.info("=" * 80)
-            logger.info("STARTING UNIFIED S2-TSS PROCESSING")
-            logger.info("=" * 80)
+            # Opening banner
+            mode_labels = {
+                ProcessingMode.COMPLETE_PIPELINE: "Complete Pipeline (L1C \u2192 C2RCC \u2192 TSS)",
+                ProcessingMode.S2_PROCESSING_ONLY: "S2 Processing Only (L1C \u2192 C2RCC)",
+                ProcessingMode.TSS_PROCESSING_ONLY: "TSS Processing Only (C2RCC \u2192 TSS)",
+            }
+            from .. import __version__
+            self.tracker.banner(
+                f"SENTINEL-2 TSS PIPELINE v{__version__}",
+                f"Mode: {mode_labels.get(self.config.processing_mode, self.config.processing_mode.value)}"
+            )
 
-            # Find and validate products
+            # Step 1: Scan input
+            self.tracker.log_step("Step 1: Scanning input folder...")
             products = self._find_products()
             if not products:
-                logger.error("No compatible products found")
+                logger.error("  No compatible products found")
                 return {'processed': 0, 'failed': 1, 'skipped': 0}
 
-            logger.info(f"Found {len(products)} products to process")
-            logger.info(f"Processing mode: {self.config.processing_mode.value}")
+            logger.info(f"  Found: {len(products)} products")
+
+            # Configuration box
             self._log_config_summary()
 
             # Track batch size and reset start time for accurate progress/ETA
@@ -99,6 +113,7 @@ class UnifiedS2TSSProcessor:
 
             # Process each product
             for i, product_path in enumerate(products, 1):
+                self.tracker.log_step(f"Step {i + 1}: Processing scene {i}/{len(products)}")
                 self._process_single_product(product_path, i, len(products))
 
             # Final summary
@@ -131,35 +146,20 @@ class UnifiedS2TSSProcessor:
         return sorted(product_list)
 
     def _log_config_summary(self):
-        """Log processing configuration summary."""
+        """Log processing configuration as a structured box."""
         c = self.config
-        logger.info("-" * 60)
-        logger.info("Configuration:")
-        logger.info(f"  Input:      {c.input_folder}")
-        logger.info(f"  Output:     {c.output_folder}")
-        logger.info(f"  Resolution: {c.resampling_config.target_resolution}m "
-                     f"(up={c.resampling_config.upsampling_method}, "
-                     f"down={c.resampling_config.downsampling_method})")
 
-        # Subset info
+        # Build subset description
         if c.subset_config.geometry_wkt:
             wkt = c.subset_config.geometry_wkt
-            wkt_preview = wkt[:60] + '...' if len(wkt) > 60 else wkt
-            logger.info(f"  Subset:     WKT geometry ({wkt_preview})")
+            subset = f"WKT ({wkt[:50]}...)" if len(wkt) > 50 else f"WKT ({wkt})"
         elif c.subset_config.pixel_start_x is not None:
-            logger.info(f"  Subset:     Pixel coords "
-                         f"({c.subset_config.pixel_start_x},{c.subset_config.pixel_start_y} "
-                         f"w={c.subset_config.pixel_size_x} h={c.subset_config.pixel_size_y})")
+            subset = (f"Pixel ({c.subset_config.pixel_start_x},{c.subset_config.pixel_start_y} "
+                      f"w={c.subset_config.pixel_size_x} h={c.subset_config.pixel_size_y})")
         else:
-            logger.info(f"  Subset:     Full scene")
+            subset = "Full scene"
 
-        # C2RCC config
-        logger.info(f"  C2RCC NN:   {c.c2rcc_config.net_set}")
-        logger.info(f"  Water:      salinity={c.c2rcc_config.salinity} PSU, "
-                     f"temp={c.c2rcc_config.temperature}C")
-        logger.info(f"  GPT:        memory={c.memory_limit_gb}G, threads={c.thread_count}")
-
-        # Options
+        # Build options string
         opts = []
         if c.skip_existing:
             opts.append('skip_existing')
@@ -167,9 +167,22 @@ class UnifiedS2TSSProcessor:
             opts.append('test_mode')
         if c.delete_intermediate_files:
             opts.append('delete_intermediate')
+
+        kv = {
+            "Input": c.input_folder,
+            "Output": c.output_folder,
+            "Resolution": (f"{c.resampling_config.target_resolution}m "
+                           f"(up={c.resampling_config.upsampling_method}, "
+                           f"down={c.resampling_config.downsampling_method})"),
+            "Subset": subset,
+            "C2RCC NN": c.c2rcc_config.net_set,
+            "Water": f"salinity={c.c2rcc_config.salinity} PSU, temp={c.c2rcc_config.temperature}C",
+            "GPT": f"memory={c.memory_limit_gb}G, threads={c.thread_count}",
+        }
         if opts:
-            logger.info(f"  Options:    {', '.join(opts)}")
-        logger.info("-" * 60)
+            kv["Options"] = ", ".join(opts)
+
+        self.tracker.config_box(kv)
 
     def _process_single_product(self, product_path: str, current: int, total: int):
         """Process single product based on mode"""
@@ -177,144 +190,132 @@ class UnifiedS2TSSProcessor:
 
         try:
             product_name = self._extract_product_name(product_path)
-            clean_product_name = product_name  # Will be updated with actual clean name from C2RCCProcessor
-
-            logger.info("=" * 60)
-            logger.info(f"Processing {current}/{total}: {product_name}")
-            logger.info("=" * 60)
+            clean_product_name = product_name
 
             # Check if outputs already exist
             if self.config.skip_existing and self._check_outputs_exist(product_name):
-                logger.info(f"  Skipping (outputs exist)")
+                logger.info(f"  Skipped (outputs exist): {product_name}")
                 self.skipped_count += 1
                 return
 
-            # Process based on mode
+            self.tracker.box_start(product_name)
+
             results = {}
 
             if self.config.processing_mode == ProcessingMode.COMPLETE_PIPELINE:
-                # S2 Processing milestone
-                logger.info("  S2 Processing (Resampling + C2RCC)...")
-                s2_start = time.time()
-                s2_results = self.c2rcc_processor.process_single_product(product_path, self.config.output_folder)
-                s2_time = time.time() - s2_start
-                logger.info(f"  S2 Processing... done ({s2_time/60:.1f} min)")
-                results.update(s2_results)
+                # Determine sub-step count
+                has_tss = (self.config.tss_config.enable_tss_processing and
+                           hasattr(self, 'tss_processor') and
+                           self.tss_processor is not None)
+                total_steps = 2 if has_tss else 1
 
-                # Get clean product name for cleanup (C2RCCProcessor uses shorter naming)
+                # Sub-step 1: C2RCC
+                with self.tracker.step(f"[1/{total_steps}] Resampling + C2RCC"):
+                    s2_results = self.c2rcc_processor.process_single_product(
+                        product_path, self.config.output_folder)
+                    results.update(s2_results)
+
                 clean_product_name = s2_results.get('clean_product_name', product_name)
 
                 # Check if S2 processing succeeded
                 if 'error' in s2_results or 's2_error' in s2_results:
                     error_key = 'error' if 'error' in s2_results else 's2_error'
-                    logger.error(f"S2 processing failed, skipping TSS: {s2_results[error_key].error_message}")
+                    self.tracker.box_line(
+                        f"FAILED: {s2_results[error_key].error_message}")
+                    self.tracker.box_end()
                     self.failed_count += 1
                     return
 
-                # TSS Processing (if enabled and processor exists)
-                if (self.config.tss_config.enable_tss_processing and
-                    hasattr(self, 'tss_processor') and
-                    self.tss_processor is not None):
-
-                    # TSS + Visualization milestone
-                    logger.info("  TSS + Visualization (Jiang et al. 2021)...")
-                    tss_start = time.time()
-
-                    # Get C2RCC output path from S2 results
+                # Sub-step 2: TSS + Visualization
+                if has_tss:
+                    # Get C2RCC output path
                     if 's2_processing' in s2_results:
                         c2rcc_output_path = s2_results['s2_processing'].output_path
                     else:
-                        # Find the C2RCC output file in Intermediate folder
                         c2rcc_folder = OutputStructure.get_intermediate_folder(
-                            self.config.output_folder, OutputStructure.C2RCC_FOLDER
-                        )
-                        c2rcc_output_path = os.path.join(c2rcc_folder, f"Resampled_{product_name}_Subset_C2RCC.dim")
+                            self.config.output_folder, OutputStructure.C2RCC_FOLDER)
+                        c2rcc_output_path = os.path.join(
+                            c2rcc_folder, f"Resampled_{product_name}_Subset_C2RCC.dim")
 
-                    # Process TSS - use main output folder (tss_processor creates scene subfolder)
                     try:
                         s2_result = s2_results.get('s2_processing')
-                        tss_results = self.tss_processor.process_tss(
-                            c2rcc_output_path, self.config.output_folder, product_name, s2_result
-                        )
-                        results.update(tss_results)
-                        tss_time = time.time() - tss_start
+                        with self.tracker.step(
+                                f"[2/{total_steps}] TSS + Visualization (Jiang et al. 2021)"):
+                            tss_results = self.tss_processor.process_tss(
+                                c2rcc_output_path, self.config.output_folder,
+                                product_name, s2_result)
+                            results.update(tss_results)
 
                         if 'error' in tss_results:
-                            logger.error(f"  TSS processing failed: {tss_results['error'].error_message}")
-                        else:
-                            logger.info(f"  TSS + Visualization... done ({tss_time/60:.1f} min)")
+                            self.tracker.box_line(
+                                f"TSS failed: {tss_results['error'].error_message}")
 
                     except Exception as tss_error:
-                        logger.error(f"  TSS processing error: {str(tss_error)}")
-                        results['tss_error'] = ProcessingResult(False, "", None, str(tss_error))
+                        logger.error(f"TSS processing error: {str(tss_error)}")
+                        results['tss_error'] = ProcessingResult(
+                            False, "", None, str(tss_error))
 
                 elif self.config.tss_config.enable_tss_processing:
-                    logger.warning("  TSS processing enabled but processor not initialized")
-                else:
-                    logger.debug("TSS processing disabled - using SNAP TSM/CHL products only")
+                    logger.warning("TSS processing enabled but processor not initialized")
 
             elif self.config.processing_mode == ProcessingMode.S2_PROCESSING_ONLY:
-                # S2 processing only milestone
-                logger.info("  S2 Processing (Resampling + C2RCC)...")
-                s2_start = time.time()
-                results = self.c2rcc_processor.process_single_product(product_path, self.config.output_folder)
-                s2_time = time.time() - s2_start
-                logger.info(f"  S2 Processing... done ({s2_time/60:.1f} min)")
+                with self.tracker.step("[1/1] Resampling + C2RCC"):
+                    results = self.c2rcc_processor.process_single_product(
+                        product_path, self.config.output_folder)
 
             elif self.config.processing_mode == ProcessingMode.TSS_PROCESSING_ONLY:
-                # TSS processing only milestone
                 if hasattr(self, 'tss_processor') and self.tss_processor is not None:
-                    logger.info("  TSS + Visualization (Jiang et al. 2021)...")
-                    tss_start = time.time()
-                    results = self.tss_processor.process_tss(
-                        product_path, self.config.output_folder, product_name
-                    )
-                    tss_time = time.time() - tss_start
-                    logger.info(f"  TSS + Visualization... done ({tss_time/60:.1f} min)")
+                    with self.tracker.step(
+                            "[1/1] TSS + Visualization (Jiang et al. 2021)"):
+                        results = self.tss_processor.process_tss(
+                            product_path, self.config.output_folder, product_name)
                 else:
-                    logger.error("  TSS processor not initialized for TSS_PROCESSING_ONLY mode")
-                    results = {'error': ProcessingResult(False, "", None, "TSS processor not initialized")}
+                    logger.error("TSS processor not initialized")
+                    results = {'error': ProcessingResult(
+                        False, "", None, "TSS processor not initialized")}
 
             processing_time = time.time() - processing_start
 
-            # Check results
+            # Check results and print scene summary
             if any('error' in key for key in results.keys()):
-                logger.error(f"Processing failed with errors")
+                self.tracker.box_line(
+                    f"Scene FAILED ({processing_time/60:.1f} min)")
                 self.failed_count += 1
             else:
-                success_count = 0
-                for key, result in results.items():
-                    if isinstance(result, ProcessingResult) and hasattr(result, 'success'):
-                        if result.success:
-                            success_count += 1
-                    elif result is not None:
-                        success_count += 1
-                processing_time = time.time() - processing_start
-                logger.info(f"Scene complete: {success_count} products ({processing_time/60:.1f} min)")
+                success_count = sum(
+                    1 for r in results.values()
+                    if (isinstance(r, ProcessingResult) and
+                        hasattr(r, 'success') and r.success)
+                    or (not isinstance(r, ProcessingResult) and r is not None))
+                self.tracker.box_line(
+                    f"Scene complete: {success_count} products "
+                    f"({processing_time/60:.1f} min)")
+
+                # Scene-level resource summary
+                res = self.tracker.format_resources(
+                    self.tracker._scene_cpu_samples,
+                    self.tracker._scene_ram_samples)
+                if res:
+                    self.tracker.box_line(f"Scene resources \u2014 {res}")
+
                 self.processed_count += 1
 
-            # Aggressive Memory cleanup between scenes
+            self.tracker.box_end()
+
+            # Memory cleanup between scenes
             try:
-                # Clean up large variables from this processing cycle
                 MemoryManager.cleanup_variables(results)
+                gc.collect(0)
+                gc.collect(1)
+                gc.collect(2)
 
-                # Force multiple GC passes (all generations)
-                gc.collect(0)  # Generation 0 (youngest)
-                gc.collect(1)  # Generation 1
-                gc.collect(2)  # Generation 2 (full collection)
-
-                # Enhanced memory monitoring
                 if MemoryManager.monitor_memory():
                     logger.debug("Running aggressive memory cleanup...")
                     MemoryManager.cleanup_variables()
-
-                    # Multiple full GC passes to ensure cleanup
                     for _ in range(3):
                         gc.collect()
-
-                    # Check memory again after cleanup
                     if HAS_PSUTIL:
-                        current_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+                        current_memory = psutil.Process().memory_info().rss / 1024 / 1024
                         logger.debug(f"Memory usage after cleanup: {current_memory:.1f}MB")
 
             except Exception as cleanup_error:
@@ -324,19 +325,18 @@ class UnifiedS2TSSProcessor:
             if getattr(self.config, 'delete_intermediate_files', False):
                 self._cleanup_intermediate_files(self.config.output_folder, clean_product_name)
 
-            # Progress estimation and scene separator
+            # Progress ETA
             if self.processed_count > 0 and current < total:
                 elapsed = time.time() - self.start_time
                 avg_time = elapsed / current
                 remaining = total - current
                 eta_minutes = (avg_time * remaining) / 60
-                logger.info(f"Progress: {current}/{total} - ETA: {eta_minutes:.0f} min remaining")
-            logger.info("-" * 60)
+                logger.info(
+                    f"  Progress: {current}/{total} \u2014 "
+                    f"ETA: {eta_minutes:.0f} min remaining")
 
         except Exception as e:
-            processing_time = time.time() - processing_start
-            error_msg = f"Unexpected error: {str(e)}"
-            logger.error(error_msg)
+            logger.error(f"Unexpected error: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
             self.failed_count += 1
@@ -485,37 +485,42 @@ class UnifiedS2TSSProcessor:
             logger.warning(f"  Cleanup warning: Could not delete intermediate files: {e}")
 
     def _print_final_summary(self):
-        """Print final processing summary"""
+        """Print final processing summary as a structured banner."""
         total_time = (time.time() - self.start_time) / 60
 
-        logger.info(f"\n{'=' * 80}")
-        logger.info("UNIFIED S2-TSS PROCESSING SUMMARY")
-        logger.info(f"{'=' * 80}")
-        logger.info(f"Products processed successfully: {self.processed_count}")
-        logger.info(f"Products skipped (existing): {self.skipped_count}")
-        logger.info(f"Products with errors: {self.failed_count}")
-        logger.info(f"Total processing time: {total_time:.2f} minutes")
+        kv = {}
+        kv["Processed"] = (f"{self.processed_count} "
+                           f"scene{'s' if self.processed_count != 1 else ''}")
+        if self.skipped_count > 0:
+            kv["Skipped"] = (f"{self.skipped_count} "
+                             f"scene{'s' if self.skipped_count != 1 else ''}")
+        if self.failed_count > 0:
+            kv["Failed"] = str(self.failed_count)
 
         if self.processed_count > 0:
-            avg_time = total_time / self.processed_count
-            logger.info(f"Average time per product: {avg_time:.2f} minutes")
+            avg = total_time / self.processed_count
+            kv["Total time"] = f"{total_time:.1f} min (avg {avg:.1f} min/scene)"
+        else:
+            kv["Total time"] = f"{total_time:.1f} min"
 
-        # Output summary
-        logger.info(f"\nOutput Structure:")
-        logger.info(f"|-- {self.config.output_folder}/")
-        if self.config.processing_mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.TSS_PROCESSING_ONLY]:
-            logger.info(f"    |-- <scene_name>/")
-            logger.info(f"    |   |-- TSS/           (TSS products)")
-            logger.info(f"    |   |-- RGB/           (RGB composites)")
-            logger.info(f"    |   |-- Indices/       (Spectral indices)")
-            logger.info(f"    |   |-- WaterClarity/  (if enabled)")
-            logger.info(f"    |   |-- HAB/           (if enabled)")
-            logger.info(f"    |   |-- TrophicState/  (if enabled)")
-        if self.config.processing_mode in [ProcessingMode.COMPLETE_PIPELINE, ProcessingMode.S2_PROCESSING_ONLY]:
-            logger.info(f"    |-- Intermediate/")
-            logger.info(f"    |   |-- Geometric/     (Resampled L1C)")
-            logger.info(f"    |   |-- C2RCC/         (C2RCC products)")
-        logger.info(f"    |-- Logs/")
+        # Batch-level resource summary
+        res = self.tracker.format_resources(
+            self.tracker._batch_cpu_samples,
+            self.tracker._batch_ram_samples)
+        if res:
+            kv["Resources"] = res
+
+        kv["Output"] = self.config.output_folder
+
+        # Banner title
+        if self.failed_count > 0 and self.processed_count == 0:
+            title = "FAILED"
+        elif self.failed_count > 0:
+            title = "COMPLETE (with errors)"
+        else:
+            title = "COMPLETE"
+
+        self.tracker.summary_banner(kv, title=title)
 
     def get_processing_status(self) -> ProcessingStatus:
         """Get current processing status"""
