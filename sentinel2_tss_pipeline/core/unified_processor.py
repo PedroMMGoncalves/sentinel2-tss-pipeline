@@ -91,6 +91,7 @@ class UnifiedS2TSSProcessor:
 
             logger.info(f"Found {len(products)} products to process")
             logger.info(f"Processing mode: {self.config.processing_mode.value}")
+            self._log_config_summary()
 
             # Track batch size and reset start time for accurate progress/ETA
             self.total_products = len(products)
@@ -129,6 +130,47 @@ class UnifiedS2TSSProcessor:
         logger.info(message)
         return sorted(product_list)
 
+    def _log_config_summary(self):
+        """Log processing configuration summary."""
+        c = self.config
+        logger.info("-" * 60)
+        logger.info("Configuration:")
+        logger.info(f"  Input:      {c.input_folder}")
+        logger.info(f"  Output:     {c.output_folder}")
+        logger.info(f"  Resolution: {c.resampling_config.target_resolution}m "
+                     f"(up={c.resampling_config.upsampling_method}, "
+                     f"down={c.resampling_config.downsampling_method})")
+
+        # Subset info
+        if c.subset_config.geometry_wkt:
+            wkt = c.subset_config.geometry_wkt
+            wkt_preview = wkt[:60] + '...' if len(wkt) > 60 else wkt
+            logger.info(f"  Subset:     WKT geometry ({wkt_preview})")
+        elif c.subset_config.pixel_start_x is not None:
+            logger.info(f"  Subset:     Pixel coords "
+                         f"({c.subset_config.pixel_start_x},{c.subset_config.pixel_start_y} "
+                         f"w={c.subset_config.pixel_size_x} h={c.subset_config.pixel_size_y})")
+        else:
+            logger.info(f"  Subset:     Full scene")
+
+        # C2RCC config
+        logger.info(f"  C2RCC NN:   {c.c2rcc_config.net_set}")
+        logger.info(f"  Water:      salinity={c.c2rcc_config.salinity} PSU, "
+                     f"temp={c.c2rcc_config.temperature}C")
+        logger.info(f"  GPT:        memory={c.memory_limit_gb}G, threads={c.thread_count}")
+
+        # Options
+        opts = []
+        if c.skip_existing:
+            opts.append('skip_existing')
+        if c.test_mode:
+            opts.append('test_mode')
+        if c.delete_intermediate_files:
+            opts.append('delete_intermediate')
+        if opts:
+            logger.info(f"  Options:    {', '.join(opts)}")
+        logger.info("-" * 60)
+
     def _process_single_product(self, product_path: str, current: int, total: int):
         """Process single product based on mode"""
         processing_start = time.time()
@@ -137,7 +179,9 @@ class UnifiedS2TSSProcessor:
             product_name = self._extract_product_name(product_path)
             clean_product_name = product_name  # Will be updated with actual clean name from C2RCCProcessor
 
+            logger.info("=" * 60)
             logger.info(f"Processing {current}/{total}: {product_name}")
+            logger.info("=" * 60)
 
             # Check if outputs already exist
             if self.config.skip_existing and self._check_outputs_exist(product_name):

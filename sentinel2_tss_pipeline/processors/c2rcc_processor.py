@@ -624,6 +624,7 @@ class C2RCCProcessor:
                 f'-PgeometricProduct={geometric_output_path}',
             ]
 
+            logger.info(f"  GPT resources: memory={self.config.memory_limit_gb}G, threads={self.config.thread_count}")
             logger.debug(f"GPT processing paths:")
             logger.debug(f"  Input: {os.path.basename(input_path)}")
             logger.debug(f"  C2RCC Output: {os.path.basename(output_path)}")

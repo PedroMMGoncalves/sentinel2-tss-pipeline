@@ -9,6 +9,9 @@ import logging
 from datetime import datetime
 
 
+_current_log_file = None  # Track current log file to avoid duplicate messages
+
+
 class ColoredFormatter(logging.Formatter):
     """Custom formatter with colors and enhanced formatting"""
 
@@ -78,7 +81,13 @@ def setup_enhanced_logging(log_level=logging.INFO, output_folder: str = None):
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
 
-    logger.info(f"Logging configured - File: {log_file}")
+    global _current_log_file
+    if _current_log_file is None:
+        logger.info(f"Logging configured - File: {log_file}")
+    else:
+        logger.debug(f"Logging redirected to: {log_file}")
+    _current_log_file = log_file
+
     return logger, log_file
 
 

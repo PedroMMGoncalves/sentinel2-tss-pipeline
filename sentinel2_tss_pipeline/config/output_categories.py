@@ -29,7 +29,7 @@ class OutputCategoryConfig:
     """
     enable_tss: bool = True           # 7 products: TSS, Absorption, Backscattering, ReferenceBand, WaterTypes, ValidMask, Legend
     enable_rgb: bool = True           # 15 unique RGB composites (deduplicated)
-    enable_indices: bool = True       # 14 spectral indices (NDWI, NDTI, NDCI, RDI, CDOM, etc.)
+    enable_indices: bool = True       # 14 spectral indices (NDWI, NDTI, NDCI, pSDB, CDOM, etc.)
     enable_water_clarity: bool = False  # 6 products: SecchiDepth, Kd, ClarityIndex, EuphoticDepth, BeamAttenuation, RelativeTurbidity
     enable_hab: bool = False          # 9 products: NDCI/MCI Values+Bloom, Probability, RiskLevel, Cyanobacteria, Biomass Alerts
     enable_trophic_state: bool = False  # 3 products: TSI_Chlorophyll, TSI_Secchi, TrophicClass

@@ -65,11 +65,11 @@ class ThemeManager:
 
     # Font configuration
     FONTS = {
-        'title': ('Segoe UI', 16, 'bold'),
-        'subtitle': ('Segoe UI', 12, 'bold'),
-        'heading': ('Segoe UI', 11, 'bold'),
-        'body': ('Segoe UI', 10),
-        'small': ('Segoe UI', 9),
+        'title': ('Calibri', 18, 'bold'),
+        'subtitle': ('Calibri', 13, 'bold'),
+        'heading': ('Calibri', 12, 'bold'),
+        'body': ('Calibri', 11),
+        'small': ('Calibri', 10),
         'mono': ('Consolas', 10),
     }
 

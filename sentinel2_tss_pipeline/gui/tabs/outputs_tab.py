@@ -180,7 +180,7 @@ def _create_output_categories_section(parent, gui):
             "Spectral Indices",
             gui.enable_indices_var,
             "14 indices",
-            "NDWI, MNDWI, NDTI, NDCI, GNDVI, TSI, CDOM, RDI, and more"
+            "NDWI, MNDWI, NDTI, NDCI, GNDVI, TSI, CDOM, pSDB, and more"
         ),
         (
             "Water Clarity",

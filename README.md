@@ -58,7 +58,7 @@ DOI: https://doi.org/10.1016/j.rse.2021.112386
 - **TSI**: Carlson (1977) - Trophic State Index
 - **NDCI**: Mishra & Mishra (2012) - Harmful Algal Bloom detection
 - **MCI**: Gower et al. (2005) - Maximum Chlorophyll Index
-- **RDI**: Stumpf et al. (2003) - Relative Depth Index (bathymetric change detection)
+- **pSDB**: Stumpf et al. (2003), Caballero & Stumpf (2020) - Pseudo Satellite-Derived Bathymetry
 - **Pure Water Constants**: Pope & Fry (1997)
 
 ## Requirements

@@ -14,7 +14,7 @@ Spectral Indices (14):
 - Water Quality (7): NDWI, MNDWI, NDTI, NDMI, AWEI, WI, WRI
 - Chlorophyll & Algae (3): NDCI, CHL_RED_EDGE, GNDVI
 - Turbidity & Sediment (2): TSI_Turbidity, NGRDI
-- Advanced (2): CDOM, RDI (Relative Depth Index)
+- Advanced (2): CDOM, pSDB (Pseudo Satellite-Derived Bathymetry)
 
 Note: PC, FAI, FUI removed - require spectral bands not available in Sentinel-2.
 Note: SDD removed - WaterClarity SecchiDepth (IOP-derived) is more rigorous.
@@ -23,6 +23,7 @@ Part of the sentinel2_tss_pipeline package.
 """
 
 import os
+import time
 import logging
 import shutil
 from datetime import datetime
@@ -66,12 +67,15 @@ class VisualizationProcessor:
         self.output_categories = output_categories or OutputCategoryConfig()
         self.logger = logger
 
+        self._water_type = None  # Set per-product by process_marine_visualizations()
+
         self.logger.debug("Initialized Visualization Processor")
         self.logger.debug(f"  RGB enabled: {self.output_categories.enable_rgb}")
         self.logger.debug(f"  Indices enabled: {self.output_categories.enable_indices}")
 
     def process_marine_visualizations(self, c2rcc_path: str, output_folder: str,
-                                    product_name: str, intermediate_paths: Optional[Dict[str, str]] = None) -> Dict[str, ProcessingResult]:
+                                    product_name: str, intermediate_paths: Optional[Dict[str, str]] = None,
+                                    water_type: Optional[np.ndarray] = None) -> Dict[str, ProcessingResult]:
         """
         Generate RGB composites and spectral indices from geometric products
 
@@ -80,12 +84,14 @@ class VisualizationProcessor:
             output_folder: Output directory for visualizations
             product_name: Name of the product being processed
             intermediate_paths: Optional dictionary containing geometric_path
+            water_type: Optional Jiang water type classification array (1-4) for pSDB band switching
 
         Returns:
             Dictionary of visualization results (RGB composites + spectral indices)
         """
         try:
             self.logger.debug(f"Starting marine visualization processing for {product_name}")
+            self._water_type = water_type
 
             # Determine input source
             input_source = None
@@ -195,10 +201,12 @@ class VisualizationProcessor:
                 self.logger.debug("Generating RGB composites")
 
                 try:
+                    rgb_start = time.time()
                     rgb_results = self._generate_rgb_composites(bands_data, reference_metadata, rgb_output_dir, scene_name)
                     viz_results.update(rgb_results)
                     rgb_count = len([k for k in rgb_results.keys() if k.startswith('rgb_')])
-                    self.logger.info(f"    RGB Composites... done ({rgb_count} products)")
+                    rgb_elapsed = time.time() - rgb_start
+                    self.logger.info(f"    RGB Composites... done ({rgb_count} products, {rgb_elapsed:.1f}s)")
 
                 except Exception as rgb_error:
                     self.logger.error(f"Error generating RGB composites: {rgb_error}")
@@ -209,10 +217,12 @@ class VisualizationProcessor:
                 self.logger.debug("Generating spectral indices")
 
                 try:
+                    idx_start = time.time()
                     index_results = self._generate_spectral_indices(bands_data, reference_metadata, indices_output_dir, scene_name)
                     viz_results.update(index_results)
                     index_count = len([k for k in index_results.keys() if k.startswith('index_')])
-                    self.logger.info(f"    Spectral Indices... done ({index_count} products)")
+                    idx_elapsed = time.time() - idx_start
+                    self.logger.info(f"    Spectral Indices... done ({index_count} products, {idx_elapsed:.1f}s)")
 
                 except Exception as index_error:
                     self.logger.error(f"Error generating spectral indices: {index_error}")
@@ -235,6 +245,8 @@ class VisualizationProcessor:
             self.logger.debug(f"   Results: {successful_viz}/{total_viz} products successful ({success_rate:.1f}%)")
             self.logger.debug(f"   RGB output: {rgb_output_dir}")
             self.logger.debug(f"   Indices output: {indices_output_dir}")
+
+            self._water_type = None  # Clear per-product data
 
             return viz_results
 
@@ -567,7 +579,7 @@ class VisualizationProcessor:
 
             # 14 spectral indices (SDD removed - WaterClarity SecchiDepth is more rigorous)
             # TSI renamed to TSI_Turbidity to avoid collision with Trophic State Index
-            # RDI added (was defined but missing from this dict - bug B1)
+            # pSDB replaces former RDI (Stumpf 2003 + Caballero & Stumpf 2020)
             indices_enabled = self.output_categories.enable_indices
 
             spectral_indices = {
@@ -684,11 +696,11 @@ class VisualizationProcessor:
                     'enabled': indices_enabled,
                     'category': 'advanced'
                 },
-                'RDI': {
-                    'formula': 'ln(B3) / ln(B2)',
-                    'required_bands': [490, 560],
-                    'description': 'Relative Depth Index (Stumpf et al. 2003)',
-                    'application': 'Bathymetric change detection',
+                'pSDB': {
+                    'formula': 'ln(1000*B2) / ln(1000*B3|B4)',
+                    'required_bands': [490, 560, 665],
+                    'description': 'Pseudo Satellite-Derived Bathymetry (Stumpf 2003, Caballero & Stumpf 2020)',
+                    'application': 'Relative bathymetry with turbidity-adaptive band switching',
                     'enabled': indices_enabled,
                     'category': 'advanced'
                 }
@@ -846,16 +858,66 @@ class VisualizationProcessor:
                 b3 = bands_data[bands_to_use[1]]  # 560nm
                 return b1 / (b3 + 1e-8)
 
-            elif index_name == 'RDI':
-                # Relative Depth Index (Stumpf et al. 2003)
-                # RDI = ln(Rrs_green) / ln(Rrs_blue) — unitless, uncalibrated
-                # Shallow water → higher values, deep water → lower values
-                blue = bands_data[bands_to_use[0]]   # 490nm (B2)
-                green = bands_data[bands_to_use[1]]  # 560nm (B3)
-                valid_mask = (blue > 0) & (green > 0)
-                rdi = np.full_like(blue, np.nan, dtype=np.float32)
-                rdi[valid_mask] = np.log(green[valid_mask]) / np.log(blue[valid_mask])
-                return rdi
+            elif index_name == 'pSDB':
+                # Pseudo Satellite-Derived Bathymetry
+                # Stumpf (2003) log-ratio with Caballero & Stumpf (2020) band switching
+                # pSDB = ln(n * Rrs_λ1) / ln(n * Rrs_λ2), n=1000
+                # Clear/moderate water: B2/B3 (green ratio, deeper penetration)
+                # Turbid water: B2/B4 (red ratio, less turbidity-sensitive)
+                n = 1000.0
+                MIN_LOG_INPUT = 1.6487  # e^0.5, ensures ln() > 0.5
+
+                blue = bands_data[bands_to_use[0]]    # 490nm (B2)
+                green = bands_data[bands_to_use[1]]   # 560nm (B3)
+                red = bands_data[bands_to_use[2]]     # 665nm (B4)
+
+                psdb = np.full_like(blue, np.nan, dtype=np.float32)
+
+                # Green ratio (B2/B3) — default for clear/moderate water
+                valid_g = ((blue > 0) & (green > 0) &
+                           (n * blue > MIN_LOG_INPUT) & (n * green > MIN_LOG_INPUT))
+                psdb_green = np.full_like(blue, np.nan, dtype=np.float32)
+                psdb_green[valid_g] = np.log(n * blue[valid_g]) / np.log(n * green[valid_g])
+
+                # Red ratio (B2/B4) — for turbid water
+                valid_r = ((blue > 0) & (red > 0) &
+                           (n * blue > MIN_LOG_INPUT) & (n * red > MIN_LOG_INPUT))
+                psdb_red = np.full_like(blue, np.nan, dtype=np.float32)
+                psdb_red[valid_r] = np.log(n * blue[valid_r]) / np.log(n * red[valid_r])
+
+                # Band switching: use water type if available, else green ratio
+                if self._water_type is not None and self._water_type.shape == blue.shape:
+                    wt = self._water_type
+                    # Type I (clear) + Type II (moderate) → green ratio
+                    clear_mod = (wt == 1) | (wt == 2)
+                    psdb[clear_mod] = psdb_green[clear_mod]
+                    # Type III (turbid) → red ratio
+                    psdb[wt == 3] = psdb_red[wt == 3]
+                    # Type 0 (invalid/land) and Type IV (extreme) → remain NaN
+
+                    n_green = int(np.sum(clear_mod))
+                    n_red = int(np.sum(wt == 3))
+                    n_masked = int(np.sum((wt == 0) | (wt == 4)))
+                    self.logger.debug(
+                        f"pSDB band switching: {n_green} green, "
+                        f"{n_red} red, {n_masked} masked (Type 0/IV)"
+                    )
+                elif self._water_type is not None:
+                    self.logger.warning(
+                        f"pSDB: water_type shape {self._water_type.shape} != "
+                        f"band shape {blue.shape}, falling back to green ratio"
+                    )
+                    psdb = psdb_green
+                else:
+                    psdb = psdb_green
+
+                # Free intermediate arrays
+                del psdb_green, psdb_red, valid_g, valid_r
+
+                # Guard against infinity, then clamp to valid range [0, 5]
+                psdb[np.isinf(psdb)] = np.nan
+                psdb = np.clip(psdb, 0.0, 5.0)
+                return psdb
 
             else:
                 self.logger.warning(f"Unknown index calculation for {index_name}")
@@ -1002,7 +1064,7 @@ class VisualizationProcessor:
             band = dataset.GetRasterBand(1)
             band.WriteArray(data.astype(np.float32))
 
-            nodata_value = metadata.get('nodata', -9999)
+            nodata_value = metadata.get('nodata', float('nan'))
             band.SetNoDataValue(float(nodata_value))
 
             valid_data = data[~np.isnan(data)]

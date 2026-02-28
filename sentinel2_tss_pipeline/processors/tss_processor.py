@@ -615,7 +615,8 @@ class TSSProcessor:
                         logger.debug("Geometric products found for marine visualization")
 
                         viz_results = self.viz_processor.process_marine_visualizations(
-                            c2rcc_path, output_folder, product_name, intermediate_paths
+                            c2rcc_path, output_folder, product_name, intermediate_paths,
+                            water_type=jiang_results.get('water_type_classification')
                         )
 
                         final_results.update(viz_results)
