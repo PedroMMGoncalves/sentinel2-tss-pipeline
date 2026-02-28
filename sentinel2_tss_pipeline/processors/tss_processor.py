@@ -890,8 +890,9 @@ class TSSProcessor:
         }
 
     def _create_valid_pixel_mask(self, rrs_data: Dict[int, np.ndarray]) -> np.ndarray:
-        """Validation matching R algorithm requirements"""
-        required_bands = [490, 560, 665, 740]
+        """Validation matching R algorithm requirements.
+        Includes 443nm (Type I) and 865nm (Type IV) to prevent NaN propagation."""
+        required_bands = [443, 490, 560, 665, 740, 865]
         valid_mask = np.ones(rrs_data[443].shape, dtype=bool)
 
         for band in required_bands:
@@ -1289,8 +1290,8 @@ class TSSProcessor:
             # Classification products that need uint8
             classification_product_keys = [
                 'hab_risk_level', 'reference_band', 'valid_mask', 'high_biomass_alert',
-                'extreme_biomass_alert', 'ndci_bloom', 'flh_bloom', 'mci_bloom',
-                'cyanobacteria_bloom', 'water_type_classification'
+                'extreme_biomass_alert', 'ndci_bloom', 'mci_bloom',
+                'potential_bloom', 'water_type_classification'
             ]
 
             saved_count = 0

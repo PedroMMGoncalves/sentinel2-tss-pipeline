@@ -10,14 +10,15 @@ RGB Composites (15 unique, deduplicated):
 - Research (7): sediment_transport, atmospheric_penetration, ocean_color_standard,
                coastal_turbidity, cdom_enhanced, water_change_detection, advanced_atmospheric
 
-Spectral Indices (14):
+Spectral Indices (13):
 - Water Quality (7): NDWI, MNDWI, NDTI, NDMI, AWEI, WI, WRI
 - Chlorophyll & Algae (3): NDCI, CHL_RED_EDGE, GNDVI
-- Turbidity & Sediment (2): TSI_Turbidity, NGRDI
+- Turbidity & Sediment (1): TSI_Turbidity
 - Advanced (2): CDOM, pSDB (Pseudo Satellite-Derived Bathymetry)
 
 Note: PC, FAI, FUI removed - require spectral bands not available in Sentinel-2.
 Note: SDD removed - WaterClarity SecchiDepth (IOP-derived) is more rigorous.
+Note: NGRDI removed - mathematically identical to -NDTI (redundant).
 
 Part of the sentinel2_tss_pipeline package.
 """
@@ -577,7 +578,7 @@ class VisualizationProcessor:
             # Note: Water masking is controlled by TSSConfig and applied at save time
             water_mask = None
 
-            # 14 spectral indices (SDD removed - WaterClarity SecchiDepth is more rigorous)
+            # 13 spectral indices (SDD, NGRDI removed)
             # TSI renamed to TSI_Turbidity to avoid collision with Trophic State Index
             # pSDB replaces former RDI (Stumpf 2003 + Caballero & Stumpf 2020)
             indices_enabled = self.output_categories.enable_indices
@@ -595,9 +596,8 @@ class VisualizationProcessor:
                 'MNDWI': {
                     'formula': '(B3 - B11) / (B3 + B11)',
                     'required_bands': [560, 1610],
-                    'fallback_bands': [560, 865],
-                    'description': 'Modified Normalized Difference Water Index',
-                    'application': 'Enhanced water detection',
+                    'description': 'Modified Normalized Difference Water Index (Xu 2006)',
+                    'application': 'Enhanced water detection using SWIR',
                     'enabled': indices_enabled,
                     'category': 'water_quality'
                 },
@@ -628,11 +628,11 @@ class VisualizationProcessor:
                     'category': 'water_quality'
                 },
                 'WI': {
-                    'formula': 'B2 / (B3 + B8A)',
-                    'required_bands': [490, 560, 865],
-                    'fallback_bands': [490, 560, 842],
-                    'description': 'Water Index',
-                    'application': 'Turbid water detection and delineation',
+                    'formula': '1.7204 + 171*B3 + 3*B4 - 70*B8A - 45*B11 - 71*B12',
+                    'required_bands': [560, 665, 865, 1610, 2190],
+                    'fallback_bands': [560, 665, 842, 1610, 2190],
+                    'description': 'Water Index (Fisher et al. 2016)',
+                    'application': 'Water body detection and delineation',
                     'enabled': indices_enabled,
                     'category': 'water_quality'
                 },
@@ -674,25 +674,18 @@ class VisualizationProcessor:
                 'TSI_Turbidity': {
                     'formula': '(B4 + B3) / 2',
                     'required_bands': [665, 560],
-                    'description': 'Turbidity Spectral Index',
-                    'application': 'Turbidity estimation',
+                    'description': 'Turbidity Spectral Index (empirical mean Red+Green proxy)',
+                    'application': 'Relative turbidity estimation (not a published index)',
                     'enabled': indices_enabled,
                     'category': 'turbidity'
                 },
-                'NGRDI': {
-                    'formula': '(B3 - B4) / (B3 + B4)',
-                    'required_bands': [560, 665],
-                    'description': 'Normalized Green Red Difference Index',
-                    'application': 'Water-vegetation separation',
-                    'enabled': indices_enabled,
-                    'category': 'turbidity'
-                },
+                # NGRDI removed: mathematically identical to -NDTI (redundant)
                 # Advanced (2) - SDD removed (WaterClarity SecchiDepth is IOP-derived, more rigorous)
                 'CDOM': {
-                    'formula': 'B1 / B3',
+                    'formula': 'B3 / B1',
                     'required_bands': [443, 560],
-                    'description': 'Colored Dissolved Organic Matter proxy',
-                    'application': 'CDOM concentration',
+                    'description': 'Colored Dissolved Organic Matter proxy (green/blue ratio)',
+                    'application': 'CDOM concentration (high = more CDOM)',
                     'enabled': indices_enabled,
                     'category': 'advanced'
                 },
@@ -810,10 +803,13 @@ class VisualizationProcessor:
                 return 4 * (green - swir1) - (0.25 * nir + 2.75 * swir2)
 
             elif index_name == 'WI':
-                blue = bands_data[bands_to_use[0]]   # 490nm
-                green = bands_data[bands_to_use[1]]  # 560nm
+                # Fisher et al. (2016) Water Index
+                green = bands_data[bands_to_use[0]]  # 560nm
+                red = bands_data[bands_to_use[1]]    # 665nm
                 nir = bands_data[bands_to_use[2]]    # 865nm or 842nm
-                return blue / (green + nir + 1e-8)
+                swir1 = bands_data[bands_to_use[3]]  # 1610nm
+                swir2 = bands_data[bands_to_use[4]]  # 2190nm
+                return 1.7204 + 171*green + 3*red - 70*nir - 45*swir1 - 71*swir2
 
             elif index_name == 'WRI':
                 green = bands_data[bands_to_use[0]]  # 560nm
@@ -846,17 +842,14 @@ class VisualizationProcessor:
                 b3 = bands_data[bands_to_use[1]]  # 560nm
                 return (b4 + b3) / 2
 
-            elif index_name == 'NGRDI':
-                b3 = bands_data[bands_to_use[0]]  # 560nm
-                b4 = bands_data[bands_to_use[1]]  # 665nm
-                return (b3 - b4) / (b3 + b4 + 1e-8)
-
+            # NGRDI removed: mathematically identical to -NDTI
             # SDD removed: WaterClarity SecchiDepth (IOP-derived) is more rigorous
 
             elif index_name == 'CDOM':
                 b1 = bands_data[bands_to_use[0]]  # 443nm
                 b3 = bands_data[bands_to_use[1]]  # 560nm
-                return b1 / (b3 + 1e-8)
+                # B3/B1: CDOM absorbs blue (443nm), so high green/blue = high CDOM
+                return b3 / (b1 + 1e-8)
 
             elif index_name == 'pSDB':
                 # Pseudo Satellite-Derived Bathymetry

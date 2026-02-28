@@ -226,7 +226,7 @@ class TSMCHLCalculator:
                 unc_tsm_data = np.where(
                     tsm_data > 0,
                     tsm_data * 0.20 + 0.1,  # 20% relative + 0.1 g/m3 absolute
-                    0
+                    np.nan
                 )
 
                 success = RasterIO.write_raster(unc_tsm_data, unc_tsm_path, tsm_meta)
@@ -259,7 +259,7 @@ class TSMCHLCalculator:
                 unc_chl_data = np.where(
                     chl_data > 0,
                     chl_data * 0.30 + 0.05,  # 30% relative + 0.05 mg/m3 absolute
-                    0
+                    np.nan
                 )
 
                 success = RasterIO.write_raster(unc_chl_data, unc_chl_path, chl_meta)

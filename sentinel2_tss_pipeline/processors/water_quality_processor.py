@@ -12,8 +12,8 @@ Note: FLH (Fluorescence Line Height) removed - Sentinel-2 lacks 681nm band for t
 fluorescence peak detection.
 
 References:
+- Lee, Z. et al. (2005). Diffuse attenuation coefficient of downwelling irradiance. JGR 110.
 - Kirk, J.T.O. (2011). Light and photosynthesis in aquatic ecosystems.
-- Lee, Z. et al. (2002). Deriving inherent optical properties from water color.
 - Tyler, J.E. (1968). The Secchi disc.
 - Mishra, S. & Mishra, D.R. (2012). Normalized difference chlorophyll index.
 - Gower, J. et al. (2005). Maximum Chlorophyll Index.
@@ -65,8 +65,8 @@ class WaterQualityProcessor:
         Calculate water clarity indices from bio-optical properties
 
         References:
-        - Kirk, J.T.O. (2011). Light and photosynthesis in aquatic ecosystems. Cambridge University Press.
-        - Lee, Z. et al. (2002). Deriving inherent optical properties from water color. Applied Optics, 41(27), 5755-5772.
+        - Lee, Z. et al. (2005). Diffuse attenuation coefficient of downwelling irradiance.
+          J. Geophys. Res., 110, C02017.
         - Tyler, J.E. (1968). The Secchi disc. Limnology and Oceanography, 13(1), 1-6.
         - Preisendorfer, R.W. (1986). Secchi disk science: Visual optics of natural waters.
           Limnology and Oceanography, 31(5), 909-926.
@@ -82,23 +82,27 @@ class WaterQualityProcessor:
         try:
             logger.debug("Calculating water clarity indices")
 
-            # Convert solar zenith to cosine
-            mu0 = np.cos(np.radians(solar_zenith))
-
-            # Gordon equation for diffuse attenuation coefficient (Gordon, 1989)
-            kd = absorption + backscattering * (1 + 0.425 * mu0) / mu0
+            # Lee et al. (2005) diffuse attenuation coefficient
+            # Kd = (1 + 0.005 * theta_s) * [a + 4.18 * (1 - 0.52 * exp(-10.8 * a)) * bb]
+            theta_s = solar_zenith
+            kd = (1 + 0.005 * theta_s) * (
+                absorption + 4.18 * (1 - 0.52 * np.exp(-10.8 * absorption)) * backscattering
+            )
 
             # Tyler (1968) Secchi depth approximation
-            secchi_depth = 1.7 / kd
+            secchi_depth = 1.7 / (kd + 1e-8)
 
-            # Water clarity index (0-1 scale)
+            # Water clarity index (custom 0-1 mapping of Kd, not a published formula)
             clarity_index = 1 / (1 + kd)
 
             # Euphotic depth (1% light level)
-            euphotic_depth = 4.605 / kd  # ln(100) / kd
+            euphotic_depth = 4.605 / (kd + 1e-8)  # ln(100) / kd
 
-            # Beam attenuation coefficient (approximate)
-            beam_attenuation = absorption + backscattering
+            # Beam attenuation: c = a + b (total scattering)
+            # bb/b ratio ~0.0183 for typical coastal particles (Petzold 1972)
+            BACKSCATTER_RATIO = 0.0183
+            total_scattering = backscattering / BACKSCATTER_RATIO
+            beam_attenuation = absorption + total_scattering
 
             # Physical range clamping
             kd = np.clip(kd, 0, 20)                         # m^-1, max for extremely turbid
@@ -108,7 +112,8 @@ class WaterQualityProcessor:
 
             # Relative turbidity index (dimensionless, 0-1 scale)
             # Note: This is NOT calibrated NTU - use for relative comparison only
-            relative_turbidity_index = np.clip(backscattering * 100, 0, 1)
+            # Saturates at bb=0.05 m^-1 for coastal water dynamic range
+            relative_turbidity_index = np.clip(backscattering * 20, 0, 1)
 
             results = {
                 'diffuse_attenuation': kd,
@@ -189,8 +194,11 @@ class WaterQualityProcessor:
                     results['ndci_bloom'] = ndci_bloom
                     results['ndci_values'] = ndci_values
 
-                    # Add to probability calculation
-                    hab_probability += ndci_bloom * 0.5
+                    # Continuous probability: remap NDCI from [0.05, 0.3] to [0, 0.5]
+                    ndci_contribution = np.clip(
+                        (ndci_values - 0.05) / (0.3 - 0.05), 0, 1
+                    ) * 0.5
+                    hab_probability += ndci_contribution
                     algorithms_applied.append("NDCI")
 
                     logger.debug(f"NDCI calculated for {np.sum(valid_mask)} pixels")
@@ -228,8 +236,11 @@ class WaterQualityProcessor:
                     results['mci_bloom'] = mci_bloom
                     results['mci_values'] = mci_values
 
-                    # Add to probability calculation
-                    hab_probability += mci_bloom * 0.5
+                    # Continuous probability: remap MCI from [0.004, 0.02] to [0, 0.5]
+                    mci_contribution = np.clip(
+                        (mci_values - 0.004) / (0.02 - 0.004), 0, 1
+                    ) * 0.5
+                    hab_probability += mci_contribution
                     algorithms_applied.append("MCI")
 
                     logger.debug(f"MCI calculated for {np.sum(valid_mask)} pixels")
@@ -251,8 +262,8 @@ class WaterQualityProcessor:
 
                 # Additional detection flags
                 if 'ndci_bloom' in results:
-                    # Cyanobacteria-like bloom detection (based on NDCI only - FLH removed)
-                    results['cyanobacteria_bloom'] = results['ndci_bloom'].copy()
+                    # General bloom detection (NDCI-based, not cyanobacteria-specific)
+                    results['potential_bloom'] = results['ndci_bloom'].copy()
 
                 # Biomass alert levels
                 high_biomass = (hab_probability > 0.6).astype(np.float32)

@@ -179,7 +179,7 @@ def _create_output_categories_section(parent, gui):
         (
             "Spectral Indices",
             gui.enable_indices_var,
-            "14 indices",
+            "13 indices",
             "NDWI, MNDWI, NDTI, NDCI, GNDVI, TSI, CDOM, pSDB, and more"
         ),
         (
@@ -192,7 +192,7 @@ def _create_output_categories_section(parent, gui):
             "HAB Detection",
             gui.enable_hab_var,
             "9 products",
-            "NDCI/MCI bloom detection, probability, risk level, cyanobacteria, biomass alerts"
+            "NDCI/MCI bloom detection, probability, risk level, potential bloom, biomass alerts"
         ),
         (
             "Trophic State",

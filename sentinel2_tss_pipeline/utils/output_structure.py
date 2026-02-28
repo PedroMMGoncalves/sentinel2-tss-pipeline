@@ -8,7 +8,7 @@ Output Structure:
     ├── S2A_20190105_T29TNF/           # Scene folder
     │   ├── TSS/                        # TSS products (Jiang et al. 2021)
     │   ├── RGB/                        # RGB composites (15 unique)
-    │   ├── Indices/                    # Spectral indices (14 indices)
+    │   ├── Indices/                    # Spectral indices (13 indices)
     │   ├── WaterClarity/              # Water clarity products
     │   ├── HAB/                        # Harmful algal bloom detection
     │   └── TrophicState/              # Trophic state index (Carlson 1977)
