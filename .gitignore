@@ -40,8 +40,15 @@ tmpclaude-*
 nul
 .claude/
 
+# Credentials and secrets — NEVER commit
+.env
+*.env
+config.py
+credentials.*
+
 # Processing results and logs (local output)
 S2_TSS_Results/
+OceanRS_Results/
 poster/poster_content_pt.md
 poster/poster_content.md
 poster/poster_mockup_pt.html
