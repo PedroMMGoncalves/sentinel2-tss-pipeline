@@ -120,6 +120,9 @@ class TSSProcessor:
         else:
             self.water_quality_processor = None
 
+        # Per-scene stats available after process_tss() completes
+        self.last_tss_stats = {}  # {mean, median, min, max, std, dominant_type}
+
         logger.debug("Initialized TSS Processor")
         logger.debug(f"TSS processing enabled: {self.config.enable_tss_processing}")
         logger.debug(f"Water quality enabled: {self.config.enable_water_quality}")
@@ -879,6 +882,38 @@ class TSSProcessor:
                         water_type_summary.append(f"Type {type_names[band]}:{percentage:.0f}%")
 
         logger.info(f"    TSS: {coverage_percent:.1f}% coverage ({' '.join(water_type_summary)})")
+
+        # Compute and log TSS statistics (min, mean, median, max, std)
+        tss_valid = tss_concentration[valid_mask]
+        tss_valid = tss_valid[~np.isnan(tss_valid)]
+        if len(tss_valid) > 0:
+            tss_mean = float(np.mean(tss_valid))
+            tss_median = float(np.median(tss_valid))
+            tss_min = float(np.min(tss_valid))
+            tss_max = float(np.max(tss_valid))
+            tss_std = float(np.std(tss_valid))
+            logger.info(
+                f"    TSS stats: min={tss_min:.2f}  mean={tss_mean:.2f}  "
+                f"median={tss_median:.2f}  max={tss_max:.2f}  "
+                f"std={tss_std:.2f} g/m\u00b3")
+
+            # Determine dominant water type
+            dominant = ""
+            if water_type_summary:
+                dominant = water_type_summary[0]
+                for wt in water_type_summary:
+                    pct_str = wt.split(":")[1].replace("%", "")
+                    dom_pct = dominant.split(":")[1].replace("%", "")
+                    if float(pct_str) > float(dom_pct):
+                        dominant = wt
+
+            self.last_tss_stats = {
+                'mean': tss_mean, 'median': tss_median,
+                'min': tss_min, 'max': tss_max, 'std': tss_std,
+                'dominant_type': dominant.split(":")[0] if dominant else "",
+            }
+        else:
+            self.last_tss_stats = {}
 
         return {
             'absorption': absorption,

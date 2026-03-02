@@ -22,7 +22,11 @@ _current_log_file = None  # Track current log file to avoid duplicate messages
 
 
 class ColoredFormatter(logging.Formatter):
-    """Custom formatter with colors and enhanced formatting"""
+    """Custom formatter with colors and aligned output.
+
+    Console output omits [filename:line] for clean alignment.
+    Box-drawing: auto-prepends │  to all messages while a box is open.
+    """
 
     COLORS = {
         'DEBUG': '\033[36m',    # Cyan
@@ -33,16 +37,30 @@ class ColoredFormatter(logging.Formatter):
         'RESET': '\033[0m'      # Reset
     }
 
+    _in_box = False  # Class-level flag: True while a scene box is open
+
+    # Characters that indicate the message already has box drawing
+    _BOX_CHARS = frozenset('│┌└═')
+
     def format(self, record):
         color = self.COLORS.get(record.levelname, self.COLORS['RESET'])
         reset = self.COLORS['RESET']
 
-        # Add color to level name
-        record.levelname = f"{color}{record.levelname}{reset}"
+        # Pad level name to fixed width BEFORE adding color codes
+        # 'WARNING' is 7 chars — the longest standard level
+        padded_level = record.levelname.ljust(7)
+        record.levelname = f"{color}{padded_level}{reset}"
 
-        # Enhanced format with more info
+        # Auto-prepend box border to messages during box sections
+        msg = record.getMessage()
+        if (self.__class__._in_box and msg
+                and not any(c in msg for c in self.__class__._BOX_CHARS)):
+            record.msg = f"\u2502  {record.msg}"
+            record.args = None  # Reset args since we modified msg
+
+        # Console format: no [filename:line] — kept in file handler only
         formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
+            '%(asctime)s - %(levelname)s - %(message)s',
             datefmt='%H:%M:%S'
         )
         return formatter.format(record)
@@ -136,6 +154,32 @@ def get_default_logger():
 BOX_WIDTH = 76
 
 
+import re
+
+_S2_NAME_RE = re.compile(
+    r'S2[AB]_MSIL[12][CA]_'
+    r'(?P<date>\d{4})(?P<month>\d{2})(?P<day>\d{2})T\d{6}_'
+    r'N\d{4}_'
+    r'(?P<orbit>R\d{3})_'
+    r'(?P<tile>T\w{5})_'
+)
+
+
+def parse_scene_metadata(product_name: str) -> dict:
+    """Parse Sentinel-2 scene metadata from product name.
+
+    Returns dict with keys: date, tile, orbit (or empty dict on failure).
+    """
+    m = _S2_NAME_RE.search(product_name)
+    if not m:
+        return {}
+    return {
+        'date': f"{m.group('date')}-{m.group('month')}-{m.group('day')}",
+        'tile': m.group('tile'),
+        'orbit': m.group('orbit'),
+    }
+
+
 class StepTracker:
     """
     GRACE-style structured logging with per-step CPU/RAM monitoring.
@@ -157,6 +201,7 @@ class StepTracker:
         self._batch_ram_samples = []
         self._scene_cpu_samples = []
         self._scene_ram_samples = []
+        self._scene_summaries = []  # Per-scene one-liners for final table
 
     def banner(self, *lines):
         """Double-line banner for top-level section headers."""
@@ -191,14 +236,24 @@ class StepTracker:
         self.logger.info(f"\u2514" + "\u2500" * BOX_WIDTH)
 
     def box_start(self, title):
-        """Open a scene processing box."""
+        """Open a scene processing box with parsed metadata."""
         padding = BOX_WIDTH - len(title) - 4
         border = "\u2500" * max(padding, 2)
         self.logger.info("")
         self.logger.info(f"\u250C\u2500 {title} {border}")
+
+        # Parse and show scene metadata
+        meta = parse_scene_metadata(title)
+        if meta:
+            self.logger.info(
+                f"\u2502  Date: {meta['date']}  "
+                f"Tile: {meta['tile']}  Orbit: {meta['orbit']}")
         self.logger.info("\u2502")
+
         self._scene_cpu_samples = []
         self._scene_ram_samples = []
+        self._current_scene_meta = meta
+        ColoredFormatter._in_box = True
 
     def box_line(self, text=""):
         """Print a line inside the current box."""
@@ -209,6 +264,7 @@ class StepTracker:
 
     def box_end(self):
         """Close the current box."""
+        ColoredFormatter._in_box = False
         self.logger.info("\u2502")
         self.logger.info(f"\u2514" + "\u2500" * BOX_WIDTH)
 
@@ -222,6 +278,35 @@ class StepTracker:
         peak_ram = max(ram_samples)
         return (f"CPU: avg {avg_cpu:.0f}% peak {peak_cpu:.0f}%  "
                 f"RAM: avg {avg_ram:.1f} GB peak {peak_ram:.1f} GB")
+
+    def record_scene_summary(self, products: int, time_min: float,
+                             tss_mean: float = None, water_type: str = ""):
+        """Record a one-liner for the final batch summary table."""
+        meta = getattr(self, '_current_scene_meta', {})
+        self._scene_summaries.append({
+            'date': meta.get('date', '?'),
+            'tile': meta.get('tile', '?'),
+            'products': products,
+            'time_min': time_min,
+            'tss_mean': tss_mean,
+            'water_type': water_type,
+        })
+
+    def scene_summary_table(self):
+        """Log the per-scene summary table."""
+        if not self._scene_summaries:
+            return
+        self.logger.info("")
+        header = (f"  {'Date':<12s} {'Tile':<7s} {'TSS mean':>10s} "
+                  f"{'Dom.Type':>9s} {'Products':>9s} {'Time':>8s}")
+        self.logger.info(header)
+        self.logger.info("  " + "\u2500" * (len(header) - 2))
+        for s in self._scene_summaries:
+            tss_str = f"{s['tss_mean']:.2f} g/m\u00b3" if s['tss_mean'] is not None else "N/A"
+            self.logger.info(
+                f"  {s['date']:<12s} {s['tile']:<7s} {tss_str:>10s} "
+                f"{s['water_type']:>9s} {s['products']:>9d} "
+                f"{s['time_min']:>6.1f} min")
 
     def step(self, label: str):
         """Context manager that times a step and samples CPU/RAM."""

@@ -298,6 +298,20 @@ class UnifiedS2TSSProcessor:
                 if res:
                     self.tracker.box_line(f"Scene resources \u2014 {res}")
 
+                # Record per-scene summary for final table
+                tss_mean = None
+                dominant_type = ""
+                if self.tss_processor and hasattr(self.tss_processor, 'last_tss_stats'):
+                    stats = self.tss_processor.last_tss_stats
+                    tss_mean = stats.get('mean')
+                    dominant_type = stats.get('dominant_type', '')
+                self.tracker.record_scene_summary(
+                    products=success_count,
+                    time_min=processing_time / 60,
+                    tss_mean=tss_mean,
+                    water_type=dominant_type,
+                )
+
                 self.processed_count += 1
 
             self.tracker.box_end()
@@ -521,6 +535,9 @@ class UnifiedS2TSSProcessor:
             title = "COMPLETE"
 
         self.tracker.summary_banner(kv, title=title)
+
+        # Per-scene one-liner table
+        self.tracker.scene_summary_table()
 
     def get_processing_status(self) -> ProcessingStatus:
         """Get current processing status"""
