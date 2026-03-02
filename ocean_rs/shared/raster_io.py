@@ -106,16 +106,19 @@ class RasterIO:
         try:
             # Validate inputs
             if not isinstance(data, np.ndarray):
-                logger.error(f"Error writing raster {output_path}: not a numpy array")
-                return False
+                error_msg = f"Error writing raster {output_path}: not a numpy array"
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
 
             if not isinstance(metadata, dict):
-                logger.error(f"Invalid metadata type: {type(metadata)}")
-                return False
+                error_msg = f"Invalid metadata type: {type(metadata)}"
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
 
             if data.ndim != 2:
-                logger.error(f"Data must be 2D array, got {data.ndim}D with shape {data.shape}")
-                return False
+                error_msg = f"Data must be 2D array, got {data.ndim}D with shape {data.shape}"
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
 
             # Map dtype string to GDAL type and numpy type
             dtype_map = {
@@ -157,8 +160,9 @@ class RasterIO:
             # Create GDAL dataset
             driver = gdal.GetDriverByName('GTiff')
             if driver is None:
-                logger.error("GTiff driver not available")
-                return False
+                error_msg = "GTiff driver not available"
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
 
             dataset = driver.Create(
                 output_path,
@@ -170,8 +174,9 @@ class RasterIO:
             )
 
             if dataset is None:
-                logger.error(f"Failed to create GDAL dataset: {output_path}")
-                return False
+                error_msg = f"Failed to create GDAL dataset: {output_path}"
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
 
             # Set georeference information
             try:
@@ -185,8 +190,9 @@ class RasterIO:
             write_result = band.WriteArray(output_data)
 
             if write_result != 0:
-                logger.error(f"GDAL WriteArray failed with code: {write_result}")
-                return False
+                error_msg = f"GDAL WriteArray failed with code: {write_result}"
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
 
             band.SetNoDataValue(nodata)
             if description:
@@ -194,7 +200,7 @@ class RasterIO:
 
             # Set provenance metadata
             from datetime import datetime
-            dataset.SetMetadataItem('PROCESSING_SOFTWARE', 'sentinel2_tss_pipeline v2.0')
+            dataset.SetMetadataItem('PROCESSING_SOFTWARE', 'OceanRS v3.0.0')
             dataset.SetMetadataItem('PROCESSING_DATE', datetime.now().isoformat())
             if description:
                 dataset.SetMetadataItem('ALGORITHM', description)
@@ -214,7 +220,7 @@ class RasterIO:
 
         except Exception as e:
             logger.error(f"Error writing raster {output_path}: {e}")
-            return False
+            raise RuntimeError(f"Error writing raster {output_path}: {e}") from e
         finally:
             if dataset is not None:
                 dataset = None

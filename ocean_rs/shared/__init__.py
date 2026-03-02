@@ -24,6 +24,7 @@ from .proj_fix import (
     configure_proj_environment,
     ensure_proj_configured,
     find_proj_data_paths,
+    find_proj_lib_paths,
     test_proj_configuration,
 )
 from .geometry_utils import (
@@ -56,6 +57,7 @@ __all__ = [
     'configure_proj_environment',
     'ensure_proj_configured',
     'find_proj_data_paths',
+    'find_proj_lib_paths',
     'test_proj_configuration',
     # Geometry utilities
     'load_geometry',

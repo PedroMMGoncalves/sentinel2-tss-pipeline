@@ -68,11 +68,21 @@ def _open_output(gui):
     """Open output folder in file explorer."""
     import subprocess
     import sys
+    import os
+    from tkinter import messagebox
     output = gui.output_dir_var.get()
     if output:
-        if sys.platform.startswith('win'):
-            subprocess.Popen(['explorer', output])
-        elif sys.platform.startswith('darwin'):
-            subprocess.Popen(['open', output])
-        else:
-            subprocess.Popen(['xdg-open', output])
+        if not os.path.isdir(output):
+            messagebox.showwarning("Warning", f"Output directory not found:\n{output}",
+                                   parent=gui.root)
+            return
+        try:
+            if sys.platform.startswith('win'):
+                subprocess.Popen(['explorer', output])
+            elif sys.platform.startswith('darwin'):
+                subprocess.Popen(['open', output])
+            else:
+                subprocess.Popen(['xdg-open', output])
+        except Exception as e:
+            messagebox.showerror("Error", f"Cannot open directory: {e}",
+                                parent=gui.root)

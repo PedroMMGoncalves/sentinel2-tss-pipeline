@@ -15,6 +15,7 @@ import time
 import subprocess
 import logging
 from typing import Dict, Optional, List, NamedTuple
+from xml.sax.saxutils import escape as xml_escape
 
 import numpy as np
 
@@ -69,14 +70,14 @@ class C2RCCProcessor:
         snap_home = os.environ.get('SNAP_HOME')
         if not snap_home:
             logger.error("SNAP_HOME environment variable not set!")
-            raise RuntimeError("SNAP installation not found")
+            raise RuntimeError("SNAP installation not found. Set SNAP_HOME environment variable to your SNAP installation directory (e.g., C:/Program Files/snap)")
 
         logger.debug(f"SNAP_HOME: {snap_home}")
 
         gpt_cmd = self.get_gpt_command()
         if not os.path.exists(gpt_cmd):
             logger.error(f"GPT executable not found: {gpt_cmd}")
-            raise RuntimeError("GPT executable not found")
+            raise RuntimeError(f"GPT executable not found at '{gpt_cmd}'. Verify SNAP is installed and SNAP_HOME is set correctly")
 
         try:
             result = subprocess.run([gpt_cmd, '-h'],
@@ -85,7 +86,7 @@ class C2RCCProcessor:
                 logger.debug(f"GPT validated: {gpt_cmd}")
             else:
                 logger.error(f"GPT validation failed: {result.stderr}")
-                raise RuntimeError("GPT validation failed")
+                raise RuntimeError(f"GPT validation failed: {result.stderr.strip() if result.stderr else 'no details'}")
         except subprocess.TimeoutExpired:
             logger.error("GPT validation timeout")
             raise RuntimeError("GPT validation timeout")
@@ -138,9 +139,9 @@ class C2RCCProcessor:
     </sources>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <resolution>{self.config.resampling_config.target_resolution}</resolution>
-      <upsampling>{self.config.resampling_config.upsampling_method}</upsampling>
-      <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
-      <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
+      <upsampling>{xml_escape(str(self.config.resampling_config.upsampling_method))}</upsampling>
+      <downsampling>{xml_escape(str(self.config.resampling_config.downsampling_method))}</downsampling>
+      <flagDownsampling>{xml_escape(str(self.config.resampling_config.flag_downsampling))}</flagDownsampling>
       <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
     </parameters>
   </node>
@@ -198,8 +199,11 @@ class C2RCCProcessor:
 </graph>'''
 
         graph_file = 's2_complete_processing_with_subset.xml'
-        with open(graph_file, 'w', encoding='utf-8') as f:
-            f.write(graph_content)
+        try:
+            with open(graph_file, 'w', encoding='utf-8') as f:
+                f.write(graph_content)
+        except OSError as e:
+            raise RuntimeError(f"Failed to write SNAP graph to '{graph_file}': {e}") from e
 
         logger.debug(f"Complete processing graph saved: {graph_file}")
         return graph_file
@@ -227,9 +231,9 @@ class C2RCCProcessor:
     </sources>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <resolution>{self.config.resampling_config.target_resolution}</resolution>
-      <upsampling>{self.config.resampling_config.upsampling_method}</upsampling>
-      <downsampling>{self.config.resampling_config.downsampling_method}</downsampling>
-      <flagDownsampling>{self.config.resampling_config.flag_downsampling}</flagDownsampling>
+      <upsampling>{xml_escape(str(self.config.resampling_config.upsampling_method))}</upsampling>
+      <downsampling>{xml_escape(str(self.config.resampling_config.downsampling_method))}</downsampling>
+      <flagDownsampling>{xml_escape(str(self.config.resampling_config.flag_downsampling))}</flagDownsampling>
       <resampleOnPyramidLevels>{str(self.config.resampling_config.resample_on_pyramid_levels).lower()}</resampleOnPyramidLevels>
     </parameters>
   </node>
@@ -272,8 +276,11 @@ class C2RCCProcessor:
 </graph>'''
 
         graph_file = 's2_complete_processing_no_subset.xml'
-        with open(graph_file, 'w', encoding='utf-8') as f:
-            f.write(graph_content)
+        try:
+            with open(graph_file, 'w', encoding='utf-8') as f:
+                f.write(graph_content)
+        except OSError as e:
+            raise RuntimeError(f"Failed to write SNAP graph to '{graph_file}': {e}") from e
 
         logger.debug(f"Complete processing graph saved: {graph_file}")
         return graph_file
@@ -311,9 +318,9 @@ class C2RCCProcessor:
         <thresholdRtosaOOS>{c2rcc.threshold_rtosa_oos}</thresholdRtosaOOS>
         <thresholdAcReflecOos>{c2rcc.threshold_ac_reflec_oos}</thresholdAcReflecOos>
         <thresholdCloudTDown865>{c2rcc.threshold_cloud_tdown865}</thresholdCloudTDown865>
-        <netSet>{c2rcc.net_set}</netSet>
+        <netSet>{xml_escape(str(c2rcc.net_set))}</netSet>
         <useEcmwfAuxData>{str(c2rcc.use_ecmwf_aux_data).lower()}</useEcmwfAuxData>
-        <demName>{c2rcc.dem_name}</demName>
+        <demName>{xml_escape(str(c2rcc.dem_name))}</demName>
         <outputAsRrs>{str(c2rcc.output_as_rrs).lower()}</outputAsRrs>
         <deriveRwFromPathAndTransmittance>{str(c2rcc.derive_rw_from_path_and_transmittance).lower()}</deriveRwFromPathAndTransmittance>
         <outputRtoa>{str(c2rcc.output_rtoa).lower()}</outputRtoa>
@@ -330,10 +337,10 @@ class C2RCCProcessor:
 
         # Add optional paths if specified
         if c2rcc.atmospheric_aux_data_path:
-            params += f'\n      <atmosphericAuxDataPath>{c2rcc.atmospheric_aux_data_path}</atmosphericAuxDataPath>'
+            params += f'\n      <atmosphericAuxDataPath>{xml_escape(str(c2rcc.atmospheric_aux_data_path))}</atmosphericAuxDataPath>'
 
         if c2rcc.alternative_nn_path:
-            params += f'\n      <alternativeNNPath>{c2rcc.alternative_nn_path}</alternativeNNPath>'
+            params += f'\n      <alternativeNNPath>{xml_escape(str(c2rcc.alternative_nn_path))}</alternativeNNPath>'
 
         return params
 
@@ -916,14 +923,6 @@ class C2RCCProcessor:
             logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
-    def _get_file_size_kb(self, file_path: str) -> float:
-        """Get file size in KB"""
-        try:
-            if os.path.exists(file_path):
-                return os.path.getsize(file_path) / 1024
-            return 0.0
-        except Exception:
-            return 0.0
 
     def _check_rhow_bands_availability(self, c2rcc_path: str) -> Dict[int, str]:
         """Load water reflectance bands from SNAP C2RCC output"""

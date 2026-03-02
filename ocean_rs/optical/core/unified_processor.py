@@ -243,7 +243,7 @@ class UnifiedS2TSSProcessor:
                                 f"[2/{total_steps}] TSS + Visualization (Jiang et al. 2021)"):
                             tss_results = self.tss_processor.process_tss(
                                 c2rcc_output_path, self.config.output_folder,
-                                product_name, s2_result)
+                                product_name)
                             results.update(tss_results)
 
                         if 'error' in tss_results:
@@ -421,7 +421,7 @@ class UnifiedS2TSSProcessor:
             return False
 
         except Exception as e:
-            logger.debug(f"Error checking existing outputs: {e}")
+            logger.warning(f"Error checking existing outputs: {e}")
             return False
 
     @staticmethod

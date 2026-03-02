@@ -149,7 +149,8 @@ def update_system_info(gui):
                 disk = psutil.disk_usage(output_dir)
                 disk_free_gb = disk.free / (1024 ** 3)
                 gui.disk_label.config(text=f"Disk: {disk_free_gb:.1f} GB free")
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Cannot read disk usage: {e}")
                 gui.disk_label.config(text="Disk: --")
         else:
             gui.disk_label.config(text="Disk: (select output dir)")
@@ -163,7 +164,7 @@ def update_system_info(gui):
         gui.memory_label.config(text="Memory: psutil not available")
 
     except Exception as e:
-        logger.debug(f"Error updating system info: {e}")
+        logger.warning(f"Error updating system info: {e}")
 
 
 def _check_snap_status():
@@ -192,41 +193,3 @@ def _check_snap_status():
         return "Available (in PATH)"
 
     return "Not found"
-
-
-def update_statistics(gui, stats_dict):
-    """
-    Update the statistics text box with processing statistics.
-
-    Args:
-        gui: GUI instance with stats_text widget.
-        stats_dict: Dictionary of statistics to display.
-    """
-    if not hasattr(gui, 'stats_text'):
-        return
-
-    try:
-        gui.stats_text.config(state=tk.NORMAL)
-        gui.stats_text.delete(1.0, tk.END)
-
-        for key, value in stats_dict.items():
-            gui.stats_text.insert(tk.END, f"{key}: {value}\n")
-
-        gui.stats_text.config(state=tk.DISABLED)
-
-    except Exception as e:
-        logger.debug(f"Error updating statistics: {e}")
-
-
-def clear_statistics(gui):
-    """Clear the statistics text box."""
-    if not hasattr(gui, 'stats_text'):
-        return
-
-    try:
-        gui.stats_text.config(state=tk.NORMAL)
-        gui.stats_text.delete(1.0, tk.END)
-        gui.stats_text.config(state=tk.DISABLED)
-
-    except Exception as e:
-        logger.debug(f"Error clearing statistics: {e}")

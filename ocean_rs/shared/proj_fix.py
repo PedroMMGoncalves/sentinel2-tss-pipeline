@@ -131,7 +131,7 @@ def configure_proj_environment(verbose: bool = True) -> bool:
         bool: True if PROJ was configured successfully, False otherwise.
 
     Example:
-        >>> from sentinel2_tss_pipeline.utils.proj_fix import configure_proj_environment
+        >>> from ocean_rs.shared.proj_fix import configure_proj_environment
         >>> success = configure_proj_environment()
         >>> if success:
         ...     from osgeo import gdal  # Now safe to import

@@ -20,7 +20,6 @@ Water Type Classification:
 import os
 import glob
 import logging
-import warnings
 import traceback
 from datetime import datetime
 from typing import Dict, Optional, Tuple
@@ -392,68 +391,6 @@ class TSSProcessor:
 
             logger.debug(f"Band {wavelength}nm Rrs stats: min={min_val:.6f}, max={max_val:.6f}")
 
-    def _update_band_mapping_for_mixed_types(self, c2rcc_path: str) -> Dict[int, str]:
-        """Load bands that can be used for Jiang TSS algorithm"""
-        if c2rcc_path.endswith('.dim'):
-            data_folder = c2rcc_path.replace('.dim', '.data')
-        else:
-            data_folder = f"{c2rcc_path}.data"
-
-        if not os.path.exists(data_folder):
-            logger.error(f"Data folder not found: {data_folder}")
-            return {}
-
-        # Only complete 8-band water reflectance products
-        band_mapping = {
-            443: ['rhow_B1.img', 'rrs_B1.img'],
-            490: ['rhow_B2.img', 'rrs_B2.img'],
-            560: ['rhow_B3.img', 'rrs_B3.img'],
-            665: ['rhow_B4.img', 'rrs_B4.img'],
-            705: ['rhow_B5.img', 'rrs_B5.img'],
-            740: ['rhow_B6.img', 'rrs_B6.img'],
-            783: ['rhow_B7.img', 'rrs_B7.img'],
-            865: ['rhow_B8A.img', 'rrs_B8A.img']
-        }
-
-        found_bands = {}
-        band_type_summary = {}
-
-        logger.debug(f"Searching for COMPLETE 8-band datasets in: {data_folder}")
-
-        for wavelength, possible_names in band_mapping.items():
-            for name in possible_names:
-                file_path = os.path.join(data_folder, name)
-                if os.path.exists(file_path) and os.path.getsize(file_path) > 1024:
-                    found_bands[wavelength] = file_path
-
-                    if name.startswith('rhow_'):
-                        band_type = 'rhow'
-                    elif name.startswith('rrs_'):
-                        band_type = 'rrs'
-
-                    band_type_summary[band_type] = band_type_summary.get(band_type, 0) + 1
-                    logger.debug(f"Found {wavelength}nm: {name} ({band_type})")
-                    break
-            else:
-                logger.warning(f"Missing {wavelength}nm - CRITICAL for Jiang algorithm")
-
-        logger.debug(f"Band type summary: {band_type_summary}")
-
-        total_found = len(found_bands)
-        required_bands = [443, 490, 560, 665, 705, 740, 783, 865]
-        missing_critical = [wl for wl in required_bands if wl not in found_bands]
-
-        if total_found == 8 and not missing_critical:
-            logger.debug("PERFECT: Complete 8-band dataset found - Jiang algorithm ready")
-        elif total_found >= 6 and 783 in found_bands and 865 in found_bands:
-            logger.debug(f"USABLE: {total_found}/8 bands found including critical NIR bands")
-        else:
-            logger.error(f"INSUFFICIENT: {total_found}/8 bands found")
-            if missing_critical:
-                logger.error(f"Missing CRITICAL bands: {missing_critical}nm")
-
-        return found_bands
-
     def process_tss(self, c2rcc_path: str, output_folder: str, product_name: str,
                         intermediate_paths: Optional[Dict[str, str]] = None) -> Dict[str, ProcessingResult]:
         """Process Jiang TSS methodology from C2RCC outputs"""
@@ -481,7 +418,7 @@ class TSSProcessor:
                 logger.error(f"Error extracting georeference: {e}")
 
             # Create intermediate tracking
-            intermediate_paths = {}
+            intermediate_paths = intermediate_paths or {}
 
             # Load spectral bands directly
             logger.debug("Loading spectral bands from C2RCC output")
@@ -597,8 +534,7 @@ class TSSProcessor:
                         output_folder, OutputStructure.GEOMETRIC_FOLDER
                     )
 
-                    if intermediate_paths is None:
-                        intermediate_paths = {}
+                    intermediate_paths = intermediate_paths or {}
 
                     clean_product_name = product_name.replace('.zip', '').replace('.SAFE', '')
                     if 'MSIL1C' in clean_product_name:
@@ -1056,159 +992,6 @@ class TSSProcessor:
             'tss': tss_out
         }
 
-    def _estimate_tss_single_pixel(self, pixel_rrs: Dict[int, float]) -> Optional[Dict]:
-        """EXACT R implementation: Estimate_TSS_Jiang_MSI"""
-        try:
-            required_bands = [490, 560, 665, 740]
-
-            if all(v == 0 for v in pixel_rrs.values()):
-                return None
-
-            if all(np.isnan(v) for v in pixel_rrs.values()):
-                return None
-
-            if any(np.isnan(pixel_rrs.get(band, np.nan)) for band in required_bands):
-                return None
-
-            rrs620 = self._estimate_rrs620_from_rrs665(pixel_rrs[665])
-
-            if pixel_rrs[490] > pixel_rrs[560]:
-                result = self._qaa_type1_clear_560nm(pixel_rrs)
-            elif pixel_rrs[490] > rrs620:
-                result = self._qaa_type2_moderate_665nm(pixel_rrs)
-            elif pixel_rrs[740] > pixel_rrs[490] and pixel_rrs[740] > 0.010:
-                result = self._qaa_type4_extreme_865nm(pixel_rrs)
-            else:
-                result = self._qaa_type3_turbid_740nm(pixel_rrs)
-
-            return result
-
-        except Exception as e:
-            logger.debug(f"Error processing pixel with Jiang algorithm: {e}")
-            return None
-
-    def _estimate_rrs620_from_rrs665(self, rrs665: float) -> float:
-        """EXACT R implementation: estimate_Rrs620"""
-        coeffs = self.constants.RRS620_COEFFICIENTS
-        a, b, c, d = coeffs['a'], coeffs['b'], coeffs['c'], coeffs['d']
-        rrs620 = a * (rrs665**3) + b * (rrs665**2) + c * rrs665 + d
-        return rrs620
-
-    def _qaa_type1_clear_560nm(self, site_rrs: Dict[int, float]) -> Dict:
-        """QAA algorithm for Type I (clear) water using 560nm reference band."""
-        aw = self.constants.PURE_WATER_ABSORPTION
-        bbw = self.constants.PURE_WATER_BACKSCATTERING
-
-        rrs = {}
-        for wl, rrs_val in site_rrs.items():
-            rrs[wl] = rrs_val / (0.52 + 1.7 * rrs_val)
-
-        u = {}
-        for wl, rrs_val in rrs.items():
-            if rrs_val > 0:
-                discriminant = (0.089**2) + 4 * 0.125 * rrs_val
-                if discriminant >= 0:
-                    with warnings.catch_warnings():
-                        warnings.filterwarnings('ignore', 'invalid value encountered in sqrt')
-                        u[wl] = (-0.089 + np.sqrt(discriminant)) / (2 * 0.125)
-                else:
-                    u[wl] = np.nan
-            else:
-                u[wl] = np.nan
-
-        numerator = rrs[443] + rrs[490]
-        denominator = rrs[560] + 5 * rrs[665] * rrs[665] / rrs[490]
-        x = np.log10(numerator / denominator)
-
-        a560 = aw[560] + 10**(-1.146 - 1.366*x - 0.469*(x**2))
-        bbp560 = ((u[560] * a560) / (1 - u[560])) - bbw[560]
-        tss = self.constants.TSS_CONVERSION_FACTORS[560] * bbp560
-
-        return {'a': a560, 'bbp': bbp560, 'band': 560, 'tss': tss}
-
-    def _qaa_type2_moderate_665nm(self, site_rrs: Dict[int, float]) -> Dict:
-        """QAA algorithm for Type II (moderately turbid) water using 665nm reference band."""
-        aw = self.constants.PURE_WATER_ABSORPTION
-        bbw = self.constants.PURE_WATER_BACKSCATTERING
-
-        rrs = {}
-        for wl, rrs_val in site_rrs.items():
-            rrs[wl] = rrs_val / (0.52 + 1.7 * rrs_val)
-
-        u = {}
-        for wl, rrs_val in rrs.items():
-            if rrs_val > 0:
-                discriminant = (0.089**2) + 4 * 0.125 * rrs_val
-                if discriminant >= 0:
-                    with warnings.catch_warnings():
-                        warnings.filterwarnings('ignore', 'invalid value encountered in sqrt')
-                        u[wl] = (-0.089 + np.sqrt(discriminant)) / (2 * 0.125)
-                else:
-                    u[wl] = np.nan
-            else:
-                u[wl] = np.nan
-
-        ratio = site_rrs[665] / (site_rrs[443] + site_rrs[490])
-        a665 = aw[665] + 0.39 * (ratio**1.14)
-        bbp665 = ((u[665] * a665) / (1 - u[665])) - bbw[665]
-        tss = self.constants.TSS_CONVERSION_FACTORS[665] * bbp665
-
-        return {'a': a665, 'bbp': bbp665, 'band': 665, 'tss': tss}
-
-    def _qaa_type3_turbid_740nm(self, site_rrs: Dict[int, float]) -> Dict:
-        """QAA algorithm for Type III (highly turbid) water using 740nm reference band."""
-        aw = self.constants.PURE_WATER_ABSORPTION
-        bbw = self.constants.PURE_WATER_BACKSCATTERING
-
-        rrs = {}
-        for wl, rrs_val in site_rrs.items():
-            rrs[wl] = rrs_val / (0.52 + 1.7 * rrs_val)
-
-        u = {}
-        for wl, rrs_val in rrs.items():
-            if rrs_val > 0:
-                discriminant = (0.089**2) + 4 * 0.125 * rrs_val
-                if discriminant >= 0:
-                    with warnings.catch_warnings():
-                        warnings.filterwarnings('ignore', 'invalid value encountered in sqrt')
-                        u[wl] = (-0.089 + np.sqrt(discriminant)) / (2 * 0.125)
-                else:
-                    u[wl] = np.nan
-            else:
-                u[wl] = np.nan
-
-        bbp740 = ((u[740] * aw[740]) / (1 - u[740])) - bbw[740]
-        tss = self.constants.TSS_CONVERSION_FACTORS[740] * bbp740
-
-        return {'a': aw[740], 'bbp': bbp740, 'band': 740, 'tss': tss}
-
-    def _qaa_type4_extreme_865nm(self, site_rrs: Dict[int, float]) -> Dict:
-        """QAA algorithm for Type IV (extremely turbid) water using 865nm reference band."""
-        aw = self.constants.PURE_WATER_ABSORPTION
-        bbw = self.constants.PURE_WATER_BACKSCATTERING
-
-        rrs = {}
-        for wl, rrs_val in site_rrs.items():
-            rrs[wl] = rrs_val / (0.52 + 1.7 * rrs_val)
-
-        u = {}
-        for wl, rrs_val in rrs.items():
-            if rrs_val > 0:
-                discriminant = (0.089**2) + 4 * 0.125 * rrs_val
-                if discriminant >= 0:
-                    with warnings.catch_warnings():
-                        warnings.filterwarnings('ignore', 'invalid value encountered in sqrt')
-                        u[wl] = (-0.089 + np.sqrt(discriminant)) / (2 * 0.125)
-                else:
-                    u[wl] = np.nan
-            else:
-                u[wl] = np.nan
-
-        bbp865 = ((u[865] * aw[865]) / (1 - u[865])) - bbw[865]
-        tss = self.constants.TSS_CONVERSION_FACTORS[865] * bbp865
-
-        return {'a': aw[865], 'bbp': bbp865, 'band': 865, 'tss': tss}
-
     def _save_tss_products(self, results: Dict[str, np.ndarray], output_folder: str,
                            product_name: str, reference_metadata: Dict,
                            water_mask: Optional[np.ndarray] = None) -> Dict[str, ProcessingResult]:
@@ -1352,16 +1135,19 @@ class TSSProcessor:
                         original_data = product_info['data']
                         data_to_save[np.isnan(original_data)] = 255
                         data_to_save = data_to_save.astype(np.uint8)
+                        write_dtype = "uint8"
                     else:
                         nodata_value = -9999
                         data_to_save = product_info['data'].astype(np.float32)
+                        write_dtype = "float32"
 
                     success = RasterIO.write_raster(
                         data_to_save,
                         output_path,
                         reference_metadata,
                         product_info['description'],
-                        nodata=nodata_value
+                        nodata=nodata_value,
+                        dtype=write_dtype
                     )
 
                     if success:
@@ -1471,7 +1257,7 @@ DOI: https://doi.org/10.1016/j.rse.2021.112386
                 f.write(f"{'='*50}\n")
                 f.write(f"Product: {product_name}\n")
                 f.write(f"Processing Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"Pipeline: Unified S2-TSS Processing v2.0\n\n")
+                f.write(f"Pipeline: OceanRS v3.0.0\n\n")
 
                 total_count = 0
 
@@ -1509,38 +1295,3 @@ DOI: https://doi.org/10.1016/j.rse.2021.112386
         except Exception as e:
             logger.warning(f"Could not create product index: {e}")
 
-    def _log_processing_summary(self, results: Dict[str, np.ndarray], product_name: str):
-        """Log comprehensive processing summary"""
-        tss_data = results.get('tss')
-        if tss_data is None:
-            return
-
-        reference_bands = results.get('reference_band')
-        valid_mask = results.get('valid_mask')
-
-        tss_stats = RasterIO.calculate_statistics(tss_data)
-
-        logger.debug(f"=== FULL JIANG TSS PROCESSING SUMMARY: {product_name} ===")
-        logger.debug(f"Total coverage: {tss_stats['coverage_percent']:.1f}%")
-        logger.debug(f"TSS range: {tss_stats['min']:.2f} - {tss_stats['max']:.2f} g/m3")
-        logger.debug(f"TSS mean: {tss_stats['mean']:.2f} g/m3")
-
-        if valid_mask is not None and np.any(valid_mask):
-            ref_bands_valid = reference_bands[valid_mask]
-            ref_bands_valid = ref_bands_valid[~np.isnan(ref_bands_valid)]
-
-            if len(ref_bands_valid) > 0:
-                logger.debug("Water type classification results:")
-                for band in [560, 665, 740, 865]:
-                    count = np.sum(ref_bands_valid == band)
-                    percentage = (count / len(ref_bands_valid)) * 100
-                    if count > 0:
-                        water_type = {
-                            560: "Type I (Clear)",
-                            665: "Type II (Moderately turbid)",
-                            740: "Type III (Highly turbid)",
-                            865: "Type IV (Extremely turbid)"
-                        }[band]
-                        logger.debug(f"  {band}nm ({water_type}): {count} pixels ({percentage:.1f}%)")
-
-        logger.debug("=" * 60)

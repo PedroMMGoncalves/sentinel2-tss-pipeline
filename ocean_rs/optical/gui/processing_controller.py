@@ -29,6 +29,7 @@ def start_processing(gui):
     """
     if gui.processing_active:
         return
+    gui.processing_active = True
 
     # Setup logging to output folder
     output_folder = gui.output_dir_var.get()
@@ -86,7 +87,6 @@ def start_processing(gui):
             return
 
         # Start processing thread
-        gui.processing_active = True
         gui.start_button.config(state=tk.DISABLED)
         gui.stop_button.config(state=tk.NORMAL)
         gui.status_var.set("Starting processing...")
@@ -202,11 +202,10 @@ def _run_processing_thread(gui, config, products):
         logger.error(f"Processing thread error: {e}")
         gui.root.after(0, lambda msg=str(e): gui.status_var.set(f"Processing error: {msg}"))
     finally:
-        gui.processing_active = False
+        gui.root.after(0, lambda: setattr(gui, 'processing_active', False))
         gui.root.after(0, lambda: gui.start_button.config(state=tk.NORMAL))
         gui.root.after(0, lambda: gui.stop_button.config(state=tk.DISABLED))
-        if gui.processor:
-            gui.processor.cleanup()
+        gui.root.after(0, lambda: gui.processor.cleanup() if gui.processor else None)
 
 
 def stop_processing(gui):
@@ -261,6 +260,12 @@ def start_gui_updates(gui):
     Args:
         gui: GUI instance.
     """
+    try:
+        if not gui.root.winfo_exists():
+            return
+    except Exception:
+        return
+
     update_system_info(gui)
     update_processing_stats(gui)
     gui.root.after(2000, lambda: start_gui_updates(gui))  # Update every 2 seconds
@@ -328,8 +333,8 @@ def update_system_info(gui):
                 gui.memory_label.config(text="Memory: --")
             if hasattr(gui, 'disk_label'):
                 gui.disk_label.config(text="Disk: --")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"System info update error: {e}")
 
 
 def update_processing_stats(gui):

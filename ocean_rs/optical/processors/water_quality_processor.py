@@ -132,7 +132,7 @@ class WaterQualityProcessor:
             return results
 
         except Exception as e:
-            logger.error(f"Error calculating water clarity: {e}")
+            logger.warning(f"Water clarity calculation skipped due to error: {e}")
             return {}
 
     def detect_harmful_algal_blooms(self, chlorophyll: Optional[np.ndarray],
@@ -288,9 +288,7 @@ class WaterQualityProcessor:
             return results
 
         except Exception as e:
-            logger.error(f"Error in HAB detection: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            logger.warning(f"HAB detection skipped due to error: {e}")
             return {}
 
     def calculate_trophic_state(self, chlorophyll: np.ndarray,
@@ -376,9 +374,7 @@ class WaterQualityProcessor:
             return results
 
         except Exception as e:
-            logger.error(f"Error calculating trophic state: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            logger.warning(f"Trophic state calculation skipped due to error: {e}")
             return {}
 
 

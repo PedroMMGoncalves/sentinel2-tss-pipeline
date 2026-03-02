@@ -29,8 +29,8 @@ class MemoryManager:
             if var is not None:
                 try:
                     del var
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Error cleaning up variable: {e}")
         gc.collect()
 
     @staticmethod
@@ -55,7 +55,8 @@ class MemoryManager:
                 logger.warning(f"High memory usage: {memory_mb:.1f} MB")
                 return True
             return False
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Memory monitoring unavailable: {e}")
             return False
 
     @staticmethod
@@ -72,5 +73,6 @@ class MemoryManager:
         try:
             process = psutil.Process()
             return process.memory_info().rss / 1024 / 1024
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Memory monitoring unavailable: {e}")
             return -1

@@ -192,21 +192,27 @@ class BathymetryPipeline:
             }
 
             tiff_path = output_dir / "bathymetry_depth.tif"
-            RasterIO.write_raster(
-                result.depth,
-                str(tiff_path),
-                geo_metadata,
-                description="SAR Bathymetry Depth (m)",
-                nodata=-9999.0,
-            )
-            logger.info(f"Exported depth GeoTIFF: {tiff_path}")
+            try:
+                RasterIO.write_raster(
+                    result.depth,
+                    str(tiff_path),
+                    geo_metadata,
+                    description="SAR Bathymetry Depth (m)",
+                    nodata=-9999.0,
+                )
+                logger.info(f"Exported bathymetry depth: {tiff_path}")
+            except RuntimeError as e:
+                raise RuntimeError(f"Failed to write bathymetry depth raster: {e}") from e
 
             unc_path = output_dir / "bathymetry_uncertainty.tif"
-            RasterIO.write_raster(
-                result.uncertainty,
-                str(unc_path),
-                geo_metadata,
-                description="SAR Bathymetry Uncertainty (m)",
-                nodata=-9999.0,
-            )
-            logger.info(f"Exported uncertainty GeoTIFF: {unc_path}")
+            try:
+                RasterIO.write_raster(
+                    result.uncertainty,
+                    str(unc_path),
+                    geo_metadata,
+                    description="SAR Bathymetry Uncertainty (m)",
+                    nodata=-9999.0,
+                )
+                logger.info(f"Exported bathymetry uncertainty: {unc_path}")
+            except RuntimeError as e:
+                raise RuntimeError(f"Failed to write bathymetry uncertainty raster: {e}") from e

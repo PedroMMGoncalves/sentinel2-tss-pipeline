@@ -69,6 +69,7 @@ def save_config(gui):
 
     config_dict = {
         "version": "1.0",
+        # Note: SearchConfig contains no credential fields — safe to serialize fully
         "search": asdict(gui.config.search_config),
         "processing": {
             "snap_gpt_path": gui.config.snap_gpt_path,

@@ -405,7 +405,7 @@ def _zoom_to_geometry(gui):
             (min(lats), max(lons))
         )
     except Exception as e:
-        logger.debug(f"Zoom to geometry error: {e}")
+        logger.warning(f"Zoom to geometry error: {e}")
 
 
 def _update_bounds_label(gui):

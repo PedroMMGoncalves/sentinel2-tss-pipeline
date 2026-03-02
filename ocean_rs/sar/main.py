@@ -137,5 +137,5 @@ def main():
                 root.withdraw()
                 messagebox.showerror("Critical Error", f"{e}\n\nCheck log for details.")
         except Exception:
-            pass
+            print(f"Fatal error: {e}", file=sys.stderr)
         sys.exit(1)

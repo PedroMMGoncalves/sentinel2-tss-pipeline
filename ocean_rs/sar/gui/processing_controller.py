@@ -19,13 +19,16 @@ def start_processing(gui):
     """Start bathymetry processing in background thread."""
     if gui.processing_active:
         return
+    gui.processing_active = True
 
     if not update_configurations(gui):
+        gui.processing_active = False
         return
 
     output_dir = gui.output_dir_var.get().strip()
     if not output_dir:
         messagebox.showerror("Error", "Select an output directory.", parent=gui.root)
+        gui.processing_active = False
         return
 
     # Get downloaded scene paths
@@ -34,19 +37,18 @@ def start_processing(gui):
         messagebox.showerror("Error",
                             "No downloaded scenes. Download scenes first.",
                             parent=gui.root)
+        gui.processing_active = False
         return
 
     gui.config.output_directory = output_dir
 
-    gui.processing_active = True
     gui.process_start_btn.config(state=tk.DISABLED)
     gui.process_stop_btn.config(state=tk.NORMAL)
     gui.status_var.set("Processing...")
 
     def progress_callback(step, total, msg):
         pct = (step / total * 100) if total > 0 else 0
-        gui.progress_var.set(pct)
-        gui.status_var.set(msg)
+        gui.root.after(0, lambda p=pct, m=msg: (gui.progress_var.set(p), gui.status_var.set(m)))
         _log_processing(gui, msg)
 
     def processing_thread():
@@ -71,7 +73,7 @@ def start_processing(gui):
             logger.error(f"Processing failed: {e}")
             _log_processing(gui, f"Processing failed: {e}")
         finally:
-            gui.processing_active = False
+            gui.root.after(0, lambda: setattr(gui, 'processing_active', False))
             gui.root.after(0, lambda: gui.process_start_btn.config(state=tk.NORMAL))
             gui.root.after(0, lambda: gui.process_stop_btn.config(state=tk.DISABLED))
             gui.root.after(0, lambda: gui.status_var.set("Ready"))
@@ -82,7 +84,7 @@ def start_processing(gui):
 
 def stop_processing(gui):
     """Stop processing."""
-    if hasattr(gui, 'pipeline'):
+    if hasattr(gui, 'pipeline') and gui.pipeline:
         gui.pipeline.cancel()
     gui.status_var.set("Cancelling...")
 

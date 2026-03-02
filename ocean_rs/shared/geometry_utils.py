@@ -17,7 +17,6 @@ Function naming follows Action-Object convention:
 """
 
 import os
-import sys
 import logging
 import traceback
 from typing import Tuple, Optional

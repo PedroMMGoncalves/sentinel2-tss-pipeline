@@ -183,6 +183,7 @@ def _browse_directory(gui, dir_type):
             gui.output_dir_var.set(directory)
             # Setup logging to output folder
             from ocean_rs.shared.logging_utils import setup_enhanced_logging
+            # Return value intentionally discarded — logging configured as side effect
             setup_enhanced_logging(
                 log_level=logging.INFO, output_folder=directory
             )

@@ -9,12 +9,19 @@ logger = logging.getLogger('ocean_rs')
 
 def on_closing(gui):
     """Handle window close."""
-    if gui.processing_active or gui.download_active:
-        from tkinter import messagebox
-        if not messagebox.askokcancel("Quit", "Processing is active. Quit anyway?",
-                                      parent=gui.root):
-            return
-    gui.root.destroy()
+    from tkinter import messagebox
+    if messagebox.askokcancel("Quit", "Are you sure you want to exit?"):
+        # Cancel active processing/downloads
+        if hasattr(gui, 'processing_active') and gui.processing_active:
+            if hasattr(gui, 'pipeline') and gui.pipeline:
+                gui.pipeline.cancel()
+        if hasattr(gui, 'download_active') and gui.download_active:
+            gui.download_active = False  # Signal download thread to stop
+
+        def _delayed_destroy():
+            gui.root.destroy()
+
+        gui.root.after(200, _delayed_destroy)
 
 
 def update_system_info(gui):
@@ -31,7 +38,7 @@ def update_system_info(gui):
         gui.sys_info_labels['disk'].config(
             text=f"{disk.used / 1e9:.0f} / {disk.total / 1e9:.0f} GB ({disk.percent}%)")
     except ImportError:
-        pass
+        logger.debug("psutil not available -- system info monitoring disabled")
     except Exception as e:
         logger.debug(f"System info update failed: {e}")
 

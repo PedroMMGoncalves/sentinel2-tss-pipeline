@@ -4,6 +4,7 @@ Search & Select Tab for SAR Bathymetry Toolkit GUI.
 AOI input, date range, sensor filters, search button, results Treeview table.
 """
 
+import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import logging
@@ -157,7 +158,7 @@ def _load_aoi_file(gui):
 
 
 def _do_search(gui):
-    """Execute ASF search."""
+    """Execute ASF search in background thread."""
     aoi = gui.aoi_text.get(1.0, tk.END).strip()
     start = gui.start_date_var.get().strip()
     end = gui.end_date_var.get().strip()
@@ -173,45 +174,60 @@ def _do_search(gui):
 
     gui.search_button.config(state=tk.DISABLED)
     gui.search_status.config(text="Searching...")
-    gui.root.update_idletasks()
 
-    try:
-        from ocean_rs.sar.download import search_scenes
-        scenes = search_scenes(
-            aoi_wkt=aoi,
-            start_date=start,
-            end_date=end,
-            platform=gui.platform_var.get(),
-            beam_mode=gui.beam_mode_var.get(),
-            orbit_direction=gui.orbit_dir_var.get() or None,
-        )
+    platform = gui.platform_var.get()
+    beam_mode = gui.beam_mode_var.get()
+    orbit_dir = gui.orbit_dir_var.get() or None
 
-        gui.search_results = scenes
+    def _search_worker():
+        try:
+            from ocean_rs.sar.download import search_scenes
+            scenes = search_scenes(
+                aoi_wkt=aoi,
+                start_date=start,
+                end_date=end,
+                platform=platform,
+                beam_mode=beam_mode,
+                orbit_direction=orbit_dir,
+            )
+            gui.root.after(0, lambda s=scenes: _on_search_complete(gui, s))
+        except Exception as e:
+            gui.root.after(0, lambda err=str(e): _on_search_error(gui, err))
 
-        # Clear existing results
-        for item in gui.results_tree.get_children():
-            gui.results_tree.delete(item)
+    thread = threading.Thread(target=_search_worker, daemon=True)
+    thread.start()
 
-        # Populate table
-        for scene in scenes:
-            gui.results_tree.insert("", tk.END, values=(
-                scene.granule_id,
-                scene.acquisition_date[:10] if scene.acquisition_date else "",
-                scene.path_number,
-                scene.polarization,
-                scene.orbit_direction,
-                f"{scene.size_mb:.0f}",
-            ))
 
-        gui.search_status.config(text=f"Found {len(scenes)} scenes")
-        # Select all by default
-        _select_all(gui)
+def _on_search_complete(gui, scenes):
+    """Handle search completion on main thread."""
+    gui.search_results = scenes
 
-    except Exception as e:
-        messagebox.showerror("Search Error", str(e), parent=gui.root)
-        gui.search_status.config(text="Search failed")
-    finally:
-        gui.search_button.config(state=tk.NORMAL)
+    # Clear existing results
+    for item in gui.results_tree.get_children():
+        gui.results_tree.delete(item)
+
+    # Populate table
+    for scene in scenes:
+        gui.results_tree.insert("", tk.END, values=(
+            scene.granule_id,
+            scene.acquisition_date[:10] if scene.acquisition_date else "",
+            scene.path_number,
+            scene.polarization,
+            scene.orbit_direction,
+            f"{scene.size_mb:.0f}",
+        ))
+
+    gui.search_status.config(text=f"Found {len(scenes)} scenes")
+    gui.search_button.config(state=tk.NORMAL)
+    # Select all by default
+    _select_all(gui)
+
+
+def _on_search_error(gui, error_msg):
+    """Handle search error on main thread."""
+    messagebox.showerror("Search Error", error_msg, parent=gui.root)
+    gui.search_status.config(text="Search failed")
+    gui.search_button.config(state=tk.NORMAL)
 
 
 def _select_all(gui):

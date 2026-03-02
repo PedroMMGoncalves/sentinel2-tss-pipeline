@@ -1,7 +1,7 @@
 """
 Advanced Aquatic Algorithms Configuration
 
-Part of the sentinel2_tss_pipeline package.
+Part of the OceanRS toolkit (ocean_rs.optical).
 """
 
 from dataclasses import dataclass

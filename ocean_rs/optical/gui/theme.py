@@ -4,7 +4,7 @@ Theme Manager
 Provides centralized styling with a professional color palette
 and custom ttk styles for all widgets.
 
-Part of the sentinel2_tss_pipeline package.
+Part of the OceanRS toolkit (ocean_rs.optical).
 """
 
 import tkinter as tk

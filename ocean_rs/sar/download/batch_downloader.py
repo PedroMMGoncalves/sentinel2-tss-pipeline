@@ -4,12 +4,14 @@ Batch downloader for SAR scenes from ASF DAAC.
 Handles authenticated downloads with resume support and progress reporting.
 """
 
+import time
 import logging
 from pathlib import Path
 from typing import List, Callable, Optional
 
 from .scene_discovery import SceneMetadata
 from .credentials import CredentialManager
+from ..config.download_config import DownloadConfig
 
 logger = logging.getLogger('ocean_rs')
 
@@ -17,8 +19,10 @@ logger = logging.getLogger('ocean_rs')
 class BatchDownloader:
     """Download SAR scenes from ASF with authentication and retry."""
 
-    def __init__(self, credential_manager: CredentialManager):
+    def __init__(self, credential_manager: CredentialManager,
+                 download_config: Optional[DownloadConfig] = None):
         self.creds = credential_manager
+        self.config = download_config or DownloadConfig()
         self._cancel_requested = False
 
     def cancel(self):
@@ -71,14 +75,88 @@ class BatchDownloader:
                 downloaded.append(expected_file)
                 continue
 
+            asf_result = scene._asf_result
+            if asf_result is None:
+                logger.warning(f"No ASF result for {scene.granule_id}, skipping")
+                continue
+
             try:
-                asf_result = scene._asf_result
-                if asf_result is None:
-                    logger.warning(f"No ASF result for {scene.granule_id}, skipping")
-                    continue
+                import requests as _requests
+            except ImportError:
+                _requests = None
 
-                asf_result.download(path=str(output_path), session=session)
+            max_retries = self.config.retry_count
+            download_success = False
 
+            try:
+                for attempt in range(1, max_retries + 1):
+                    try:
+                        asf_result.download(path=str(output_path), session=session)
+                        download_success = True
+                        break
+                    except Exception as e:
+                        is_timeout = (_requests is not None
+                                     and isinstance(e, _requests.exceptions.Timeout))
+                        is_conn_err = (_requests is not None
+                                      and isinstance(e, _requests.exceptions.ConnectionError))
+                        is_http_err = (_requests is not None
+                                      and isinstance(e, _requests.exceptions.HTTPError))
+
+                        # Auth errors: no retry, propagate to abort all downloads
+                        if is_http_err:
+                            status = e.response.status_code if e.response else None
+                            if status in (401, 403):
+                                raise RuntimeError(
+                                    f"Authentication error (HTTP {status}). "
+                                    f"Check credentials."
+                                ) from e
+                            elif status == 404:
+                                raise RuntimeError(
+                                    f"Scene not found (HTTP 404): {e}"
+                                ) from e
+                            elif attempt < max_retries and status and status >= 500:
+                                wait = 2 ** attempt
+                                logger.warning(
+                                    f"Server error (HTTP {status}), attempt "
+                                    f"{attempt}/{max_retries}. Retrying in {wait}s..."
+                                )
+                                time.sleep(wait)
+                                continue
+                            else:
+                                raise RuntimeError(
+                                    f"Download failed (HTTP {status}): {e}"
+                                ) from e
+
+                        # Transient network errors: retry with backoff
+                        if is_timeout or is_conn_err:
+                            if attempt < max_retries:
+                                wait = 2 ** attempt
+                                logger.warning(
+                                    f"Download attempt {attempt}/{max_retries} "
+                                    f"failed: {e}. Retrying in {wait}s..."
+                                )
+                                time.sleep(wait)
+                                continue
+                            else:
+                                raise RuntimeError(
+                                    f"Download failed after {max_retries} "
+                                    f"attempts: {e}"
+                                ) from e
+
+                        # Unknown error: no retry
+                        raise RuntimeError(
+                            f"Download failed for {scene.granule_id}: {e}"
+                        ) from e
+            except RuntimeError as e:
+                # Auth errors propagate to stop all downloads
+                if "Authentication error" in str(e):
+                    raise
+                logger.error(f"Download failed for {scene.granule_id}: {e}")
+                if progress_callback:
+                    progress_callback(i, total, f"FAILED: {scene.granule_id}")
+                continue
+
+            if download_success:
                 for ext in ['.zip', '.SAFE']:
                     candidate = output_path / f"{scene.granule_id}{ext}"
                     if candidate.exists():
@@ -94,11 +172,6 @@ class BatchDownloader:
                     else:
                         logger.warning(f"Download completed but file not found: "
                                       f"{scene.granule_id}")
-
-            except Exception as e:
-                logger.error(f"Download failed for {scene.granule_id}: {e}")
-                if progress_callback:
-                    progress_callback(i, total, f"FAILED: {scene.granule_id}")
 
         if progress_callback:
             progress_callback(total, total, "Download complete")

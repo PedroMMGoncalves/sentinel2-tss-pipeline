@@ -5,7 +5,7 @@ Replaces the previous 13 sub-toggles (MarineVisualizationConfig + scattered flag
 with 6 clear category ON/OFF switches. Each category generates ALL its products
 when enabled - no individual product selection.
 
-Part of the sentinel2_tss_pipeline package.
+Part of the OceanRS toolkit (ocean_rs.optical).
 """
 
 from dataclasses import dataclass

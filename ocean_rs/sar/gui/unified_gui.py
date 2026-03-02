@@ -36,8 +36,8 @@ def bring_window_to_front(window):
                 import ctypes
                 hwnd = ctypes.windll.user32.GetActiveWindow()
                 ctypes.windll.user32.FlashWindow(hwnd, True)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Window flash not available: {e}")
     except Exception as e:
         logger.warning(f"Could not bring window to front: {e}")
 

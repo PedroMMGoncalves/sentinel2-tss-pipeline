@@ -286,7 +286,7 @@ def main():
         # Log startup information
         snap_home = os.environ.get('SNAP_HOME')
         logger.info("=" * 80)
-        logger.info("UNIFIED S2 PROCESSING & TSS ESTIMATION PIPELINE v2.0")
+        logger.info("OceanRS v3.0.0")
         logger.info("=" * 80)
         logger.info(f"SNAP_HOME: {snap_home}")
         logger.info(f"GPT: {snap_info}")

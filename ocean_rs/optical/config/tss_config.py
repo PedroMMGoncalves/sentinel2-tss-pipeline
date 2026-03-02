@@ -9,7 +9,7 @@ DOI: https://doi.org/10.1016/j.rse.2021.112386
 
 Water Type Classification: Type I-IV based on Rrs(490), Rrs(560), Rrs(620), Rrs(754)
 
-Part of the sentinel2_tss_pipeline package.
+Part of the OceanRS toolkit (ocean_rs.optical).
 """
 
 from dataclasses import dataclass, field

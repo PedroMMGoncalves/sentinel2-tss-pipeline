@@ -92,9 +92,41 @@ def search_scenes(aoi_wkt: str,
         search_params['flightDirection'] = orbit_direction.upper()
 
     try:
+        import requests
+    except ImportError:
+        requests = None
+
+    try:
         results = asf.search(**search_params)
     except Exception as e:
-        raise RuntimeError(f"ASF search failed: {str(e)}")
+        if requests is not None:
+            if isinstance(e, requests.exceptions.Timeout):
+                raise RuntimeError(
+                    "ASF search timed out. Check network connection."
+                ) from e
+            if isinstance(e, requests.exceptions.ConnectionError):
+                raise RuntimeError(
+                    f"Cannot connect to ASF API. Check network connection: {e}"
+                ) from e
+            if isinstance(e, requests.exceptions.HTTPError):
+                status = e.response.status_code if e.response else "unknown"
+                if status == 401:
+                    raise RuntimeError(
+                        "ASF authentication failed. Check your Earthdata credentials."
+                    ) from e
+                elif status == 403:
+                    raise RuntimeError(
+                        "ASF access denied. Your account may not have search permissions."
+                    ) from e
+                elif status == 429:
+                    raise RuntimeError(
+                        "ASF rate limit exceeded. Please wait and try again."
+                    ) from e
+                else:
+                    raise RuntimeError(
+                        f"ASF API error (HTTP {status}): {e}"
+                    ) from e
+        raise RuntimeError(f"ASF search failed: {e}") from e
 
     logger.info(f"Found {len(results)} scenes")
 

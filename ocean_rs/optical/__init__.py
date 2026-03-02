@@ -35,7 +35,7 @@ from ocean_rs.shared import (
     ColoredFormatter,
     setup_enhanced_logging,
     get_default_logger,
-    SafeMathNumPy,
+    SafeMathNumPy,  # Re-exported for public API convenience
     MemoryManager,
     RasterIO,
 )
@@ -45,6 +45,7 @@ from .utils import (
     ProductDetector,
     SystemMonitor,
 )
+from .utils.output_structure import OutputStructure
 
 # Import processor classes
 from .processors import (
@@ -86,6 +87,7 @@ __all__ = [
     # Optical utility classes
     'ProductDetector',
     'SystemMonitor',
+    'OutputStructure',
     # Processor classes
     'TSMCHLCalculator',
     'ProcessingResult',

@@ -124,19 +124,26 @@ def _browse_download_dir(gui):
 
 def _start_download(gui):
     """Start downloading selected scenes."""
+    if gui.download_active:
+        return
+    gui.download_active = True
+
     if not hasattr(gui, 'search_results') or not gui.search_results:
         messagebox.showerror("Error", "No search results. Run a search first.",
                             parent=gui.root)
+        gui.download_active = False
         return
 
     selected_items = gui.results_tree.selection()
     if not selected_items:
         messagebox.showerror("Error", "No scenes selected.", parent=gui.root)
+        gui.download_active = False
         return
 
     download_dir = gui.download_dir_var.get().strip()
     if not download_dir:
         messagebox.showerror("Error", "Select a download directory.", parent=gui.root)
+        gui.download_active = False
         return
 
     # Get selected scenes
@@ -158,14 +165,15 @@ def _start_download(gui):
 
     gui.downloader = BatchDownloader(creds)
 
-    gui.download_active = True
     gui.download_start_btn.config(state=tk.DISABLED)
     gui.download_stop_btn.config(state=tk.NORMAL)
 
     def progress_callback(idx, total, msg):
         pct = (idx / total * 100) if total > 0 else 0
-        gui.download_progress_var.set(pct)
-        gui.download_status_label.config(text=msg)
+        gui.root.after(0, lambda p=pct, m=msg: (
+            gui.download_progress_var.set(p),
+            gui.download_status_label.config(text=m)
+        ))
         _log_download(gui, msg)
 
     def download_thread():
@@ -178,7 +186,7 @@ def _start_download(gui):
         except Exception as e:
             _log_download(gui, f"Download error: {e}")
         finally:
-            gui.download_active = False
+            gui.root.after(0, lambda: setattr(gui, 'download_active', False))
             gui.root.after(0, lambda: gui.download_start_btn.config(state=tk.NORMAL))
             gui.root.after(0, lambda: gui.download_stop_btn.config(state=tk.DISABLED))
 

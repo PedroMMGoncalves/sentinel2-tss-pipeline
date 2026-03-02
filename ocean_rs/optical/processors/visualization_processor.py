@@ -370,8 +370,6 @@ class VisualizationProcessor:
 
                 data = data.astype(np.float32)
 
-                if metadata and 'nodata' in metadata and metadata['nodata'] is not None:
-                    data[data == metadata['nodata']] = np.nan
 
                 bands_data[wavelength] = data
 
@@ -889,6 +887,7 @@ class VisualizationProcessor:
     def _save_rgb_geotiff(self, rgb_array: np.ndarray, output_path: str,
                         metadata: Dict, description: str) -> bool:
         """Save RGB array as GeoTIFF with proper metadata"""
+        dataset = None
         try:
             rgb_uint8 = (rgb_array * 255).astype(np.uint8)
             height, width, bands = rgb_uint8.shape
@@ -935,7 +934,7 @@ class VisualizationProcessor:
             dataset.SetDescription(description)
             dataset.SetMetadataItem('DESCRIPTION', description)
             dataset.SetMetadataItem('CREATION_DATE', datetime.now().isoformat())
-            dataset.SetMetadataItem('SOURCE', 'Unified S2 TSS Pipeline - Marine Visualization')
+            dataset.SetMetadataItem('SOURCE', 'OceanRS v3.0.0')
 
             dataset.SetMetadataItem('PROCESSING_METHOD', 'Marine RGB Composite')
 
@@ -948,10 +947,13 @@ class VisualizationProcessor:
         except Exception as e:
             self.logger.error(f"Error saving RGB GeoTIFF {output_path}: {e}")
             return False
+        finally:
+            dataset = None
 
     def _save_single_band_geotiff(self, data: np.ndarray, output_path: str,
                                 metadata: Dict, description: str) -> bool:
         """Save single band data as GeoTIFF with proper metadata"""
+        dataset = None
         try:
             height, width = data.shape
 
@@ -979,12 +981,15 @@ class VisualizationProcessor:
                 dataset.SetProjection(metadata['projection'])
 
             band = dataset.GetRasterBand(1)
+
+            nodata_val = metadata.get('nodata', -9999)
+            data = np.where(np.isnan(data), nodata_val, data)
+
             band.WriteArray(data.astype(np.float32))
 
-            nodata_value = metadata.get('nodata', float('nan'))
-            band.SetNoDataValue(float(nodata_value))
+            band.SetNoDataValue(float(nodata_val))
 
-            valid_data = data[~np.isnan(data)]
+            valid_data = data[data != nodata_val]
             if len(valid_data) > 0:
                 band.SetStatistics(
                     float(np.min(valid_data)),
@@ -998,7 +1003,7 @@ class VisualizationProcessor:
             dataset.SetDescription(description)
             dataset.SetMetadataItem('DESCRIPTION', description)
             dataset.SetMetadataItem('CREATION_DATE', datetime.now().isoformat())
-            dataset.SetMetadataItem('SOURCE', 'Unified S2 TSS Pipeline - Marine Visualization')
+            dataset.SetMetadataItem('SOURCE', 'OceanRS v3.0.0')
 
             dataset.SetMetadataItem('PROCESSING_METHOD', 'Spectral Index Calculation')
             dataset.SetMetadataItem('UNITS', 'Dimensionless')
@@ -1012,6 +1017,8 @@ class VisualizationProcessor:
         except Exception as e:
             self.logger.error(f"Error saving single band GeoTIFF {output_path}: {e}")
             return False
+        finally:
+            dataset = None
 
     def _create_visualization_summary(self, viz_results: Dict[str, ProcessingResult],
                                     output_folder: str, product_name: str):
@@ -1150,10 +1157,10 @@ class VisualizationProcessor:
                                 for file in files:
                                     try:
                                         total_size += os.path.getsize(os.path.join(root, file))
-                                    except Exception:
-                                        pass
-                    except Exception:
-                        pass
+                                    except Exception as e:
+                                        logger.debug(f"Cleanup error: {e}")
+                    except Exception as e:
+                        logger.debug(f"Cleanup error: {e}")
 
                 total_size_mb = total_size / (1024 * 1024)
                 logger.debug(f"Total size to delete: {total_size_mb:.1f} MB")
@@ -1175,8 +1182,8 @@ class VisualizationProcessor:
                         elif os.path.isfile(item_path):
                             try:
                                 os.remove(item_path)
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug(f"Cleanup error: {e}")
 
                 remaining_items = os.listdir(geometric_folder) if os.path.exists(geometric_folder) else []
                 remaining_resampled = [item for item in remaining_items if item.startswith('Resampled_')]

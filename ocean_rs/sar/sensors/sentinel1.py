@@ -12,6 +12,7 @@ import logging
 import subprocess
 from pathlib import Path
 from typing import Optional
+from xml.sax.saxutils import escape as xml_escape
 
 import numpy as np
 
@@ -68,8 +69,11 @@ class Sentinel1Adapter(SensorAdapter):
         )
 
         graph_path = output_dir / f"{scene_name}_graph.xml"
-        with open(graph_path, 'w') as f:
-            f.write(graph_xml)
+        try:
+            with open(graph_path, 'w') as f:
+                f.write(graph_xml)
+        except OSError as e:
+            raise RuntimeError(f"Failed to write SNAP graph to '{graph_path}': {e}") from e
 
         logger.info(f"Running SNAP GPT preprocessing: {scene_name}")
         cmd = [gpt, str(graph_path)]
@@ -128,7 +132,7 @@ class Sentinel1Adapter(SensorAdapter):
     <operator>Read</operator>
     <sources/>
     <parameters>
-      <file>{input_path}</file>
+      <file>{xml_escape(str(input_path))}</file>
     </parameters>
   </node>
   <node id="Apply-Orbit-File">
@@ -158,7 +162,7 @@ class Sentinel1Adapter(SensorAdapter):
     </sources>
     <parameters>
       <outputSigmaBand>true</outputSigmaBand>
-      <selectedPolarisations>{polarization}</selectedPolarisations>
+      <selectedPolarisations>{xml_escape(str(polarization))}</selectedPolarisations>
     </parameters>
   </node>
   <node id="Terrain-Correction">
@@ -178,7 +182,7 @@ class Sentinel1Adapter(SensorAdapter):
       <sourceProduct refid="Terrain-Correction"/>
     </sources>
     <parameters>
-      <file>{output_path}</file>
+      <file>{xml_escape(str(output_path))}</file>
       <formatName>BEAM-DIMAP</formatName>
     </parameters>
   </node>

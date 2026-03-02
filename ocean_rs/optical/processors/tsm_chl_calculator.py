@@ -229,7 +229,7 @@ class TSMCHLCalculator:
                     np.nan
                 )
 
-                success = RasterIO.write_raster(unc_tsm_data, unc_tsm_path, tsm_meta)
+                success = RasterIO.write_raster(unc_tsm_data, unc_tsm_path, tsm_meta, nodata=-9999)
                 if success:
                     logger.info("TSM uncertainties calculated and saved")
 
@@ -262,7 +262,7 @@ class TSMCHLCalculator:
                     np.nan
                 )
 
-                success = RasterIO.write_raster(unc_chl_data, unc_chl_path, chl_meta)
+                success = RasterIO.write_raster(unc_chl_data, unc_chl_path, chl_meta, nodata=-9999)
                 if success:
                     logger.info("CHL uncertainties calculated and saved")
 

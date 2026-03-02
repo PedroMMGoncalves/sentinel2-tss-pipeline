@@ -186,7 +186,7 @@ class StepTracker:
 
     Usage:
         tracker = StepTracker(logger)
-        tracker.banner("SENTINEL-2 TSS PIPELINE v2.0", "Mode: Complete Pipeline")
+        tracker.banner("OCEANRS v3.0.0", "Mode: Complete Pipeline")
         tracker.box_start("S2B_MSIL1C_20240315T112119_T29SNC")
         with tracker.step("[1/2] Resampling + C2RCC"):
             ... do work ...
