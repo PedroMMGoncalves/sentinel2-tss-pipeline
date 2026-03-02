@@ -10,25 +10,37 @@ from typing import Dict, Tuple, Optional
 
 import numpy as np
 
-# Suppress PROJ/GDAL stderr messages BEFORE importing GDAL
-os.environ['CPL_LOG'] = 'NUL' if os.name == 'nt' else '/dev/null'
-os.environ['PROJ_DEBUG'] = '0'
+_gdal_configured = False
+
+
+def _configure_gdal():
+    """Suppress GDAL/PROJ stderr and install custom error handler.
+
+    Called lazily on first raster operation to avoid import side effects.
+    """
+    global _gdal_configured
+    if _gdal_configured:
+        return
+    os.environ['CPL_LOG'] = 'NUL' if os.name == 'nt' else '/dev/null'
+    os.environ['PROJ_DEBUG'] = '0'
+    if GDAL_AVAILABLE:
+        def _gdal_error_handler(err_class, err_num, err_msg):
+            """Route GDAL errors through Python logging instead of stderr."""
+            if err_class == gdal.CE_Warning:
+                logger.debug(f"GDAL warning {err_num}: {err_msg}")
+            elif err_class == gdal.CE_Failure:
+                logger.warning(f"GDAL error {err_num}: {err_msg}")
+            elif err_class == gdal.CE_Fatal:
+                logger.error(f"GDAL fatal {err_num}: {err_msg}")
+
+        gdal.PushErrorHandler(_gdal_error_handler)
+    _gdal_configured = True
+
 
 try:
     from osgeo import gdal, gdalconst
     GDAL_AVAILABLE = True
     gdal.UseExceptions()
-
-    def _gdal_error_handler(err_class, err_num, err_msg):
-        """Route GDAL errors through Python logging instead of stderr."""
-        if err_class == gdal.CE_Warning:
-            logger.debug(f"GDAL warning {err_num}: {err_msg}")
-        elif err_class == gdal.CE_Failure:
-            logger.warning(f"GDAL error {err_num}: {err_msg}")
-        elif err_class == gdal.CE_Fatal:
-            logger.error(f"GDAL fatal {err_num}: {err_msg}")
-
-    gdal.PushErrorHandler(_gdal_error_handler)
 except ImportError:
     GDAL_AVAILABLE = False
 
@@ -43,15 +55,27 @@ class RasterIO:
         """
         Read raster file and return data array with metadata.
 
+        Band data is always returned as float32. This is intentional for the
+        Sentinel-2 pipeline: reflectance values and C2RCC products are
+        continuous floats, and float32 provides sufficient precision while
+        halving memory versus float64.
+
+        Nodata comparison uses exact equality (``data == nodata``). Only
+        nodata values that are exactly representable in float32 are
+        supported (e.g., -9999, 0, NaN). Fractional nodata values like
+        -9999.99 may not round-trip exactly.
+
         Args:
             file_path: Path to raster file
             band_index: Band number to read (1-based, default=1)
 
         Returns:
-            Tuple of (data array, metadata dict)
+            Tuple of (data array as float32, metadata dict)
         """
         if not GDAL_AVAILABLE:
             raise ImportError("GDAL is required for raster operations")
+
+        _configure_gdal()
 
         try:
             dataset = gdal.Open(file_path, gdalconst.GA_ReadOnly)
@@ -71,7 +95,7 @@ class RasterIO:
                 'projection': dataset.GetProjection(),
                 'width': dataset.RasterXSize,
                 'height': dataset.RasterYSize,
-                'nodata': nodata if nodata is not None else -9999
+                'nodata': nodata
             }
 
             dataset = None  # Close dataset
@@ -101,6 +125,8 @@ class RasterIO:
         """
         if not GDAL_AVAILABLE:
             raise ImportError("GDAL is required for raster operations")
+
+        _configure_gdal()
 
         dataset = None
         try:
@@ -199,9 +225,9 @@ class RasterIO:
                 band.SetDescription(description)
 
             # Set provenance metadata
-            from datetime import datetime
+            from datetime import datetime, timezone
             dataset.SetMetadataItem('PROCESSING_SOFTWARE', 'OceanRS v3.0.0')
-            dataset.SetMetadataItem('PROCESSING_DATE', datetime.now().isoformat())
+            dataset.SetMetadataItem('PROCESSING_DATE', datetime.now(timezone.utc).isoformat())
             if description:
                 dataset.SetMetadataItem('ALGORITHM', description)
 
@@ -237,7 +263,7 @@ class RasterIO:
         Returns:
             Dict with count, min, max, mean, std, coverage_percent
         """
-        valid_data = data[~np.isnan(data) & (data != nodata)]
+        valid_data = data[~np.isnan(data) & ~np.isinf(data) & (data != nodata)]
 
         if len(valid_data) == 0:
             return {

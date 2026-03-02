@@ -82,46 +82,73 @@ class WaterQualityProcessor:
         try:
             logger.debug("Calculating water clarity indices")
 
-            # Lee et al. (2005) diffuse attenuation coefficient
-            # Kd = (1 + 0.005 * theta_s) * [a + 4.18 * (1 - 0.52 * exp(-10.8 * a)) * bb]
-            theta_s = solar_zenith
-            kd = (1 + 0.005 * theta_s) * (
-                absorption + 4.18 * (1 - 0.52 * np.exp(-10.8 * absorption)) * backscattering
-            )
+            # M-3: NaN filtering — only compute on valid (finite) input pixels
+            valid_mask = np.isfinite(absorption) & np.isfinite(backscattering)
+            logger.info(f"Water clarity: {np.sum(valid_mask)} valid pixels of {valid_mask.size}")
 
-            # Tyler (1968) Secchi depth approximation
-            secchi_depth = 1.7 / (kd + 1e-8)
+            # Initialize all output arrays as NaN
+            kd = np.full_like(absorption, np.nan)
+            secchi_depth = np.full_like(absorption, np.nan)
+            clarity_index = np.full_like(absorption, np.nan)
+            euphotic_depth = np.full_like(absorption, np.nan)
+            beam_attenuation = np.full_like(absorption, np.nan)
+            relative_turbidity_index = np.full_like(absorption, np.nan)
 
-            # Water clarity index (custom 0-1 mapping of Kd, not a published formula)
-            clarity_index = 1 / (1 + kd)
+            if np.any(valid_mask):
+                a = absorption[valid_mask]
+                bb = backscattering[valid_mask]
 
-            # Euphotic depth (1% light level)
-            euphotic_depth = 4.605 / (kd + 1e-8)  # ln(100) / kd
+                # Lee et al. (2005) diffuse attenuation coefficient
+                # Kd = (1 + 0.005 * theta_s) * [a + 4.18 * (1 - 0.52 * exp(-10.8 * a)) * bb]
+                theta_s = solar_zenith
+                kd_valid = (1 + 0.005 * theta_s) * (
+                    a + 4.18 * (1 - 0.52 * np.exp(-10.8 * a)) * bb
+                )
 
-            # Beam attenuation: c = a + b (total scattering)
-            # bb/b ratio ~0.0183 for typical coastal particles (Petzold 1972)
-            BACKSCATTER_RATIO = 0.0183
-            total_scattering = backscattering / BACKSCATTER_RATIO
-            beam_attenuation = absorption + total_scattering
+                # M-2: Clip Kd BEFORE computing derived products
+                kd_valid = np.clip(kd_valid, 0, 20)  # m^-1, max for extremely turbid
 
-            # Physical range clamping
-            kd = np.clip(kd, 0, 20)                         # m^-1, max for extremely turbid
-            secchi_depth = np.clip(secchi_depth, 0, 100)     # meters, max for clearest ocean
-            euphotic_depth = np.clip(euphotic_depth, 0, 200) # meters
-            beam_attenuation = np.clip(beam_attenuation, 0, 50)  # m^-1
+                # C=1.7 (Tyler 1968 in-situ disc convention). Satellite-appropriate value ~1.0 (Doron 2011)
+                secchi_valid = 1.7 / (kd_valid + 1e-8)
 
-            # Relative turbidity index (dimensionless, 0-1 scale)
-            # Note: This is NOT calibrated NTU - use for relative comparison only
-            # Saturates at bb=0.05 m^-1 for coastal water dynamic range
-            relative_turbidity_index = np.clip(backscattering * 20, 0, 1)
+                # Custom proxy indices, not peer-reviewed formulas
+                clarity_valid = 1 / (1 + kd_valid)
 
+                # Euphotic depth (1% light level)
+                euphotic_valid = 4.605 / (kd_valid + 1e-8)  # ln(100) / kd
+
+                # Beam attenuation: c = a + b (total scattering)
+                # bb_ratio=0.0183 (Petzold 1972 coastal average, range 0.005-0.03 by water type)
+                BACKSCATTER_RATIO = 0.0183
+                total_scattering = bb / BACKSCATTER_RATIO
+                beam_att_valid = a + total_scattering
+
+                # Physical range clamping for derived products
+                secchi_valid = np.clip(secchi_valid, 0, 100)       # meters, max for clearest ocean
+                euphotic_valid = np.clip(euphotic_valid, 0, 200)   # meters
+                beam_att_valid = np.clip(beam_att_valid, 0, 50)    # m^-1
+
+                # Custom proxy indices, not peer-reviewed formulas
+                # Note: This is NOT calibrated NTU - use for relative comparison only
+                # Saturates at bb=0.05 m^-1 for coastal water dynamic range
+                rel_turb_valid = np.clip(bb * 20, 0, 1)
+
+                # Assign valid results back
+                kd[valid_mask] = kd_valid
+                secchi_depth[valid_mask] = secchi_valid
+                clarity_index[valid_mask] = clarity_valid
+                euphotic_depth[valid_mask] = euphotic_valid
+                beam_attenuation[valid_mask] = beam_att_valid
+                relative_turbidity_index[valid_mask] = rel_turb_valid
+
+            # M-15: proxy_ prefix for custom indices that are not peer-reviewed
             results = {
                 'diffuse_attenuation': kd,
                 'secchi_depth': secchi_depth,
-                'clarity_index': clarity_index,
+                'proxy_clarity_index': clarity_index,
                 'euphotic_depth': euphotic_depth,
                 'beam_attenuation': beam_attenuation,
-                'relative_turbidity_index': relative_turbidity_index
+                'proxy_relative_turbidity_index': relative_turbidity_index
             }
 
             # Calculate statistics
@@ -137,15 +164,26 @@ class WaterQualityProcessor:
 
     def detect_harmful_algal_blooms(self, chlorophyll: Optional[np.ndarray],
                                 phycocyanin: Optional[np.ndarray],
-                                rrs_bands: Dict[int, np.ndarray]) -> Dict[str, np.ndarray]:
+                                rrs_bands: Dict[int, np.ndarray],
+                                water_mask: Optional[np.ndarray] = None) -> Dict[str, np.ndarray]:
         """
-        HAB detection using Sentinel-2 spectral bands (NDCI, MCI)
+        HAB detection using Sentinel-2 spectral bands (NDCI, MCI).
 
         Note: FLH removed - S2 lacks 681nm band for true fluorescence detection.
 
         References:
         - Mishra, S. & Mishra, D.R. (2012). Normalized difference chlorophyll index.
         - Gower, J. et al. (2005). Maximum Chlorophyll Index.
+
+        Args:
+            chlorophyll: Optional chlorophyll array
+            phycocyanin: Optional phycocyanin array
+            rrs_bands: Dict mapping wavelength (nm) to Rrs arrays
+            water_mask: Optional boolean mask (True=water). Used for statistics.
+
+        Returns:
+            Dictionary with HAB detection products.
+            hab_score is a heuristic bloom likelihood score, not a calibrated probability.
         """
         try:
             logger.debug("Detecting harmful algal blooms")
@@ -160,13 +198,16 @@ class WaterQualityProcessor:
             ref_band = list(rrs_bands.values())[0]
             shape = ref_band.shape
 
-            # Initialize result arrays
-            hab_probability = np.zeros(shape, dtype=np.float32)
+            # H-4: Renamed from hab_probability to hab_score
+            # Heuristic bloom likelihood score, not a calibrated probability
+            hab_score = np.full(shape, np.nan, dtype=np.float32)
+            hab_score_accum = np.zeros(shape, dtype=np.float32)
             ndci_values = np.full(shape, np.nan, dtype=np.float32)
             # flh_values removed: S2 lacks 681nm band for true FLH
             mci_values = np.full(shape, np.nan, dtype=np.float32)
 
             algorithms_applied = []
+            n_algorithms = 0
 
             # Method 1: Normalized Difference Chlorophyll Index (NDCI)
             if 705 in rrs_bands and 665 in rrs_bands:
@@ -194,11 +235,12 @@ class WaterQualityProcessor:
                     results['ndci_bloom'] = ndci_bloom
                     results['ndci_values'] = ndci_values
 
-                    # Continuous probability: remap NDCI from [0.05, 0.3] to [0, 0.5]
+                    # H-4: Scale each algorithm to full [0, 1] range
                     ndci_contribution = np.clip(
                         (ndci_values - 0.05) / (0.3 - 0.05), 0, 1
-                    ) * 0.5
-                    hab_probability += ndci_contribution
+                    )
+                    hab_score_accum += ndci_contribution
+                    n_algorithms += 1
                     algorithms_applied.append("NDCI")
 
                     logger.debug(f"NDCI calculated for {np.sum(valid_mask)} pixels")
@@ -208,13 +250,13 @@ class WaterQualityProcessor:
             # not the chlorophyll fluorescence emission at ~685nm.
 
             # Method 2: Maximum Chlorophyll Index (MCI) - Gower et al. (2005)
-            if all(band in rrs_bands for band in [665, 705, 740, 865]):
+            # L-30: MCI only uses 665, 705, 740nm — 865nm is not needed
+            if all(band in rrs_bands for band in [665, 705, 740]):
                 logger.debug("Calculating MCI")
 
                 band_665 = rrs_bands[665]
                 band_705 = rrs_bands[705]
                 band_740 = rrs_bands[740]
-                band_865 = rrs_bands[865]
 
                 valid_mask = (
                     (~np.isnan(band_665)) &
@@ -236,27 +278,28 @@ class WaterQualityProcessor:
                     results['mci_bloom'] = mci_bloom
                     results['mci_values'] = mci_values
 
-                    # Continuous probability: remap MCI from [0.004, 0.02] to [0, 0.5]
+                    # H-4: Scale each algorithm to full [0, 1] range
                     mci_contribution = np.clip(
                         (mci_values - 0.004) / (0.02 - 0.004), 0, 1
-                    ) * 0.5
-                    hab_probability += mci_contribution
+                    )
+                    hab_score_accum += mci_contribution
+                    n_algorithms += 1
                     algorithms_applied.append("MCI")
 
                     logger.debug(f"MCI calculated for {np.sum(valid_mask)} pixels")
 
-            # Calculate combined HAB probability and risk levels
+            # Calculate combined HAB score and risk levels
             if algorithms_applied:
-                # Normalize probability to 0-1 range
-                hab_probability = np.clip(hab_probability, 0, 1)
-                results['hab_probability'] = hab_probability
+                # H-4: Average contributions, then clip to [0, 1]
+                hab_score = np.clip(hab_score_accum / n_algorithms, 0, 1)
+                results['hab_score'] = hab_score
 
                 # Create risk level classification
                 hab_risk = np.zeros(shape, dtype=np.uint8)
-                hab_risk[hab_probability > 0.7] = 3  # High risk
-                hab_risk[(hab_probability > 0.4) & (hab_probability <= 0.7)] = 2  # Medium risk
-                hab_risk[(hab_probability > 0.2) & (hab_probability <= 0.4)] = 1  # Low risk
-                # hab_risk = 0 for probability <= 0.2 (no risk)
+                hab_risk[hab_score > 0.7] = 3  # High risk
+                hab_risk[(hab_score > 0.4) & (hab_score <= 0.7)] = 2  # Medium risk
+                hab_risk[(hab_score > 0.2) & (hab_score <= 0.4)] = 1  # Low risk
+                # hab_risk = 0 for score <= 0.2 (no risk)
 
                 results['hab_risk_level'] = hab_risk
 
@@ -266,23 +309,28 @@ class WaterQualityProcessor:
                     results['potential_bloom'] = results['ndci_bloom'].copy()
 
                 # Biomass alert levels
-                high_biomass = (hab_probability > 0.6).astype(np.float32)
-                extreme_biomass = (hab_probability > 0.8).astype(np.float32)
+                high_biomass = (hab_score > 0.6).astype(np.float32)
+                extreme_biomass = (hab_score > 0.8).astype(np.float32)
 
                 results['high_biomass_alert'] = high_biomass
                 results['extreme_biomass_alert'] = extreme_biomass
 
-                # Calculate statistics - single summary line
-                total_pixels = np.sum(~np.isnan(hab_probability))
+                # L-8: Use water/valid mask to exclude land pixels from statistics
+                if water_mask is not None:
+                    stats_mask = water_mask & (~np.isnan(hab_score))
+                else:
+                    stats_mask = ~np.isnan(hab_score)
+
+                total_pixels = np.sum(stats_mask)
                 if total_pixels > 0:
-                    high_risk_pixels = np.sum(hab_risk == 3)
-                    medium_risk_pixels = np.sum(hab_risk == 2)
-                    low_risk_pixels = np.sum(hab_risk == 1)
+                    high_risk_pixels = np.sum(hab_risk[stats_mask] == 3)
+                    medium_risk_pixels = np.sum(hab_risk[stats_mask] == 2)
+                    low_risk_pixels = np.sum(hab_risk[stats_mask] == 1)
                     logger.debug(f"HAB: {', '.join(algorithms_applied)} - High:{high_risk_pixels} Med:{medium_risk_pixels} Low:{low_risk_pixels}")
             else:
                 logger.warning("No suitable spectral bands found for HAB detection")
-                # Return empty arrays to avoid missing data issues
-                results['hab_probability'] = np.zeros(shape, dtype=np.float32)
+                # Return NaN arrays (not zeros) to distinguish no-data from no-bloom
+                results['hab_score'] = np.full(shape, np.nan, dtype=np.float32)
                 results['hab_risk_level'] = np.zeros(shape, dtype=np.uint8)
 
             return results

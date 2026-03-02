@@ -118,8 +118,8 @@ class BathymetryPipeline:
     def _process_single_scene(self, scene_path: Path,
                                intermediate_dir: Path) -> Optional[BathymetryResult]:
         """Process a single SAR scene through the pipeline."""
-        # Step 1: Preprocess
-        logger.info("Step 1/4: Preprocessing (SNAP GPT)...")
+        # Step 1: Preprocess (no TC — for FFT analysis)
+        logger.info("Step 1/4: Preprocessing (SNAP GPT, no TC for FFT)...")
         # Extract primary polarization (e.g. "VV" from "VV+VH")
         pol = self.config.search_config.polarization.split('+')[0]
         image = self.adapter.preprocess(
@@ -149,10 +149,10 @@ class BathymetryPipeline:
             period_source = "manual"
         else:
             try:
-                cx = image.geo.origin_x + (image.geo.cols / 2) * image.geo.pixel_size_x
-                cy = image.geo.origin_y + (image.geo.rows / 2) * image.geo.pixel_size_y
+                # H-8: Convert center coordinates from image CRS to WGS84 for WW3 API
+                lon, lat = self._get_wgs84_center(image)
                 acq_time = image.metadata.get('datetime', '')
-                wave_period = get_wave_period(cx, cy, acq_time)
+                wave_period = get_wave_period(lon, lat, acq_time)
                 period_source = "wavewatch3"
             except Exception as e:
                 logger.warning(f"WaveWatch III failed: {e}. Using manual period.")
@@ -173,11 +173,69 @@ class BathymetryPipeline:
 
         return result
 
+    @staticmethod
+    def _get_wgs84_center(image: OceanImage) -> tuple:
+        """Convert image center coordinates from image CRS to WGS84.
+
+        H-8: The WaveWatch III API expects WGS84 (lon/lat) coordinates,
+        but the image may be in a projected CRS (e.g. UTM).
+
+        Args:
+            image: OceanImage with geo transform and CRS.
+
+        Returns:
+            Tuple of (longitude, latitude) in WGS84.
+
+        Raises:
+            RuntimeError: If coordinate transformation fails.
+        """
+        from osgeo import osr
+
+        cx = image.geo.origin_x + (image.geo.cols / 2) * image.geo.pixel_size_x
+        cy = image.geo.origin_y + (image.geo.rows / 2) * image.geo.pixel_size_y
+
+        crs_wkt = image.geo.crs_wkt
+        if not crs_wkt:
+            logger.warning(
+                "No CRS defined for image — assuming coordinates are already WGS84"
+            )
+            return cx, cy
+
+        source_srs = osr.SpatialReference()
+        source_srs.ImportFromWkt(crs_wkt)
+
+        # Check if already geographic (lon/lat)
+        if source_srs.IsGeographic():
+            return cx, cy
+
+        target_srs = osr.SpatialReference()
+        target_srs.SetWellKnownGeogCS("WGS84")
+
+        # Ensure consistent axis order (lon, lat) regardless of GDAL version
+        source_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        target_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+
+        transform = osr.CoordinateTransformation(source_srs, target_srs)
+        try:
+            lon, lat, _ = transform.TransformPoint(cx, cy)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to transform center ({cx}, {cy}) to WGS84: {e}"
+            ) from e
+
+        logger.info(f"Image center: UTM ({cx:.0f}, {cy:.0f}) -> WGS84 ({lon:.4f}, {lat:.4f})")
+        return lon, lat
+
     def _export_results(self, result: BathymetryResult, output_dir: Path):
         """Export bathymetry result as GeoTIFF."""
         output_dir.mkdir(parents=True, exist_ok=True)
 
         if self.config.export_geotiff and result.geo is not None:
+            # M-24: Ensure pixel_size_y is negative (GeoTIFF convention:
+            # origin is top-left, y increases downward in pixel space)
+            pixel_size_y = result.geo.pixel_size_y
+            pixel_size_y = pixel_size_y if pixel_size_y < 0 else -abs(pixel_size_y)
+
             # Build GDAL-compatible metadata dict
             geo_metadata = {
                 'geotransform': (
@@ -186,7 +244,7 @@ class BathymetryPipeline:
                     0,
                     result.geo.origin_y,
                     0,
-                    result.geo.pixel_size_y,
+                    pixel_size_y,
                 ),
                 'projection': result.geo.crs_wkt,
             }

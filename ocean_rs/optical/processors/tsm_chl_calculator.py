@@ -99,6 +99,8 @@ class TSMCHLCalculator:
                     try:
                         valid_apig = apig_data[valid_mask]
                         chl_values = np.power(valid_apig, self.chl_exp) * self.chl_fac
+                        # Physical range limit for chlorophyll-a
+                        chl_values = np.clip(chl_values, 0, 1000)
 
                         # Check for invalid results
                         valid_chl_mask = (~np.isnan(chl_values)) & (~np.isinf(chl_values)) & (chl_values >= 0)
@@ -118,8 +120,8 @@ class TSMCHLCalculator:
                         logger.error(f"Error in CHL calculation: {calc_error}")
                         chl_concentration = np.full_like(apig_data, np.nan, dtype=np.float32)
 
-                # Save CHL to .data folder (standard SNAP BEAM-DIMAP practice)
-                output_path = os.path.join(data_folder, 'conc_chl.img')
+                # Save CHL to .data folder as GeoTIFF
+                output_path = os.path.join(data_folder, 'conc_chl.tif')
                 success = RasterIO.write_raster(
                     chl_concentration, output_path, metadata,
                     f"SNAP Chlorophyll concentration (mg/m3) - CHL = apig^{self.chl_exp} * {self.chl_fac}",
@@ -176,8 +178,8 @@ class TSMCHLCalculator:
                         logger.error(f"Error in TSM calculation: {calc_error}")
                         tsm_concentration = np.full_like(btot_approx, np.nan, dtype=np.float32)
 
-                # Save TSM concentration
-                output_path = os.path.join(data_folder, 'conc_tsm.img')
+                # Save TSM concentration as GeoTIFF
+                output_path = os.path.join(data_folder, 'conc_tsm.tif')
                 success = RasterIO.write_raster(
                     tsm_concentration, output_path, metadata,
                     f"SNAP TSM concentration (g/m3) - TSM = {self.tsm_fac} * (bpart + bwit)^{self.tsm_exp}",
@@ -203,26 +205,31 @@ class TSMCHLCalculator:
             return {'error': ProcessingResult(False, "", None, error_msg)}
 
     def calculate_uncertainties(self, c2rcc_path: str) -> Dict[str, ProcessingResult]:
-        """Calculate uncertainties for TSM and CHL products"""
+        """Calculate heuristic uncertainty estimates for TSM and CHL products.
+
+        WARNING: These are heuristic placeholders (linear error model),
+        not calibrated error bounds from uncertainty propagation.
+        """
         try:
+            logger.warning("Uncertainty estimates are heuristic placeholders, not calibrated error bounds")
             data_folder = c2rcc_path.replace('.dim', '.data')
 
             # Check if uncertainty files exist
-            unc_tsm_path = os.path.join(data_folder, 'unc_tsm.img')
-            unc_chl_path = os.path.join(data_folder, 'unc_chl.img')
+            unc_tsm_path = os.path.join(data_folder, 'heuristic_unc_tsm.tif')
+            unc_chl_path = os.path.join(data_folder, 'heuristic_unc_chl.tif')
 
-            tsm_path = os.path.join(data_folder, 'conc_tsm.img')
-            chl_path = os.path.join(data_folder, 'conc_chl.img')
+            tsm_path = os.path.join(data_folder, 'conc_tsm.tif')
+            chl_path = os.path.join(data_folder, 'conc_chl.tif')
 
             results = {}
 
-            # Calculate TSM uncertainty (typically 15-30% of TSM value)
+            # Calculate TSM heuristic uncertainty (typically 15-30% of TSM value)
             if os.path.exists(tsm_path) and not (os.path.exists(unc_tsm_path) and os.path.getsize(unc_tsm_path) > 1024):
-                logger.info("Calculating TSM uncertainties...")
+                logger.info("Calculating heuristic TSM uncertainties...")
 
                 tsm_data, tsm_meta = RasterIO.read_raster(tsm_path)
 
-                # Simplified uncertainty model (no in-situ data available for full error propagation)
+                # HEURISTIC: Linear error model, not uncertainty propagation
                 unc_tsm_data = np.where(
                     tsm_data > 0,
                     tsm_data * 0.20 + 0.1,  # 20% relative + 0.1 g/m3 absolute
@@ -231,7 +238,7 @@ class TSMCHLCalculator:
 
                 success = RasterIO.write_raster(unc_tsm_data, unc_tsm_path, tsm_meta, nodata=-9999)
                 if success:
-                    logger.info("TSM uncertainties calculated and saved")
+                    logger.info("Heuristic TSM uncertainties calculated and saved")
 
                     # Calculate statistics
                     valid_pixels = np.sum(unc_tsm_data > 0)
@@ -244,18 +251,18 @@ class TSMCHLCalculator:
                         'file_size_mb': os.path.getsize(unc_tsm_path) / (1024 * 1024)
                     }
 
-                    results['unc_tsm'] = ProcessingResult(True, unc_tsm_path, stats, None)
+                    results['heuristic_tsm_uncertainty'] = ProcessingResult(True, unc_tsm_path, stats, None)
                 else:
-                    logger.error("Failed to save TSM uncertainties")
-                    results['unc_tsm'] = ProcessingResult(False, "", None, "Failed to save TSM uncertainties")
+                    logger.error("Failed to save heuristic TSM uncertainties")
+                    results['heuristic_tsm_uncertainty'] = ProcessingResult(False, "", None, "Failed to save heuristic TSM uncertainties")
 
-            # Calculate CHL uncertainty (typically 25-40% of CHL value)
+            # Calculate CHL heuristic uncertainty (typically 25-40% of CHL value)
             if os.path.exists(chl_path) and not (os.path.exists(unc_chl_path) and os.path.getsize(unc_chl_path) > 1024):
-                logger.info("Calculating CHL uncertainties...")
+                logger.info("Calculating heuristic CHL uncertainties...")
 
                 chl_data, chl_meta = RasterIO.read_raster(chl_path)
 
-                # Simple uncertainty model: 30% of CHL value + 0.05 mg/m3 base uncertainty
+                # HEURISTIC: Linear error model, not uncertainty propagation
                 unc_chl_data = np.where(
                     chl_data > 0,
                     chl_data * 0.30 + 0.05,  # 30% relative + 0.05 mg/m3 absolute
@@ -264,7 +271,7 @@ class TSMCHLCalculator:
 
                 success = RasterIO.write_raster(unc_chl_data, unc_chl_path, chl_meta, nodata=-9999)
                 if success:
-                    logger.info("CHL uncertainties calculated and saved")
+                    logger.info("Heuristic CHL uncertainties calculated and saved")
 
                     # Calculate statistics
                     valid_pixels = np.sum(unc_chl_data > 0)
@@ -277,10 +284,10 @@ class TSMCHLCalculator:
                         'file_size_mb': os.path.getsize(unc_chl_path) / (1024 * 1024)
                     }
 
-                    results['unc_chl'] = ProcessingResult(True, unc_chl_path, stats, None)
+                    results['heuristic_chl_uncertainty'] = ProcessingResult(True, unc_chl_path, stats, None)
                 else:
-                    logger.error("Failed to save CHL uncertainties")
-                    results['unc_chl'] = ProcessingResult(False, "", None, "Failed to save CHL uncertainties")
+                    logger.error("Failed to save heuristic CHL uncertainties")
+                    results['heuristic_chl_uncertainty'] = ProcessingResult(False, "", None, "Failed to save heuristic CHL uncertainties")
 
             return results
 

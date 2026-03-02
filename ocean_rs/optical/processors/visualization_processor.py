@@ -227,7 +227,7 @@ class VisualizationProcessor:
             # Create processing summary
             self.logger.debug("Creating visualization summary")
             try:
-                self._create_visualization_summary(viz_results, output_folder, product_name)
+                self._create_visualization_summary(viz_results, scene_folder, product_name)
             except Exception as summary_error:
                 self.logger.warning(f"Could not create visualization summary: {summary_error}")
 
@@ -368,7 +368,7 @@ class VisualizationProcessor:
                     self.logger.error(f"Invalid data from {file_path}")
                     return None, None
 
-                data = data.astype(np.float32)
+                data = np.asarray(data, dtype=np.float32)
 
 
                 bands_data[wavelength] = data
@@ -674,7 +674,7 @@ class VisualizationProcessor:
                 # Advanced (2) - SDD removed (WaterClarity SecchiDepth is IOP-derived, more rigorous)
                 'CDOM': {
                     'formula': 'B3 / B1',
-                    'required_bands': [443, 560],
+                    'required_bands': [560, 443],
                     'description': 'Colored Dissolved Organic Matter proxy (green/blue ratio)',
                     'application': 'CDOM concentration (high = more CDOM)',
                     'enabled': indices_enabled,
@@ -706,6 +706,17 @@ class VisualizationProcessor:
                     index_data = self._calculate_spectral_index(index_name, config, bands_data, bands_to_use)
 
                     if index_data is not None:
+                        # Clip normalized indices to [-1, 1] range
+                        normalized_indices = {'NDWI', 'MNDWI', 'NDTI', 'NDMI', 'NDCI', 'GNDVI'}
+                        if index_name in normalized_indices:
+                            valid_mask = ~np.isnan(index_data)
+                            out_of_range = np.sum(
+                                valid_mask & ((index_data < -1.0) | (index_data > 1.0)))
+                            if out_of_range > 0:
+                                self.logger.debug(
+                                    f"{index_name}: clipping {out_of_range} out-of-range pixels to [-1, 1]")
+                            index_data = np.clip(index_data, -1.0, 1.0)
+
                         # Apply water mask (set land pixels to NaN) if available
                         if water_mask is not None:
                             index_data = np.where(water_mask, index_data, np.nan)
@@ -829,8 +840,8 @@ class VisualizationProcessor:
             # SDD removed: WaterClarity SecchiDepth (IOP-derived) is more rigorous
 
             elif index_name == 'CDOM':
-                b1 = bands_data[bands_to_use[0]]  # 443nm
-                b3 = bands_data[bands_to_use[1]]  # 560nm
+                b3 = bands_data[bands_to_use[0]]  # 560nm
+                b1 = bands_data[bands_to_use[1]]  # 443nm
                 # B3/B1: CDOM absorbs blue (443nm), so high green/blue = high CDOM
                 return b3 / (b1 + 1e-8)
 
@@ -903,7 +914,7 @@ class VisualizationProcessor:
                 height,
                 bands,
                 gdal.GDT_Byte,
-                options=['COMPRESS=LZW', 'TILED=YES', 'BIGTIFF=IF_SAFER']
+                options=['COMPRESS=LZW', 'PREDICTOR=2', 'TILED=YES', 'BIGTIFF=IF_SAFER']
             )
 
             if dataset is None:
@@ -912,8 +923,12 @@ class VisualizationProcessor:
 
             if 'geotransform' in metadata:
                 dataset.SetGeoTransform(metadata['geotransform'])
+            else:
+                self.logger.warning("Missing geotransform — output will not be georeferenced")
             if 'projection' in metadata:
                 dataset.SetProjection(metadata['projection'])
+            else:
+                self.logger.warning("Missing projection — output CRS undefined")
 
             for i in range(bands):
                 band = dataset.GetRasterBand(i + 1)
@@ -930,6 +945,10 @@ class VisualizationProcessor:
                     band.SetColorInterpretation(gdal.GCI_BlueBand)
 
                 band.SetStatistics(0, 255, float(np.mean(rgb_uint8[:, :, i])), float(np.std(rgb_uint8[:, :, i])))
+
+            # Set NoData to 0 on each band so black pixels are recognized as nodata
+            for i in range(dataset.RasterCount):
+                dataset.GetRasterBand(i + 1).SetNoDataValue(0)
 
             dataset.SetDescription(description)
             dataset.SetMetadataItem('DESCRIPTION', description)
@@ -968,7 +987,7 @@ class VisualizationProcessor:
                 height,
                 1,
                 gdal.GDT_Float32,
-                options=['COMPRESS=LZW', 'TILED=YES', 'BIGTIFF=IF_SAFER']
+                options=['COMPRESS=LZW', 'PREDICTOR=3', 'TILED=YES', 'BIGTIFF=IF_SAFER']
             )
 
             if dataset is None:
@@ -977,8 +996,12 @@ class VisualizationProcessor:
 
             if 'geotransform' in metadata:
                 dataset.SetGeoTransform(metadata['geotransform'])
+            else:
+                self.logger.warning("Missing geotransform — output will not be georeferenced")
             if 'projection' in metadata:
                 dataset.SetProjection(metadata['projection'])
+            else:
+                self.logger.warning("Missing projection — output CRS undefined")
 
             band = dataset.GetRasterBand(1)
 

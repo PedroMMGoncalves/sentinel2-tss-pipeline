@@ -245,8 +245,8 @@ def main():
     """Main entry point with enhanced error handling."""
     try:
         # Check Python version
-        if sys.version_info < (3, 6):
-            print("ERROR: Python 3.6 or higher is required!")
+        if sys.version_info < (3, 8):
+            print("ERROR: Python 3.8 or higher is required!")
             sys.exit(1)
 
         # Check for required dependencies

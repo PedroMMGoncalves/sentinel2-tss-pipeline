@@ -11,6 +11,7 @@ import logging
 
 from ..utils.product_detector import ProductDetector
 from ..config.enums import ProcessingMode
+from .processing_controller import stop_processing
 
 logger = logging.getLogger('ocean_rs')
 
@@ -117,7 +118,7 @@ def on_closing(gui):
             parent=gui.root
         )
         if result:
-            gui.stop_processing()
+            stop_processing(gui)
         else:
             return
 
@@ -130,9 +131,15 @@ def on_closing(gui):
     except Exception as e:
         logger.debug(f"Cleanup during exit: {e}")
 
-    def _check_and_destroy():
+    max_attempts = 100  # 100 * 100ms = 10 seconds timeout
+
+    def _check_and_destroy(remaining=max_attempts):
         if hasattr(gui, 'processing_thread') and gui.processing_thread and gui.processing_thread.is_alive():
-            gui.root.after(100, _check_and_destroy)
+            if remaining > 0:
+                gui.root.after(100, lambda: _check_and_destroy(remaining - 1))
+            else:
+                logger.warning("Processing thread did not stop within timeout, forcing shutdown")
+                gui.root.destroy()
         else:
             gui.root.destroy()
 

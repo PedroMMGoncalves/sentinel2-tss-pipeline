@@ -17,11 +17,14 @@ Water Type Classification:
     Type IV (Extremely turbid): Rrs(740) > Rrs(490) AND Rrs(740) > 0.010 - uses 865nm
 """
 
+import copy
+import gc
 import os
 import glob
 import logging
 import traceback
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 import numpy as np
@@ -100,7 +103,7 @@ class TSSProcessor:
 
     def __init__(self, config: TSSConfig):
         """Initialize TSS Processor with configuration."""
-        self.config = config
+        self.config = copy.deepcopy(config)
         self.constants = TSSConstants()
 
         # Initialize visualization processor
@@ -195,7 +198,15 @@ class TSSProcessor:
             total_valid = np.sum(valid)
             if total_valid > 0:
                 water_pct = 100.0 * water_pixels / total_valid
-                logger.info(f"NIR water mask (< {threshold}): {water_pct:.1f}% water, {100-water_pct:.1f}% land")
+                masked_pct = 100.0 - water_pct
+                logger.info(f"NIR water mask (< {threshold}): {water_pct:.1f}% water, {masked_pct:.1f}% land")
+
+                # M-11: Warn when too many pixels are masked out (common with turbid Type IV water)
+                if masked_pct > 30.0:
+                    logger.warning(
+                        f"High masking rate: {masked_pct:.1f}% of pixels masked by NIR threshold "
+                        f"-- consider increasing for turbid water"
+                    )
 
             return water_mask
 
@@ -338,13 +349,21 @@ class TSSProcessor:
 
             elif filename.startswith('rrs_'):
                 # Already in Rrs units, no conversion needed
-                converted_data[wavelength] = data.copy()
+                converted_data[wavelength] = data
                 conversion_log.append(f"{wavelength}nm: rrs (no conversion)")
 
             else:
-                logger.warning(f"Unexpected band type for {wavelength}nm: {filename}")
-                converted_data[wavelength] = data.copy()
-                conversion_log.append(f"{wavelength}nm: unknown (no conversion)")
+                # L-13: Filename detection inconclusive — use range-check fallback
+                valid_sample = data[~np.isnan(data)]
+                if len(valid_sample) > 0 and np.max(valid_sample[:min(1000, len(valid_sample))]) > 0.1:
+                    # Values > 0.1 are too high for Rrs (sr^-1), likely rhow
+                    converted_data[wavelength] = data / np.pi
+                    conversion_log.append(f"{wavelength}nm: unknown filename, range-check -> rhow (/pi)")
+                    logger.info(f"Band {wavelength}nm ({filename}): range-check detected rhow, applying /pi conversion")
+                else:
+                    converted_data[wavelength] = data
+                    conversion_log.append(f"{wavelength}nm: unknown filename, range-check -> assumed Rrs")
+                    logger.info(f"Band {wavelength}nm ({filename}): range-check suggests Rrs, no conversion")
 
         # Log conversion summary (not individual bands)
         if len(band_types) > 1:
@@ -398,31 +417,35 @@ class TSSProcessor:
             logger.debug(f"Starting Jiang TSS processing for: {product_name}")
 
             # Extract georeference from C2RCC output
-            try:
-                data_folder = c2rcc_path.replace('.dim', '.data')
-                sample_band_path = os.path.join(data_folder, 'rrs_B4.img')
+            data_folder = str(Path(c2rcc_path).with_suffix('.data'))
+            reference_metadata = None
 
-                if os.path.exists(sample_band_path):
-                    _, reference_metadata = RasterIO.read_raster(sample_band_path)
-                    logger.debug("Using C2RCC georeference for proper geographic positioning")
-                else:
-                    logger.error("Cannot find reference band for georeference")
-                    reference_metadata = {
-                        'geotransform': None,
-                        'projection': None,
-                        'width': None,
-                        'height': None,
-                        'nodata': -9999
-                    }
-            except Exception as e:
-                logger.error(f"Error extracting georeference: {e}")
+            # H-13: Try primary band, then alternatives; never silently continue with None
+            candidate_bands = ['rrs_B4.img', 'rrs_B3.img', 'rrs_B2.img', 'rhow_B4.img']
+            tried = []
+            for band_name in candidate_bands:
+                band_path = os.path.join(data_folder, band_name)
+                tried.append(band_path)
+                if os.path.exists(band_path):
+                    try:
+                        _, reference_metadata = RasterIO.read_raster(band_path)
+                        logger.debug(f"Using C2RCC georeference from {band_name}")
+                        break
+                    except Exception as e:
+                        logger.warning(f"Failed to read georeference from {band_name}: {e}")
+
+            if reference_metadata is None:
+                raise RuntimeError(
+                    f"Cannot extract georeference from C2RCC output. "
+                    f"Tried: {', '.join(tried)}"
+                )
 
             # Create intermediate tracking
             intermediate_paths = intermediate_paths or {}
 
             # Load spectral bands directly
             logger.debug("Loading spectral bands from C2RCC output")
-            data_folder = c2rcc_path.replace('.dim', '.data')
+            data_folder = str(Path(c2rcc_path).with_suffix('.data'))
 
             band_files = {
                 443: ['rrs_B1.img', 'rhow_B1.img'],
@@ -458,6 +481,8 @@ class TSSProcessor:
             # Apply unit conversion
             logger.debug("Converting rhow to Rrs")
             converted_bands_data = self._convert_rhow_to_rrs(bands_data, band_paths)
+            del bands_data
+            gc.collect()
 
             # Create water mask to exclude land pixels
             # Priority: 1) Shapefile mask, 2) NIR threshold mask, 3) No mask
@@ -500,6 +525,9 @@ class TSSProcessor:
                     advanced_results = {}
 
                 logger.debug(f"Water quality processing completed: {len(advanced_results)} additional products")
+
+            del converted_bands_data
+            gc.collect()
 
             # Combine all results
             all_algorithm_results = jiang_results.copy()
@@ -606,7 +634,10 @@ class TSSProcessor:
             logger.debug("=" * 80)
             logger.debug(f"COMPLETE TSS PROCESSING FINISHED: {product_name}")
             logger.debug(f"   Total products generated: {success_count}/{total_count}")
-            logger.debug(f"   Success rate: {(success_count/total_count)*100:.1f}%")
+            if total_count > 0:
+                logger.debug(f"   Success rate: {(success_count/total_count)*100:.1f}%")
+            else:
+                logger.debug("   Success rate: N/A (no products)")
             logger.debug("=" * 80)
 
             # Create product index after all processing is complete
@@ -739,8 +770,11 @@ class TSSProcessor:
     def _extract_snap_chlorophyll(self, c2rcc_path: str) -> Optional[np.ndarray]:
         """Extract chlorophyll from SNAP C2RCC output"""
         try:
-            data_folder = c2rcc_path.replace('.dim', '.data')
-            chl_path = os.path.join(data_folder, 'conc_chl.img')
+            data_folder = str(Path(c2rcc_path).with_suffix('.data'))
+            # Try calculator output (.tif) first, then SNAP native output (.img)
+            chl_path = os.path.join(data_folder, 'conc_chl.tif')
+            if not os.path.exists(chl_path):
+                chl_path = os.path.join(data_folder, 'conc_chl.img')
 
             if os.path.exists(chl_path):
                 chl_data, _ = RasterIO.read_raster(chl_path)
@@ -782,7 +816,12 @@ class TSSProcessor:
 
             # Clamp TSS to physically valid range
             tss_min, tss_max = self.config.tss_valid_range
-            tss_concentration[valid_mask] = np.clip(tss_concentration[valid_mask], tss_min, tss_max)
+            tss_valid = tss_concentration[valid_mask]
+            low_count = int(np.sum(tss_valid < tss_min))
+            high_count = int(np.sum(tss_valid > tss_max))
+            tss_concentration[valid_mask] = np.clip(tss_valid, tss_min, tss_max)
+            if low_count > 0 or high_count > 0:
+                logger.info(f"TSS clipping: {low_count} pixels clipped to minimum, {high_count} pixels clipped to maximum")
 
             ref_bands = pixel_results['reference_band']
 
@@ -860,14 +899,30 @@ class TSSProcessor:
         }
 
     def _create_valid_pixel_mask(self, rrs_data: Dict[int, np.ndarray]) -> np.ndarray:
-        """Validation matching R algorithm requirements.
-        Includes 443nm (Type I) and 865nm (Type IV) to prevent NaN propagation."""
-        required_bands = [443, 490, 560, 665, 740, 865]
+        """Create valid pixel mask with relaxed thresholds for turbid water.
+
+        Reference bands used by each water type (560, 665, 740, 865) must be > 0.
+        Non-reference bands (443, 490) allow slightly negative values (> -0.001)
+        which are common atmospheric correction artifacts in turbid water.
+        """
+        # Reference bands: strict Rrs > 0 (used directly in QAA divisions)
+        reference_bands = [560, 665, 740, 865]
+        # Non-reference bands: allow slight negatives from atm. correction
+        non_reference_bands = [443, 490]
+
         valid_mask = np.ones(rrs_data[443].shape, dtype=bool)
 
-        for band in required_bands:
+        for band in reference_bands:
             if band in rrs_data:
                 band_valid = (~np.isnan(rrs_data[band])) & (rrs_data[band] > 0)
+                valid_mask &= band_valid
+            else:
+                valid_mask[:] = False
+                break
+
+        for band in non_reference_bands:
+            if band in rrs_data:
+                band_valid = (~np.isnan(rrs_data[band])) & (rrs_data[band] > -0.001)
                 valid_mask &= band_valid
             else:
                 valid_mask[:] = False
@@ -912,15 +967,27 @@ class TSSProcessor:
 
         # Step 3: Estimate Rrs620 for water type classification
         coeffs = self.constants.RRS620_COEFFICIENTS
-        rrs665_orig = vp[665]
-        rrs620 = (coeffs['a'] * rrs665_orig**3 + coeffs['b'] * rrs665_orig**2 +
-                  coeffs['c'] * rrs665_orig + coeffs['d'])
+        Rrs665 = vp[665]
+        rrs620 = (coeffs['a'] * Rrs665**3 + coeffs['b'] * Rrs665**2 +
+                  coeffs['c'] * Rrs665 + coeffs['d'])
 
         # Step 4: Classify water types (vectorized boolean masks)
+        # Tie-breaking convention: lower-numbered type wins at exact boundary
+        # (evaluated in order: Type I > Type II > Type IV > Type III as default)
         type1 = vp[490] > vp[560]                                                  # Clear
         type2 = (~type1) & (vp[490] > rrs620)                                      # Moderate
         type4 = (~type1) & (~type2) & (vp[740] > vp[490]) & (vp[740] > 0.010)      # Extreme
         type3 = (~type1) & (~type2) & (~type4)                                      # Turbid (default)
+
+        # H-3: Log pixels within 5% of classification thresholds (boundary pixels)
+        eps_frac = 0.05
+        near_t1 = np.abs(vp[490] - vp[560]) < eps_frac * np.maximum(np.abs(vp[560]), 1e-10)
+        near_t2 = np.abs(vp[490] - rrs620) < eps_frac * np.maximum(np.abs(rrs620), 1e-10)
+        near_t4_a = np.abs(vp[740] - vp[490]) < eps_frac * np.maximum(np.abs(vp[490]), 1e-10)
+        near_t4_b = np.abs(vp[740] - 0.010) < eps_frac * 0.010
+        boundary_count = int(np.sum(near_t1 | near_t2 | near_t4_a | near_t4_b))
+        if boundary_count > 0:
+            logger.debug(f"Classification boundary pixels (within 5% of threshold): {boundary_count}/{n_pixels}")
 
         # Initialize output arrays
         absorption_out = np.full(n_pixels, np.nan, dtype=np.float32)
@@ -931,15 +998,23 @@ class TSSProcessor:
         # Step 5: Type I (Clear Water) — 560nm reference
         if np.any(type1):
             m = type1
+            rrs490_safe = rrs[490][m] + 1e-10  # H-1: guard against zero in blue band
             numerator = rrs[443][m] + rrs[490][m]
-            denominator = rrs[560][m] + 5.0 * rrs[665][m]**2 / rrs[490][m]
+            denominator = rrs[560][m] + 5.0 * rrs[665][m]**2 / rrs490_safe
+            denominator = np.maximum(denominator, 1e-10)  # H-1: guard composed denominator
             ratio = numerator / denominator
             x = np.full_like(ratio, np.nan)
             valid_r = ratio > 0
             x[valid_r] = np.log10(ratio[valid_r])
+            x = np.clip(x, -2.0, 2.0)  # H-1: clamp to prevent overflow in 10**x
             a560 = aw[560] + 10.0**(-1.146 - 1.366 * x - 0.469 * x**2)
             denom_u = 1.0 - u[560][m]
-            safe = np.abs(denom_u) > 1e-10
+            a560_valid = ~np.isnan(a560)  # M-1: include a560 validity in safe mask
+            safe = (np.abs(denom_u) > 1e-10) & a560_valid
+            n_lost_a560 = int(np.sum(~a560_valid))
+            n_lost_denom = int(np.sum(np.abs(denom_u) <= 1e-10))
+            if n_lost_a560 > 0 or n_lost_denom > 0:
+                logger.debug(f"Type I guard losses: {n_lost_a560} from a560 NaN, {n_lost_denom} from denom ~0")
             bbp = np.full_like(a560, np.nan)
             bbp[safe] = (u[560][m][safe] * a560[safe]) / denom_u[safe] - bbw[560]
             absorption_out[m] = a560
@@ -1012,7 +1087,7 @@ class TSSProcessor:
 
             # Log if water masking is being applied
             if water_mask is not None:
-                logger.debug("Applying NDWI water mask to TSS products")
+                logger.debug("Applying NIR threshold water mask to TSS products")
 
             # Extract clean scene name using OutputStructure helper
             scene_name = OutputStructure.extract_clean_scene_name(product_name)

@@ -2,10 +2,12 @@
 Sentinel-1 sensor adapter.
 
 Preprocesses Sentinel-1 SLC products using SNAP GPT:
-    Apply-Orbit-File -> Thermal-Noise-Removal -> Calibration -> Terrain-Correction
+    FFT path:   Apply-Orbit-File -> Thermal-Noise-Removal -> Calibration -> Speckle-Filter (NO TC)
+    Georef path: Apply-Orbit-File -> Thermal-Noise-Removal -> Calibration -> Speckle-Filter -> TC
 """
 
 import os
+import re
 import sys
 import shutil
 import logging
@@ -25,6 +27,15 @@ logger = logging.getLogger('ocean_rs')
 class Sentinel1Adapter(SensorAdapter):
     """Preprocess Sentinel-1 SLC to calibrated sigma0 via SNAP GPT."""
 
+    def __init__(self, pixel_spacing_m: float = 10.0):
+        """Initialize Sentinel-1 adapter.
+
+        Args:
+            pixel_spacing_m: Output pixel spacing in meters.
+                Default 10.0m for IW mode. EW=40m, SM=5m.
+        """
+        self.pixel_spacing_m = pixel_spacing_m
+
     @property
     def sensor_name(self) -> str:
         return "Sentinel-1"
@@ -39,13 +50,17 @@ class Sentinel1Adapter(SensorAdapter):
     def preprocess(self, input_path: Path, output_dir: Path,
                    snap_gpt_path: Optional[str] = None,
                    polarization: str = "VV") -> OceanImage:
-        """Run SNAP GPT preprocessing chain on Sentinel-1 SLC.
+        """Run SNAP GPT preprocessing chain on Sentinel-1 SLC (no Terrain Correction).
+
+        H-7: This method produces output suitable for FFT analysis.
+        Terrain Correction is excluded because it resamples the image grid,
+        corrupting the spatial frequency content needed for swell extraction.
 
         Processing chain:
             1. Apply-Orbit-File
             2. Thermal-Noise-Removal
             3. Calibration (to Sigma0)
-            4. Terrain-Correction (Range-Doppler, to UTM)
+            4. Lee Sigma Speckle Filter
 
         Args:
             input_path: Path to Sentinel-1 product (.SAFE or .zip).
@@ -53,19 +68,60 @@ class Sentinel1Adapter(SensorAdapter):
             snap_gpt_path: Optional explicit path to SNAP GPT executable.
             polarization: Polarization to calibrate (VV, VH, HH, HV).
         """
+        return self._run_snap_graph(
+            input_path, output_dir, snap_gpt_path, polarization,
+            include_tc=False, suffix="_sigma0_fft"
+        )
+
+    def preprocess_for_georef(self, input_path: Path, output_dir: Path,
+                               snap_gpt_path: Optional[str] = None,
+                               polarization: str = "VV") -> OceanImage:
+        """Run full SNAP GPT preprocessing including Terrain Correction.
+
+        H-7: This method produces georeferenced output suitable for final
+        map overlay and export, but NOT for FFT analysis.
+
+        Processing chain:
+            1. Apply-Orbit-File
+            2. Thermal-Noise-Removal
+            3. Calibration (to Sigma0)
+            4. Lee Sigma Speckle Filter
+            5. Terrain-Correction (Range-Doppler, to UTM)
+
+        Args:
+            input_path: Path to Sentinel-1 product (.SAFE or .zip).
+            output_dir: Directory for intermediate outputs.
+            snap_gpt_path: Optional explicit path to SNAP GPT executable.
+            polarization: Polarization to calibrate (VV, VH, HH, HV).
+        """
+        return self._run_snap_graph(
+            input_path, output_dir, snap_gpt_path, polarization,
+            include_tc=True, suffix="_sigma0"
+        )
+
+    def _run_snap_graph(self, input_path: Path, output_dir: Path,
+                        snap_gpt_path: Optional[str],
+                        polarization: str,
+                        include_tc: bool,
+                        suffix: str) -> OceanImage:
+        """Run a SNAP GPT graph and load the result."""
         gpt = self._find_gpt(snap_gpt_path)
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         scene_name = input_path.stem.replace('.SAFE', '')
-        output_file = output_dir / f"{scene_name}_sigma0.dim"
+        output_file = output_dir / f"{scene_name}{suffix}.dim"
 
         if output_file.exists():
             logger.info(f"Preprocessed file exists, loading: {output_file.name}")
-            return self._load_snap_output(output_file, polarization)
+            image = self._load_snap_output(output_file, polarization)
+            # M-14: Parse datetime from filename
+            image.metadata['datetime'] = self._parse_datetime(scene_name)
+            return image
 
         graph_xml = self._create_processing_graph(
-            str(input_path), str(output_file), polarization=polarization
+            str(input_path), str(output_file),
+            polarization=polarization, include_tc=include_tc
         )
 
         graph_path = output_dir / f"{scene_name}_graph.xml"
@@ -78,21 +134,29 @@ class Sentinel1Adapter(SensorAdapter):
         logger.info(f"Running SNAP GPT preprocessing: {scene_name}")
         cmd = [gpt, str(graph_path)]
 
+        # H-10: Use Popen with explicit kill on timeout to prevent zombie processes
+        process = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
         try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=7200
-            )
-            if result.returncode != 0:
+            stdout, stderr = process.communicate(timeout=7200)
+            if process.returncode != 0:
                 raise RuntimeError(
-                    f"SNAP GPT failed (exit {result.returncode}):\n"
-                    f"{result.stderr[-500:]}"
+                    f"SNAP GPT failed (exit {process.returncode}):\n"
+                    f"{stderr[-500:]}"
                 )
             logger.info(f"SNAP GPT completed: {scene_name}")
         except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
             raise RuntimeError(f"SNAP GPT timed out after 2 hours: {scene_name}")
 
         graph_path.unlink(missing_ok=True)
-        return self._load_snap_output(output_file, polarization)
+
+        image = self._load_snap_output(output_file, polarization)
+        # M-14: Parse datetime from filename
+        image.metadata['datetime'] = self._parse_datetime(scene_name)
+        return image
 
     def _find_gpt(self, snap_gpt_path: Optional[str] = None) -> str:
         """Find SNAP GPT executable."""
@@ -118,15 +182,22 @@ class Sentinel1Adapter(SensorAdapter):
 
     def _create_processing_graph(self, input_path: str,
                                   output_path: str,
-                                  polarization: str = "VV") -> str:
+                                  polarization: str = "VV",
+                                  include_tc: bool = False) -> str:
         """Create SNAP GPT XML graph for S1 preprocessing.
 
         Args:
             input_path: Path to input Sentinel-1 product.
             output_path: Path for BEAM-DIMAP output.
             polarization: Polarization band to calibrate (VV, VH, HH, HV).
+            include_tc: If True, append Terrain-Correction node.
         """
-        return f"""<graph id="S1-Preprocessing">
+        # H-15: Added Lee Sigma speckle filter between Calibration and TC/Write
+        # M-12: Note: Sigma0 normalizes incidence angle, which may suppress wave
+        # modulation. Beta0 preserves intensity modulation but has range-dependent bias.
+
+        # Build the core chain (always present)
+        xml = f"""<graph id="S1-Preprocessing">
   <version>1.0</version>
   <node id="Read">
     <operator>Read</operator>
@@ -165,14 +236,31 @@ class Sentinel1Adapter(SensorAdapter):
       <selectedPolarisations>{xml_escape(str(polarization))}</selectedPolarisations>
     </parameters>
   </node>
-  <node id="Terrain-Correction">
-    <operator>Terrain-Correction</operator>
+  <node id="Speckle-Filter">
+    <operator>Speckle-Filter</operator>
     <sources>
       <sourceProduct refid="Calibration"/>
     </sources>
     <parameters>
+      <filter>Lee Sigma</filter>
+      <filterSizeX>5</filterSizeX>
+      <filterSizeY>5</filterSizeY>
+      <windowSize>7x7</windowSize>
+      <sigmaStr>0.9</sigmaStr>
+    </parameters>
+  </node>"""
+
+        if include_tc:
+            # M-26: Configurable pixel spacing (default from self.pixel_spacing_m)
+            xml += f"""
+  <node id="Terrain-Correction">
+    <operator>Terrain-Correction</operator>
+    <sources>
+      <sourceProduct refid="Speckle-Filter"/>
+    </sources>
+    <parameters>
       <demName>SRTM 1Sec HGT</demName>
-      <pixelSpacingInMeter>10.0</pixelSpacingInMeter>
+      <pixelSpacingInMeter>{self.pixel_spacing_m}</pixelSpacingInMeter>
       <mapProjection>AUTO:42001</mapProjection>
     </parameters>
   </node>
@@ -187,6 +275,21 @@ class Sentinel1Adapter(SensorAdapter):
     </parameters>
   </node>
 </graph>"""
+        else:
+            xml += f"""
+  <node id="Write">
+    <operator>Write</operator>
+    <sources>
+      <sourceProduct refid="Speckle-Filter"/>
+    </sources>
+    <parameters>
+      <file>{xml_escape(str(output_path))}</file>
+      <formatName>BEAM-DIMAP</formatName>
+    </parameters>
+  </node>
+</graph>"""
+
+        return xml
 
     def _load_snap_output(self, dim_path: Path,
                            polarization: str = "VV") -> OceanImage:
@@ -231,3 +334,31 @@ class Sentinel1Adapter(SensorAdapter):
             },
             pixel_spacing_m=abs(geo.pixel_size_x),
         )
+
+    @staticmethod
+    def _parse_datetime(scene_name: str) -> str:
+        """Parse datetime from Sentinel-1 filename.
+
+        M-14: S1 filenames follow: S1A_IW_GRDH_1SDV_YYYYMMDDTHHMMSS_...
+        The acquisition start datetime is the 5th field.
+
+        Args:
+            scene_name: Sentinel-1 scene name (stem, no extension).
+
+        Returns:
+            ISO 8601 datetime string (YYYY-MM-DDTHH:MM:SSZ), or empty string
+            if parsing fails.
+        """
+        match = re.search(r'(\d{8}T\d{6})', scene_name)
+        if match:
+            raw = match.group(1)
+            # Convert YYYYMMDDTHHMMSS -> YYYY-MM-DDTHH:MM:SSZ
+            dt_str = (
+                f"{raw[0:4]}-{raw[4:6]}-{raw[6:8]}T"
+                f"{raw[9:11]}:{raw[11:13]}:{raw[13:15]}Z"
+            )
+            logger.info(f"Parsed acquisition datetime: {dt_str}")
+            return dt_str
+
+        logger.warning(f"Could not parse datetime from filename: {scene_name}")
+        return ""

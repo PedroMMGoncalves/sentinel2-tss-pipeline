@@ -34,10 +34,29 @@ def composite_bathymetry(results: List[BathymetryResult],
 
     logger.info(f"Compositing {len(results)} bathymetry results using {method}")
 
+    # L-9: Validate all results have same shape before stacking
+    ref_shape = results[0].depth.shape
+    for i, r in enumerate(results):
+        if r.depth.shape != ref_shape:
+            raise ValueError(
+                f"Shape mismatch: result[0] has shape {ref_shape}, "
+                f"but result[{i}] has shape {r.depth.shape}. "
+                "All results must have identical spatial dimensions for compositing."
+            )
+        if r.uncertainty.shape != ref_shape:
+            raise ValueError(
+                f"Shape mismatch: result[0].depth has shape {ref_shape}, "
+                f"but result[{i}].uncertainty has shape {r.uncertainty.shape}."
+            )
+
     all_depths = np.array([r.depth for r in results])
     all_uncertainties = np.array([r.uncertainty for r in results])
 
-    weights = 1.0 / (all_uncertainties**2 + 1e-10)
+    n_obs = len(results)
+
+    # H-6: Minimum uncertainty regularization (0.5m^2) — assumes independent errors
+    epsilon = 0.25
+    weights = 1.0 / (all_uncertainties**2 + epsilon)
 
     if method == "weighted_mean":
         weight_sum = np.sum(weights, axis=0)
@@ -46,20 +65,39 @@ def composite_bathymetry(results: List[BathymetryResult],
     else:
         depth = _weighted_median(all_depths, weights)
         residuals = np.abs(all_depths - depth[np.newaxis, :])
-        uncertainty = 1.4826 * _weighted_median(residuals, weights)
 
-    logger.info(f"Composite depth range: {depth.min():.1f} - {depth.max():.1f}m "
-               f"(mean uncertainty: {uncertainty.mean():.1f}m)")
+        # C-4: MAD with N<3 underestimates uncertainty — use half-range instead
+        if n_obs < 3:
+            logger.warning(
+                f"Only N={n_obs} observations: using half-range (max-min)/2 "
+                "as uncertainty (MAD requires N>=3)"
+            )
+            uncertainty = (np.max(all_depths, axis=0) - np.min(all_depths, axis=0)) / 2.0
+        else:
+            if n_obs < 5:
+                logger.warning(
+                    f"Only N={n_obs} observations: MAD estimate may be unreliable "
+                    "(recommend N>=5 for robust statistics)"
+                )
+            # M-5: Uses MAD * 1.4826 as robust sigma (assumes Gaussian distribution).
+            # Alternative: IQR/1.349 for non-Gaussian residuals.
+            uncertainty = 1.4826 * _weighted_median(residuals, weights)
+
+    logger.info(f"Composite depth range: {np.nanmin(depth):.1f} - {np.nanmax(depth):.1f}m "
+                f"(mean uncertainty: {np.nanmean(uncertainty):.1f}m)")
+
+    # L-7: Use median instead of mean for composite wave_period (robust to outliers)
+    composite_wave_period = float(np.median([r.wave_period for r in results]))
 
     return BathymetryResult(
         depth=depth,
         uncertainty=uncertainty,
         method=f"composite_{method}",
-        wave_period=np.mean([r.wave_period for r in results]),
+        wave_period=composite_wave_period,
         wave_period_source="composite",
         geo=results[0].geo,
         metadata={
-            'n_observations': len(results),
+            'n_observations': n_obs,
             'compositing_method': method,
         },
     )
@@ -67,6 +105,10 @@ def composite_bathymetry(results: List[BathymetryResult],
 
 def _weighted_median(values: np.ndarray, weights: np.ndarray) -> np.ndarray:
     """Compute weighted median along first axis.
+
+    Iterates per-point (O(N) per point where N = n_observations).
+    For large grids consider vectorizing with np.apply_along_axis,
+    though the bottleneck is typically n_observations << n_points.
 
     Args:
         values: Array of shape (n_obs, n_points)

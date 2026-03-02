@@ -15,11 +15,12 @@ logger = logging.getLogger('ocean_rs')
 
 
 def extract_swell(image: OceanImage,
-                  tile_size_m: float = 512.0,
+                  tile_size_m: float = 1024.0,
                   overlap: float = 0.5,
                   min_wavelength_m: float = 50.0,
                   max_wavelength_m: float = 600.0,
-                  confidence_threshold: float = 0.3) -> SwellField:
+                  confidence_threshold: float = 0.3,
+                  snr_scale: float = 10.0) -> SwellField:
     """Extract dominant swell wavelength and direction from SAR image.
 
     Algorithm:
@@ -31,11 +32,14 @@ def extract_swell(image: OceanImage,
 
     Args:
         image: OceanImage to analyze
-        tile_size_m: Tile size in meters (default 512)
+        tile_size_m: Tile size in meters (default 1024)
         overlap: Tile overlap fraction (0-1, default 0.5)
         min_wavelength_m: Minimum wavelength to detect (default 50m)
         max_wavelength_m: Maximum wavelength to detect (default 600m)
         confidence_threshold: Minimum confidence to keep (default 0.3)
+        snr_scale: Divisor for SNR-to-confidence conversion (default 10.0).
+            Heuristic confidence metric (SNR/snr_scale, capped at 1.0).
+            Not calibrated — threshold 0.3 is empirical.
 
     Returns:
         SwellField with wavelength, direction, and confidence per tile
@@ -43,9 +47,18 @@ def extract_swell(image: OceanImage,
     data = image.data
     pixel_m = image.pixel_spacing_m
 
-    tile_px = int(tile_size_m / pixel_m)
+    # M-13: Warn if tile is too small for longest wavelengths (Nyquist violation)
+    if tile_size_m < 2 * max_wavelength_m:
+        logger.warning(
+            f"Tile size {tile_size_m}m < 2 * max_wavelength {max_wavelength_m}m. "
+            "Nyquist violation — longest swells may not be resolved. "
+            f"Recommend tile_size_m >= {2 * max_wavelength_m}m."
+        )
+
+    # H-19: Enforce minimum tile/step sizes to prevent zero-pixel tiles
+    tile_px = max(int(tile_size_m / pixel_m), 8)
     tile_px = _next_power_of_2(tile_px)
-    step_px = int(tile_px * (1 - overlap))
+    step_px = max(int(tile_px * (1 - overlap)), 1)
 
     rows, cols = data.shape
     logger.info(f"FFT extraction: image={rows}x{cols}px, tile={tile_px}px, "
@@ -83,6 +96,7 @@ def extract_swell(image: OceanImage,
     for r0 in row_starts:
         for c0 in col_starts:
             tile = data[r0:r0+tile_px, c0:c0+tile_px].astype(np.float64)
+            tile_original = tile.copy()
 
             valid_frac = np.sum(np.isfinite(tile) & (tile != 0)) / tile.size
             if valid_frac < 0.5:
@@ -104,7 +118,8 @@ def extract_swell(image: OceanImage,
 
             masked_power = power * valid_shifted
 
-            if np.max(masked_power) == 0:
+            # M-8: Avoid exact float comparison — use threshold instead
+            if np.max(masked_power) < 1e-20:
                 continue
 
             peak_idx = np.unravel_index(np.argmax(masked_power), power.shape)
@@ -116,9 +131,15 @@ def extract_swell(image: OceanImage,
             peak_fy = fy_shifted[peak_idx]
             direction = np.degrees(np.arctan2(peak_fx, peak_fy)) % 360
 
+            # M-9: Heuristic confidence metric (SNR/snr_scale, capped at 1.0).
+            # Not calibrated — threshold 0.3 is empirical.
             mean_power = np.mean(masked_power[masked_power > 0])
             snr = peak_power / mean_power if mean_power > 0 else 0
-            confidence = min(1.0, snr / 10.0)
+            confidence = min(1.0, snr / snr_scale)
+
+            # M-7: Scale confidence by valid data fraction to penalize NaN-heavy tiles
+            nan_frac = np.sum(~np.isnan(tile_original)) / tile_original.size
+            confidence *= nan_frac
 
             if confidence >= confidence_threshold:
                 wavelengths.append(wl)

@@ -19,6 +19,9 @@ from .config_io import update_configurations
 
 logger = logging.getLogger('ocean_rs')
 
+# Lock to synchronize access to gui.processor from background thread
+_processor_lock = threading.Lock()
+
 
 def start_processing(gui):
     """
@@ -29,7 +32,6 @@ def start_processing(gui):
     """
     if gui.processing_active:
         return
-    gui.processing_active = True
 
     # Setup logging to output folder
     output_folder = gui.output_dir_var.get()
@@ -85,6 +87,9 @@ def start_processing(gui):
         products = gui.input_validation_result.get("products", [])
         if not _confirm_processing(gui, processing_config, products):
             return
+
+        # Set processing_active AFTER all validation passes, just before thread start
+        gui.processing_active = True
 
         # Start processing thread
         gui.start_button.config(state=tk.DISABLED)
@@ -155,7 +160,8 @@ def _run_processing_thread(gui, config, products):
     """
     try:
         # Create processor
-        gui.processor = UnifiedS2TSSProcessor(config)
+        with _processor_lock:
+            gui.processor = UnifiedS2TSSProcessor(config)
 
         # Limit products for test mode
         if config.test_mode:
@@ -187,7 +193,8 @@ def _run_processing_thread(gui, config, products):
             gui.root.after(0, lambda p=progress: gui.progress_var.set(p))
 
             # Update ETA (thread-safe)
-            status = gui.processor.get_processing_status()
+            with _processor_lock:
+                status = gui.processor.get_processing_status()
             if status.eta_minutes > 0:
                 eta_msg = (f"ETA: {status.eta_minutes:.1f} min | "
                            f"Speed: {status.processing_speed:.1f} products/min")
@@ -348,7 +355,8 @@ def update_processing_stats(gui):
         return
 
     try:
-        status = gui.processor.get_processing_status()
+        with _processor_lock:
+            status = gui.processor.get_processing_status()
 
         # Update stats text
         stats_text = (

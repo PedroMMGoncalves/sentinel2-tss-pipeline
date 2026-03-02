@@ -173,6 +173,7 @@ def configure_proj_environment(verbose: bool = True) -> bool:
 
 # Module-level initialization
 # This ensures PROJ is configured when the module is imported
+# Benign race -- configure_proj_environment() is idempotent, no lock needed
 _proj_configured = False
 
 

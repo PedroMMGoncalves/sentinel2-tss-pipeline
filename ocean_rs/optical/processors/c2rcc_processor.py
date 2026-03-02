@@ -12,6 +12,7 @@ Reference:
 import os
 import sys
 import time
+import tempfile
 import subprocess
 import logging
 from typing import Dict, Optional, List, NamedTuple
@@ -198,7 +199,7 @@ class C2RCCProcessor:
 
 </graph>'''
 
-        graph_file = 's2_complete_processing_with_subset.xml'
+        graph_file = self._get_graph_file_path("s2_complete_processing_with_subset")
         try:
             with open(graph_file, 'w', encoding='utf-8') as f:
                 f.write(graph_content)
@@ -275,7 +276,7 @@ class C2RCCProcessor:
 
 </graph>'''
 
-        graph_file = 's2_complete_processing_no_subset.xml'
+        graph_file = self._get_graph_file_path("s2_complete_processing_no_subset")
         try:
             with open(graph_file, 'w', encoding='utf-8') as f:
                 f.write(graph_content)
@@ -284,6 +285,18 @@ class C2RCCProcessor:
 
         logger.debug(f"Complete processing graph saved: {graph_file}")
         return graph_file
+
+    def _get_graph_file_path(self, base_name: str) -> str:
+        """Get path for SNAP graph XML file with unique PID-based name.
+
+        Writes to the output folder if available, otherwise uses a temp directory.
+        """
+        output_folder = getattr(self.config, 'output_folder', None)
+        if output_folder and os.path.isdir(output_folder):
+            target_dir = output_folder
+        else:
+            target_dir = tempfile.mkdtemp(prefix='ocean_rs_snap_')
+        return os.path.join(target_dir, f"snap_graph_{os.getpid()}.xml")
 
     def _get_subset_parameters(self) -> str:
         """Generate subset parameters for XML with proper escaping"""
@@ -642,21 +655,45 @@ class C2RCCProcessor:
             gpt_timeout = self.config.gpt_timeout if hasattr(self.config, 'gpt_timeout') else 10800
             logger.debug(f"Executing GPT processing (timeout: {gpt_timeout//3600}h {(gpt_timeout%3600)//60}m)...")
 
-            # Use Popen for proper process control (allows killing on timeout)
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
+            # Use Popen with temp log files to avoid buffering entire stdout/stderr in memory
+            stdout_log = tempfile.NamedTemporaryFile(
+                mode='w', suffix='_gpt_stdout.log', delete=False, encoding='utf-8')
+            stderr_log = tempfile.NamedTemporaryFile(
+                mode='w', suffix='_gpt_stderr.log', delete=False, encoding='utf-8')
+            stdout_log_path = stdout_log.name
+            stderr_log_path = stderr_log.name
 
             try:
-                stdout, stderr = process.communicate(timeout=gpt_timeout)
-                returncode = process.returncode
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=stdout_log,
+                    stderr=stderr_log,
+                )
+
+                try:
+                    process.wait(timeout=gpt_timeout)
+                    returncode = process.returncode
+                finally:
+                    stdout_log.close()
+                    stderr_log.close()
+
+                # Read log files after process completion for error checking
+                stdout_content = ""
+                stderr_content = ""
+                try:
+                    with open(stdout_log_path, 'r', encoding='utf-8', errors='replace') as f:
+                        stdout_content = f.read()
+                except OSError:
+                    pass
+                try:
+                    with open(stderr_log_path, 'r', encoding='utf-8', errors='replace') as f:
+                        stderr_content = f.read()
+                except OSError:
+                    pass
 
                 # Log any SNAP progress output
-                if stdout:
-                    for line in stdout.splitlines():
+                if stdout_content:
+                    for line in stdout_content.splitlines():
                         if '%' in line or 'done' in line.lower():
                             logger.debug(f"GPT: {line.strip()}")
 
@@ -685,8 +722,8 @@ class C2RCCProcessor:
                 else:
                     logger.error(f"GPT processing failed")
                     logger.error(f"Return code: {returncode}")
-                    if stderr:
-                        logger.error(f"GPT stderr: {stderr[:1000]}...")
+                    if stderr_content:
+                        logger.error(f"GPT stderr: {stderr_content[:1000]}...")
                     return False
 
             except subprocess.TimeoutExpired:
@@ -694,8 +731,17 @@ class C2RCCProcessor:
                 logger.error(f"GPT processing timeout after {gpt_timeout//3600}h - killing process")
                 process.kill()
                 process.wait()  # Wait for process to fully terminate
+                stdout_log.close()
+                stderr_log.close()
                 logger.debug("GPT process terminated successfully")
                 return False
+            finally:
+                # Clean up temp log files
+                for log_path in (stdout_log_path, stderr_log_path):
+                    try:
+                        os.remove(log_path)
+                    except OSError:
+                        pass
         except Exception as e:
             logger.error(f"GPT processing error: {str(e)}")
             return False
@@ -819,7 +865,7 @@ class C2RCCProcessor:
                 'has_uncertainties': has_uncertainties,
                 'iop_count': iop_count,
                 'rhow_bands_count': rhow_count,
-                'ready_for_tss_tss': ready_for_tss,
+                'ready_for_tss': ready_for_tss,
                 'overall_status': overall_status,
                 'rhow_bands': rhow_bands
             }

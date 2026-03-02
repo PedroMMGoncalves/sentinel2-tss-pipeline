@@ -17,24 +17,19 @@ except ImportError:
 class MemoryManager:
     """Memory management utilities"""
 
-    @staticmethod
-    def cleanup_variables(*variables):
-        """
-        Clean up variables and force garbage collection.
+    # Cache the psutil.Process() handle for the current process to avoid
+    # re-creating it on every monitoring call.
+    _process = None
 
-        Args:
-            *variables: Variables to clean up
-        """
-        for var in variables:
-            if var is not None:
-                try:
-                    del var
-                except Exception as e:
-                    logger.debug(f"Error cleaning up variable: {e}")
-        gc.collect()
+    @classmethod
+    def _get_process(cls):
+        """Return cached psutil.Process() for the current process."""
+        if cls._process is None and PSUTIL_AVAILABLE:
+            cls._process = psutil.Process()
+        return cls._process
 
-    @staticmethod
-    def monitor_memory(threshold_mb=8000):
+    @classmethod
+    def monitor_memory(cls, threshold_mb=8000):
         """
         Monitor memory usage and warn if above threshold.
 
@@ -48,7 +43,7 @@ class MemoryManager:
             return False
 
         try:
-            process = psutil.Process()
+            process = cls._get_process()
             memory_mb = process.memory_info().rss / 1024 / 1024
 
             if memory_mb > threshold_mb:
@@ -59,8 +54,8 @@ class MemoryManager:
             logger.debug(f"Memory monitoring unavailable: {e}")
             return False
 
-    @staticmethod
-    def get_memory_usage_mb():
+    @classmethod
+    def get_memory_usage_mb(cls):
         """
         Get current memory usage in MB.
 
@@ -71,7 +66,7 @@ class MemoryManager:
             return -1
 
         try:
-            process = psutil.Process()
+            process = cls._get_process()
             return process.memory_info().rss / 1024 / 1024
         except Exception as e:
             logger.debug(f"Memory monitoring unavailable: {e}")

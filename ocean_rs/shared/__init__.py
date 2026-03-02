@@ -3,7 +3,6 @@ OceanRS Shared Utilities.
 
 Common utilities used by both optical and SAR processing pipelines:
 - Logging: ColoredFormatter, setup_enhanced_logging, StepTracker
-- Math: SafeMathNumPy
 - Memory: MemoryManager
 - Raster I/O: RasterIO (GDAL wrapper)
 - Geometry: load_geometry, validate_wkt, etc.
@@ -17,7 +16,6 @@ from .logging_utils import (
     StepTracker,
     parse_scene_metadata,
 )
-from .math_utils import SafeMathNumPy
 from .memory_manager import MemoryManager
 from .raster_io import RasterIO
 from .proj_fix import (
@@ -47,8 +45,6 @@ __all__ = [
     'get_default_logger',
     'StepTracker',
     'parse_scene_metadata',
-    # Math
-    'SafeMathNumPy',
     # Memory
     'MemoryManager',
     # Raster I/O

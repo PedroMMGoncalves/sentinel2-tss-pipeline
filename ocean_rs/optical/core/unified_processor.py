@@ -318,14 +318,13 @@ class UnifiedS2TSSProcessor:
 
             # Memory cleanup between scenes
             try:
-                MemoryManager.cleanup_variables(results)
+                del results
                 gc.collect(0)
                 gc.collect(1)
                 gc.collect(2)
 
                 if MemoryManager.monitor_memory():
                     logger.debug("Running aggressive memory cleanup...")
-                    MemoryManager.cleanup_variables()
                     for _ in range(3):
                         gc.collect()
                     if HAS_PSUTIL:
@@ -546,7 +545,7 @@ class UnifiedS2TSSProcessor:
         else:
             completed = self.processed_count + self.failed_count + self.skipped_count
             total = max(self.total_products, completed)
-            elapsed_time = time.time() - self.start_time
+            elapsed_time = time.time() - self.start_time if self.start_time else 0.0
 
             return ProcessingStatus(
                 total_products=total,

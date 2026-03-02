@@ -41,7 +41,7 @@ except ImportError:
     logger.debug("Fiona not available - will use OGR fallback")
 
 try:
-    from osgeo import ogr
+    from osgeo import ogr, osr
     HAS_OGR = True
 except ImportError:
     HAS_OGR = False
@@ -116,6 +116,56 @@ def _add_bounds_info(geometry, info_msg: str, crs_note: str = "WGS84") -> str:
     return info_msg
 
 
+def _reproject_to_wgs84(wkt_string: str, source_srs) -> Tuple[str, str]:
+    """
+    Reproject a WKT geometry from a projected CRS to WGS84 (EPSG:4326).
+
+    If the source CRS is already geographic, returns the input unchanged.
+
+    Args:
+        wkt_string: WKT geometry in the source CRS.
+        source_srs: OGR SpatialReference of the source CRS.
+
+    Returns:
+        Tuple of (reprojected_wkt, info_note).
+
+    Raises:
+        RuntimeError: If reprojection fails.
+    """
+    if not HAS_OGR:
+        return wkt_string, "OGR not available for reprojection"
+
+    if source_srs is None or source_srs.IsGeographic():
+        return wkt_string, ""
+
+    # Source is projected — reproject to WGS84
+    target_srs = osr.SpatialReference()
+    target_srs.ImportFromEPSG(4326)
+    # Ensure axis order is longitude, latitude for consistent WKT output
+    target_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    source_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+
+    transform = osr.CoordinateTransformation(source_srs, target_srs)
+
+    ogr_geom = ogr.CreateGeometryFromWkt(wkt_string)
+    if ogr_geom is None:
+        raise RuntimeError("Failed to parse WKT for reprojection")
+
+    err = ogr_geom.Transform(transform)
+    if err != 0:
+        raise RuntimeError(f"OGR Transform failed with code {err}")
+
+    reprojected_wkt = ogr_geom.ExportToWkt()
+
+    src_name = source_srs.GetAuthorityName(None)
+    src_code = source_srs.GetAuthorityCode(None)
+    src_label = f"{src_name}:{src_code}" if src_name and src_code else "projected CRS"
+    note = f"Reprojected from {src_label} to EPSG:4326 (WGS84)"
+    logger.info(note)
+
+    return reprojected_wkt, note
+
+
 def load_shapefile(shapefile_path: str) -> Tuple[Optional[str], str, bool]:
     """
     Load geometry from ESRI Shapefile.
@@ -174,6 +224,7 @@ def load_shapefile(shapefile_path: str) -> Tuple[Optional[str], str, bool]:
 
         # Method 2: Try OGR as fallback
         if combined_geometry is None and HAS_OGR:
+            datasource = None
             try:
                 driver = ogr.GetDriverByName("ESRI Shapefile")
                 datasource = driver.Open(shapefile_path, 0)
@@ -213,6 +264,8 @@ def load_shapefile(shapefile_path: str) -> Tuple[Optional[str], str, bool]:
 
             except Exception as ogr_error:
                 return None, f"Both Fiona and OGR failed: {ogr_error}", False
+            finally:
+                datasource = None  # Close OGR datasource / release file handle
 
         if combined_geometry is None:
             return None, "No geometry loading backend available (install fiona or gdal)", False
@@ -226,6 +279,33 @@ def load_shapefile(shapefile_path: str) -> Tuple[Optional[str], str, bool]:
             logger.info(f"Converted to WKT ({len(wkt_string)} characters)")
         except Exception as e:
             return None, f"Failed to convert geometry to WKT: {str(e)}", False
+
+        # Reproject to WGS84 if the shapefile CRS is projected.
+        # SNAP geoRegion expects WGS84 coordinates.
+        if HAS_OGR:
+            source_srs = None
+            ds_for_crs = None
+            try:
+                shp_driver = ogr.GetDriverByName("ESRI Shapefile")
+                ds_for_crs = shp_driver.Open(shapefile_path, 0)
+                if ds_for_crs:
+                    lyr = ds_for_crs.GetLayer()
+                    source_srs = lyr.GetSpatialRef()
+            except Exception as crs_err:
+                logger.debug(f"Could not read CRS for reprojection check: {crs_err}")
+            finally:
+                ds_for_crs = None
+
+            if source_srs is not None and not source_srs.IsGeographic():
+                try:
+                    wkt_string, reproj_note = _reproject_to_wgs84(wkt_string, source_srs)
+                    if reproj_note:
+                        info_msg += f"\n{reproj_note}"
+                        crs_info = "EPSG:4326 (reprojected)"
+                    # Re-parse reprojected WKT to update bounds
+                    combined_geometry = wkt_loads(wkt_string)
+                except Exception as reproj_err:
+                    return None, f"CRS reprojection to WGS84 failed: {reproj_err}", False
 
         # Add bounds information
         info_msg = _add_bounds_info(combined_geometry, info_msg, crs_info)
@@ -290,6 +370,7 @@ def load_kml(kml_path: str) -> Tuple[Optional[str], str, bool]:
 
         # Method 2: Try OGR as fallback
         if combined_geometry is None and HAS_OGR:
+            datasource = None
             try:
                 driver = ogr.GetDriverByName("KML")
                 if driver is None:
@@ -331,6 +412,8 @@ def load_kml(kml_path: str) -> Tuple[Optional[str], str, bool]:
 
             except Exception as ogr_error:
                 return None, f"Both Fiona and OGR failed for KML: {ogr_error}", False
+            finally:
+                datasource = None  # Close OGR datasource / release file handle
 
         if combined_geometry is None:
             return None, "No geometry loading backend available", False
@@ -408,6 +491,7 @@ def load_geojson(geojson_path: str) -> Tuple[Optional[str], str, bool]:
 
         # Method 2: Try OGR as fallback
         if combined_geometry is None and HAS_OGR:
+            datasource = None
             try:
                 driver = ogr.GetDriverByName("GeoJSON")
                 if driver is None:
@@ -440,6 +524,8 @@ def load_geojson(geojson_path: str) -> Tuple[Optional[str], str, bool]:
 
             except Exception as ogr_error:
                 return None, f"Both Fiona and OGR failed for GeoJSON: {ogr_error}", False
+            finally:
+                datasource = None  # Close OGR datasource / release file handle
 
         if combined_geometry is None:
             return None, "No geometry loading backend available", False

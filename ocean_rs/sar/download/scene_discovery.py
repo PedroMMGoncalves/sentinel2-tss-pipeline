@@ -7,7 +7,7 @@ Wraps asf_search to find SAR scenes intersecting an AOI.
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 logger = logging.getLogger('ocean_rs')
 
@@ -27,7 +27,7 @@ class SceneMetadata:
     download_url: str = ""
     footprint_wkt: str = ""
     processing_level: str = "SLC"
-    _asf_result: object = field(default=None, repr=False)
+    _asf_result: Optional[Any] = field(default=None, repr=False)  # ASF search result object (private API)
 
 
 def search_scenes(aoi_wkt: str,

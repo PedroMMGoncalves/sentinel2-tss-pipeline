@@ -23,6 +23,7 @@ class WaterQualityConfig:
 
     # HAB detection
     enable_hab_detection: bool = True
+    # Reserved: to be wired into detect_harmful_algal_blooms in future version
     hab_biomass_threshold: float = 20.0
     hab_extreme_threshold: float = 100.0
 

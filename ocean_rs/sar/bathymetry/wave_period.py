@@ -31,6 +31,8 @@ def get_wave_period(lon: float, lat: float, datetime_str: str) -> float:
     import requests
 
     base_url = "https://coastwatch.pfeg.noaa.gov/erddap/griddap"
+    # L-10: ERDDAP dataset ID may change over time — verify at
+    # https://coastwatch.pfeg.noaa.gov/erddap/
     dataset = "NWW3_Global_Best"
 
     url = (

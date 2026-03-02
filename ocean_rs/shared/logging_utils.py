@@ -20,12 +20,19 @@ except ImportError:
 
 _current_log_file = None  # Track current log file to avoid duplicate messages
 
+# Module-level flag: True while a StepTracker box is open.
+# Shared between StepTracker (writer) and ColoredFormatter (reader).
+_in_box = False
+
 
 class ColoredFormatter(logging.Formatter):
     """Custom formatter with colors and aligned output.
 
     Console output omits [filename:line] for clean alignment.
     Box-drawing: auto-prepends │  to all messages while a box is open.
+    The ``_in_box`` state is managed by :class:`StepTracker` via the
+    module-level ``_in_box`` flag (not a class attribute) to avoid
+    class-level mutable state.
     """
 
     COLORS = {
@@ -36,8 +43,6 @@ class ColoredFormatter(logging.Formatter):
         'CRITICAL': '\033[35m', # Magenta
         'RESET': '\033[0m'      # Reset
     }
-
-    _in_box = False  # Class-level flag: True while a scene box is open
 
     # Characters that indicate the message already has box drawing
     _BOX_CHARS = frozenset('│┌└═')
@@ -53,8 +58,8 @@ class ColoredFormatter(logging.Formatter):
 
         # Auto-prepend box border to messages during box sections
         msg = record.getMessage()
-        if (self.__class__._in_box and msg
-                and not any(c in msg for c in self.__class__._BOX_CHARS)):
+        if (_in_box and msg
+                and not any(c in msg for c in self._BOX_CHARS)):
             record.msg = f"\u2502  {record.msg}"
             record.args = None  # Reset args since we modified msg
 
@@ -253,7 +258,8 @@ class StepTracker:
         self._scene_cpu_samples = []
         self._scene_ram_samples = []
         self._current_scene_meta = meta
-        ColoredFormatter._in_box = True
+        global _in_box
+        _in_box = True
 
     def box_line(self, text=""):
         """Print a line inside the current box."""
@@ -264,7 +270,8 @@ class StepTracker:
 
     def box_end(self):
         """Close the current box."""
-        ColoredFormatter._in_box = False
+        global _in_box
+        _in_box = False
         self.logger.info("\u2502")
         self.logger.info(f"\u2514" + "\u2500" * BOX_WIDTH)
 
@@ -380,6 +387,13 @@ class _StepContext:
             self.tracker._scene_ram_samples.extend(self._ram_samples)
             self.tracker._batch_cpu_samples.extend(self._cpu_samples)
             self.tracker._batch_ram_samples.extend(self._ram_samples)
+
+            # Cap batch sample lists to a rolling window of the last 1000 entries
+            _MAX_SAMPLES = 1000
+            if len(self.tracker._batch_cpu_samples) > _MAX_SAMPLES:
+                self.tracker._batch_cpu_samples = self.tracker._batch_cpu_samples[-_MAX_SAMPLES:]
+            if len(self.tracker._batch_ram_samples) > _MAX_SAMPLES:
+                self.tracker._batch_ram_samples = self.tracker._batch_ram_samples[-_MAX_SAMPLES:]
 
         return False  # don't suppress exceptions
 

@@ -35,7 +35,6 @@ from ocean_rs.shared import (
     ColoredFormatter,
     setup_enhanced_logging,
     get_default_logger,
-    SafeMathNumPy,  # Re-exported for public API convenience
     MemoryManager,
     RasterIO,
 )
@@ -63,8 +62,8 @@ from .processors import (
 # Import core classes
 from .core import UnifiedS2TSSProcessor
 
-# Import GUI classes
-from .gui import UnifiedS2TSSGUI, bring_window_to_front
+# GUI classes are NOT imported here to avoid pulling in tkinter at import time.
+# Import them directly from ocean_rs.optical.gui when GUI mode is selected.
 
 __all__ = [
     # Config classes
@@ -81,7 +80,6 @@ __all__ = [
     'ColoredFormatter',
     'setup_enhanced_logging',
     'get_default_logger',
-    'SafeMathNumPy',
     'MemoryManager',
     'RasterIO',
     # Optical utility classes
@@ -100,7 +98,4 @@ __all__ = [
     'ProcessingStatus',
     # Core classes
     'UnifiedS2TSSProcessor',
-    # GUI classes
-    'UnifiedS2TSSGUI',
-    'bring_window_to_front',
 ]
