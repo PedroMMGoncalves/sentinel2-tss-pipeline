@@ -1,9 +1,9 @@
 """
-Launch Sentinel-2 TSS Pipeline GUI.
+Launch OceanRS Optical (Sentinel-2 Water Quality) GUI.
 
 Open this file in Spyder and press F5 (Run) to start the application.
 """
 
-from sentinel2_tss_pipeline.main import main
+from ocean_rs.optical.main import main
 
 main()

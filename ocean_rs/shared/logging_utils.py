@@ -1,0 +1,394 @@
+"""
+Logging utilities for OceanRS toolkit.
+
+Provides colored console output, file logging, and GRACE-style
+structured logging with per-step CPU/RAM monitoring.
+"""
+
+import os
+import time
+import logging
+import threading
+from datetime import datetime
+
+try:
+    import psutil
+    _HAS_PSUTIL = True
+except ImportError:
+    _HAS_PSUTIL = False
+
+
+_current_log_file = None  # Track current log file to avoid duplicate messages
+
+
+class ColoredFormatter(logging.Formatter):
+    """Custom formatter with colors and aligned output.
+
+    Console output omits [filename:line] for clean alignment.
+    Box-drawing: auto-prepends │  to all messages while a box is open.
+    """
+
+    COLORS = {
+        'DEBUG': '\033[36m',    # Cyan
+        'INFO': '\033[32m',     # Green
+        'WARNING': '\033[33m',  # Yellow
+        'ERROR': '\033[31m',    # Red
+        'CRITICAL': '\033[35m', # Magenta
+        'RESET': '\033[0m'      # Reset
+    }
+
+    _in_box = False  # Class-level flag: True while a scene box is open
+
+    # Characters that indicate the message already has box drawing
+    _BOX_CHARS = frozenset('│┌└═')
+
+    def format(self, record):
+        color = self.COLORS.get(record.levelname, self.COLORS['RESET'])
+        reset = self.COLORS['RESET']
+
+        # Pad level name to fixed width BEFORE adding color codes
+        # 'WARNING' is 7 chars — the longest standard level
+        padded_level = record.levelname.ljust(7)
+        record.levelname = f"{color}{padded_level}{reset}"
+
+        # Auto-prepend box border to messages during box sections
+        msg = record.getMessage()
+        if (self.__class__._in_box and msg
+                and not any(c in msg for c in self.__class__._BOX_CHARS)):
+            record.msg = f"\u2502  {record.msg}"
+            record.args = None  # Reset args since we modified msg
+
+        # Console format: no [filename:line] — kept in file handler only
+        formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s',
+            datefmt='%H:%M:%S'
+        )
+        return formatter.format(record)
+
+
+def setup_enhanced_logging(log_level=logging.INFO, output_folder: str = None):
+    """
+    Setup enhanced logging with proper file placement.
+
+    Args:
+        log_level: Logging level (default: INFO)
+        output_folder: Directory for log files
+
+    Returns:
+        Tuple of (logger, log_file_path)
+    """
+    logger = logging.getLogger('ocean_rs')
+    logger.setLevel(log_level)
+
+    # Remove existing handlers
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+
+    # Determine log file location
+    if output_folder:
+        log_dir = os.path.join(output_folder, "Logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, f'ocean_rs_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+    else:
+        log_file = f'ocean_rs_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
+
+    # File handler - detailed logging
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    file_formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
+    )
+    file_handler.setFormatter(file_formatter)
+
+    # Console handler - colored output
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(log_level)
+    console_handler.setFormatter(ColoredFormatter())
+
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    global _current_log_file
+    if _current_log_file is None:
+        logger.info(f"Logging configured - File: {log_file}")
+    else:
+        logger.debug(f"Logging redirected to: {log_file}")
+    _current_log_file = log_file
+
+    return logger, log_file
+
+
+def get_default_logger():
+    """
+    Create logger with smart default location.
+
+    Prevents logs from cluttering the code directory by using a default
+    results folder.
+
+    Returns:
+        Configured logger instance
+    """
+    try:
+        # Create a default results folder to avoid cluttering code directory
+        default_output = os.path.join(os.getcwd(), "OceanRS_Results")
+        os.makedirs(default_output, exist_ok=True)
+
+        # Setup logging in the default location
+        logger, log_file = setup_enhanced_logging(log_level=logging.INFO, output_folder=default_output)
+
+        # Print to console so user knows where logs are going
+        print(f"Default logging location: {log_file}")
+        print(f"Logs will be saved to: {default_output}/Logs/")
+
+        return logger
+
+    except Exception as e:
+        # Fallback to current directory if anything fails
+        print(f"Warning: Could not create default log folder: {e}")
+        print("Using current directory for logs")
+        return setup_enhanced_logging()[0]
+
+
+# ── GRACE-Style Structured Logging ──────────────────────────────────────
+
+BOX_WIDTH = 76
+
+
+import re
+
+_S2_NAME_RE = re.compile(
+    r'S2[AB]_MSIL[12][CA]_'
+    r'(?P<date>\d{4})(?P<month>\d{2})(?P<day>\d{2})T\d{6}_'
+    r'N\d{4}_'
+    r'(?P<orbit>R\d{3})_'
+    r'(?P<tile>T\w{5})_'
+)
+
+
+def parse_scene_metadata(product_name: str) -> dict:
+    """Parse Sentinel-2 scene metadata from product name.
+
+    Returns dict with keys: date, tile, orbit (or empty dict on failure).
+    """
+    m = _S2_NAME_RE.search(product_name)
+    if not m:
+        return {}
+    return {
+        'date': f"{m.group('date')}-{m.group('month')}-{m.group('day')}",
+        'tile': m.group('tile'),
+        'orbit': m.group('orbit'),
+    }
+
+
+class StepTracker:
+    """
+    GRACE-style structured logging with per-step CPU/RAM monitoring.
+
+    Usage:
+        tracker = StepTracker(logger)
+        tracker.banner("SENTINEL-2 TSS PIPELINE v2.0", "Mode: Complete Pipeline")
+        tracker.box_start("S2B_MSIL1C_20240315T112119_T29SNC")
+        with tracker.step("[1/2] Resampling + C2RCC"):
+            ... do work ...
+        tracker.box_line("Scene complete: 44 products (7.1 min)")
+        tracker.box_end()
+        tracker.summary_banner({"Processed": "2 scenes", ...})
+    """
+
+    def __init__(self, logger):
+        self.logger = logger
+        self._batch_cpu_samples = []
+        self._batch_ram_samples = []
+        self._scene_cpu_samples = []
+        self._scene_ram_samples = []
+        self._scene_summaries = []  # Per-scene one-liners for final table
+
+    def banner(self, *lines):
+        """Double-line banner for top-level section headers."""
+        self.logger.info("")
+        self.logger.info("\u2550" * BOX_WIDTH)
+        for line in lines:
+            self.logger.info(f"  {line}")
+        self.logger.info("\u2550" * BOX_WIDTH)
+
+    def summary_banner(self, kv_pairs: dict, title: str = "COMPLETE"):
+        """Final summary banner with key-value pairs."""
+        self.logger.info("")
+        self.logger.info("\u2550" * BOX_WIDTH)
+        self.logger.info(f"  {title} \u2014 Sentinel-2 TSS Pipeline")
+        self.logger.info("\u2550" * BOX_WIDTH)
+        for key, value in kv_pairs.items():
+            self.logger.info(f"  {key + ':':<14s} {value}")
+        self.logger.info("\u2550" * BOX_WIDTH)
+
+    def log_step(self, message):
+        """Top-level step message outside any box."""
+        self.logger.info("")
+        self.logger.info(message)
+
+    def config_box(self, kv_pairs: dict):
+        """Configuration box with key-value pairs."""
+        border = "\u2500" * (BOX_WIDTH - 17)
+        self.logger.info("")
+        self.logger.info(f"\u250C\u2500 Configuration {border}")
+        for key, value in kv_pairs.items():
+            self.logger.info(f"\u2502  {key + ':':<14s} {value}")
+        self.logger.info(f"\u2514" + "\u2500" * BOX_WIDTH)
+
+    def box_start(self, title):
+        """Open a scene processing box with parsed metadata."""
+        padding = BOX_WIDTH - len(title) - 4
+        border = "\u2500" * max(padding, 2)
+        self.logger.info("")
+        self.logger.info(f"\u250C\u2500 {title} {border}")
+
+        # Parse and show scene metadata
+        meta = parse_scene_metadata(title)
+        if meta:
+            self.logger.info(
+                f"\u2502  Date: {meta['date']}  "
+                f"Tile: {meta['tile']}  Orbit: {meta['orbit']}")
+        self.logger.info("\u2502")
+
+        self._scene_cpu_samples = []
+        self._scene_ram_samples = []
+        self._current_scene_meta = meta
+        ColoredFormatter._in_box = True
+
+    def box_line(self, text=""):
+        """Print a line inside the current box."""
+        if text:
+            self.logger.info(f"\u2502  {text}")
+        else:
+            self.logger.info("\u2502")
+
+    def box_end(self):
+        """Close the current box."""
+        ColoredFormatter._in_box = False
+        self.logger.info("\u2502")
+        self.logger.info(f"\u2514" + "\u2500" * BOX_WIDTH)
+
+    def format_resources(self, cpu_samples, ram_samples):
+        """Format CPU/RAM stats as a string."""
+        if not cpu_samples or not ram_samples:
+            return None
+        avg_cpu = sum(cpu_samples) / len(cpu_samples)
+        peak_cpu = max(cpu_samples)
+        avg_ram = sum(ram_samples) / len(ram_samples)
+        peak_ram = max(ram_samples)
+        return (f"CPU: avg {avg_cpu:.0f}% peak {peak_cpu:.0f}%  "
+                f"RAM: avg {avg_ram:.1f} GB peak {peak_ram:.1f} GB")
+
+    def record_scene_summary(self, products: int, time_min: float,
+                             tss_mean: float = None, water_type: str = ""):
+        """Record a one-liner for the final batch summary table."""
+        meta = getattr(self, '_current_scene_meta', {})
+        self._scene_summaries.append({
+            'date': meta.get('date', '?'),
+            'tile': meta.get('tile', '?'),
+            'products': products,
+            'time_min': time_min,
+            'tss_mean': tss_mean,
+            'water_type': water_type,
+        })
+
+    def scene_summary_table(self):
+        """Log the per-scene summary table."""
+        if not self._scene_summaries:
+            return
+        self.logger.info("")
+        header = (f"  {'Date':<12s} {'Tile':<7s} {'TSS mean':>10s} "
+                  f"{'Dom.Type':>9s} {'Products':>9s} {'Time':>8s}")
+        self.logger.info(header)
+        self.logger.info("  " + "\u2500" * (len(header) - 2))
+        for s in self._scene_summaries:
+            tss_str = f"{s['tss_mean']:.2f} g/m\u00b3" if s['tss_mean'] is not None else "N/A"
+            self.logger.info(
+                f"  {s['date']:<12s} {s['tile']:<7s} {tss_str:>10s} "
+                f"{s['water_type']:>9s} {s['products']:>9d} "
+                f"{s['time_min']:>6.1f} min")
+
+    def step(self, label: str):
+        """Context manager that times a step and samples CPU/RAM."""
+        return _StepContext(self, label)
+
+
+class _StepContext:
+    """Context manager for a single processing step with resource tracking."""
+
+    SAMPLE_INTERVAL = 2.0
+
+    def __init__(self, tracker: StepTracker, label: str):
+        self.tracker = tracker
+        self.label = label
+        self._cpu_samples = []
+        self._ram_samples = []
+        self._sampling = False
+        self._thread = None
+        self._start_time = None
+
+    def __enter__(self):
+        self._start_time = time.time()
+        if _HAS_PSUTIL:
+            psutil.cpu_percent(interval=0)  # prime the first measurement
+            self._sampling = True
+            self._thread = threading.Thread(target=self._sample_loop, daemon=True)
+            self._thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._sampling = False
+        elapsed = time.time() - self._start_time
+
+        if self._thread:
+            self._thread.join(timeout=3.0)
+
+        # Final sample
+        if _HAS_PSUTIL:
+            try:
+                self._cpu_samples.append(psutil.cpu_percent(interval=0))
+                self._ram_samples.append(psutil.virtual_memory().used / (1024 ** 3))
+            except Exception:
+                pass
+
+        # Format elapsed time
+        if elapsed >= 60:
+            elapsed_str = f"{elapsed / 60:.1f} min"
+        else:
+            elapsed_str = f"{elapsed:.1f} sec"
+
+        status = f"FAILED ({elapsed_str})" if exc_type else f"done ({elapsed_str})"
+
+        # Build dotted line
+        total_width = 58
+        dots_needed = total_width - len(self.label) - len(status) - 2
+        dot_str = " " + "." * max(dots_needed, 3) + " "
+        self.tracker.box_line(f"{self.label}{dot_str}{status}")
+
+        # Resource stats line
+        if self._cpu_samples and self._ram_samples:
+            # Indent to align under label text after bracket
+            if "]" in self.label:
+                indent = " " * (self.label.index("]") + 2)
+            else:
+                indent = "      "
+            res = self.tracker.format_resources(self._cpu_samples, self._ram_samples)
+            self.tracker.box_line(f"{indent}{res}")
+
+            # Accumulate for scene and batch summaries
+            self.tracker._scene_cpu_samples.extend(self._cpu_samples)
+            self.tracker._scene_ram_samples.extend(self._ram_samples)
+            self.tracker._batch_cpu_samples.extend(self._cpu_samples)
+            self.tracker._batch_ram_samples.extend(self._ram_samples)
+
+        return False  # don't suppress exceptions
+
+    def _sample_loop(self):
+        """Background sampling of CPU and RAM."""
+        while self._sampling:
+            try:
+                self._cpu_samples.append(psutil.cpu_percent(interval=0))
+                self._ram_samples.append(psutil.virtual_memory().used / (1024 ** 3))
+            except Exception:
+                pass
+            time.sleep(self.SAMPLE_INTERVAL)
