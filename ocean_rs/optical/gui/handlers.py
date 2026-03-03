@@ -122,14 +122,15 @@ def on_closing(gui):
         else:
             return
 
-    # Cleanup
+    # Stop system monitor immediately (safe, no thread dependency)
     try:
         if hasattr(gui, 'system_monitor'):
             gui.system_monitor.stop_monitoring()
-        if hasattr(gui, 'processor') and gui.processor:
-            gui.processor.cleanup()
     except Exception as e:
-        logger.debug(f"Cleanup during exit: {e}")
+        logger.debug(f"System monitor stop during exit: {e}")
+
+    # Do NOT call processor.cleanup() here — moved to _check_and_destroy
+    # so it runs after the processing thread has fully stopped.
 
     max_attempts = 100  # 100 * 100ms = 10 seconds timeout
 
@@ -139,8 +140,20 @@ def on_closing(gui):
                 gui.root.after(100, lambda: _check_and_destroy(remaining - 1))
             else:
                 logger.warning("Processing thread did not stop within timeout, forcing shutdown")
+                # Cleanup processor even on forced shutdown
+                if hasattr(gui, 'processor') and gui.processor:
+                    try:
+                        gui.processor.cleanup()
+                    except Exception as e:
+                        logger.warning(f"Cleanup error: {e}")
                 gui.root.destroy()
         else:
+            # Thread is done — safe to cleanup processor now
+            if hasattr(gui, 'processor') and gui.processor:
+                try:
+                    gui.processor.cleanup()
+                except Exception as e:
+                    logger.warning(f"Cleanup error: {e}")
             gui.root.destroy()
 
     gui.root.after(100, _check_and_destroy)

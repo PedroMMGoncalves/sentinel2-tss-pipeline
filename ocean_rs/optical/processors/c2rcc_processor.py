@@ -12,6 +12,7 @@ Reference:
 import os
 import sys
 import time
+import shutil
 import tempfile
 import subprocess
 import logging
@@ -54,8 +55,14 @@ class C2RCCProcessor:
         self.current_product = ""
         self.current_stage = ""
 
+        # Total products in batch (set externally by UnifiedS2TSSProcessor)
+        self.total_products = 0
+
         # Track intermediate products
         self.intermediate_products = {}
+
+        # Track temp directories for cleanup
+        self._temp_dirs = []
 
         # System monitor (set externally by UnifiedS2TSSProcessor)
         self.system_monitor = None
@@ -296,6 +303,7 @@ class C2RCCProcessor:
             target_dir = output_folder
         else:
             target_dir = tempfile.mkdtemp(prefix='ocean_rs_snap_')
+            self._temp_dirs.append(target_dir)
         return os.path.join(target_dir, f"snap_graph_{os.getpid()}.xml")
 
     def _get_subset_parameters(self) -> str:
@@ -731,8 +739,7 @@ class C2RCCProcessor:
                 logger.error(f"GPT processing timeout after {gpt_timeout//3600}h - killing process")
                 process.kill()
                 process.wait()  # Wait for process to fully terminate
-                stdout_log.close()
-                stderr_log.close()
+                # Note: stdout_log/stderr_log are closed by the inner finally block
                 logger.debug("GPT process terminated successfully")
                 return False
             finally:
@@ -810,7 +817,7 @@ class C2RCCProcessor:
             # Check IOP products
             logger.debug("\nSNAP IOP PRODUCTS:")
             iop_products = ['iop_apig.img', 'iop_adet.img', 'iop_agelb.img',
-                        'iop_bpart.img', 'iop_bwit.img', 'iop_btot.img']
+                        'iop_bpart.img', 'iop_bwit.img', 'iop_btot.tif']
 
             iop_count = 0
             for iop_file in iop_products:
@@ -821,7 +828,7 @@ class C2RCCProcessor:
                     logger.debug(f"   + {iop_file} ({size_kb:.1f} KB)")
                     iop_count += 1
                 else:
-                    if iop_file == 'iop_btot.img':
+                    if iop_file == 'iop_btot.tif':
                         # Try to calculate missing btot
                         if self._calculate_missing_btot(c2rcc_path):
                             logger.debug(f"   + {iop_file} (calculated from bpart + bwit)")
@@ -900,11 +907,11 @@ class C2RCCProcessor:
             data_folder = c2rcc_path.replace('.dim', '.data')
             bpart_path = os.path.join(data_folder, 'iop_bpart.img')
             bwit_path = os.path.join(data_folder, 'iop_bwit.img')
-            btot_path = os.path.join(data_folder, 'iop_btot.img')
+            btot_path = os.path.join(data_folder, 'iop_btot.tif')
 
             # Check if btot already exists and is valid
             if os.path.exists(btot_path) and os.path.getsize(btot_path) > 1024:
-                logger.debug("iop_btot.img already exists")
+                logger.debug("iop_btot.tif already exists")
                 return True
 
             # Check if source files exist
@@ -957,10 +964,10 @@ class C2RCCProcessor:
 
             if success and os.path.exists(btot_path):
                 file_size_kb = os.path.getsize(btot_path) / 1024
-                logger.debug(f"Successfully calculated and saved iop_btot.img ({file_size_kb:.1f} KB)")
+                logger.debug(f"Successfully calculated and saved iop_btot.tif ({file_size_kb:.1f} KB)")
                 return True
             else:
-                logger.error("Failed to save iop_btot.img")
+                logger.error("Failed to save iop_btot.tif")
                 return False
 
         except Exception as e:
@@ -1054,8 +1061,9 @@ class C2RCCProcessor:
             eta_minutes = 0.0
             processing_speed = 0.0
 
-        # Fix: Ensure no division by zero in progress calculation
-        progress_percent = (total / max(total, 1)) * 100 if total > 0 else 0.0
+        # Progress based on completed items vs total batch size
+        batch_size = max(self.total_products, total)
+        progress_percent = (total / max(batch_size, 1)) * 100
 
         return ProcessingStatus(
             total_products=total,
@@ -1079,3 +1087,13 @@ class C2RCCProcessor:
                     os.remove(graph_file)
                 except Exception as e:
                     logger.debug(f"Graph cleanup: {e}")
+
+        # Clean up temp directories created by _get_graph_file_path
+        for temp_dir in getattr(self, '_temp_dirs', []):
+            try:
+                if os.path.exists(temp_dir):
+                    shutil.rmtree(temp_dir)
+                    logger.debug(f"Cleaned up temp directory: {temp_dir}")
+            except Exception as e:
+                logger.warning(f"Could not remove temp directory {temp_dir}: {e}")
+        self._temp_dirs = []

@@ -243,8 +243,8 @@ class Sentinel1Adapter(SensorAdapter):
     </sources>
     <parameters>
       <filter>Lee Sigma</filter>
-      <filterSizeX>5</filterSizeX>
-      <filterSizeY>5</filterSizeY>
+      <filterSizeX>7</filterSizeX>
+      <filterSizeY>7</filterSizeY>
       <windowSize>7x7</windowSize>
       <sigmaStr>0.9</sigmaStr>
     </parameters>

@@ -19,16 +19,13 @@ def start_processing(gui):
     """Start bathymetry processing in background thread."""
     if gui.processing_active:
         return
-    gui.processing_active = True
 
     if not update_configurations(gui):
-        gui.processing_active = False
         return
 
     output_dir = gui.output_dir_var.get().strip()
     if not output_dir:
         messagebox.showerror("Error", "Select an output directory.", parent=gui.root)
-        gui.processing_active = False
         return
 
     # Get downloaded scene paths
@@ -37,10 +34,12 @@ def start_processing(gui):
         messagebox.showerror("Error",
                             "No downloaded scenes. Download scenes first.",
                             parent=gui.root)
-        gui.processing_active = False
         return
 
     gui.config.output_directory = output_dir
+
+    # Set processing_active AFTER all validation passes, just before thread start
+    gui.processing_active = True
 
     gui.process_start_btn.config(state=tk.DISABLED)
     gui.process_stop_btn.config(state=tk.NORMAL)

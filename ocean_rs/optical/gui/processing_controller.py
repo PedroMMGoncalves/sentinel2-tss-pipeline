@@ -212,7 +212,11 @@ def _run_processing_thread(gui, config, products):
         gui.root.after(0, lambda: setattr(gui, 'processing_active', False))
         gui.root.after(0, lambda: gui.start_button.config(state=tk.NORMAL))
         gui.root.after(0, lambda: gui.stop_button.config(state=tk.DISABLED))
-        gui.root.after(0, lambda: gui.processor.cleanup() if gui.processor else None)
+        # Capture processor reference at definition time under lock
+        with _processor_lock:
+            processor = gui.processor
+        if processor:
+            gui.root.after(0, lambda p=processor: p.cleanup() if hasattr(p, 'cleanup') else None)
 
 
 def stop_processing(gui):

@@ -138,8 +138,9 @@ def extract_swell(image: OceanImage,
             confidence = min(1.0, snr / snr_scale)
 
             # M-7: Scale confidence by valid data fraction to penalize NaN-heavy tiles
-            nan_frac = np.sum(~np.isnan(tile_original)) / tile_original.size
-            confidence *= nan_frac
+            # M2-2: Use consistent valid-pixel criteria (isfinite AND nonzero) matching the gate above
+            valid_data_frac = np.sum(np.isfinite(tile_original) & (tile_original != 0)) / tile_original.size
+            confidence *= valid_data_frac
 
             if confidence >= confidence_threshold:
                 wavelengths.append(wl)

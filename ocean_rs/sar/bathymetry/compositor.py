@@ -49,6 +49,16 @@ def composite_bathymetry(results: List[BathymetryResult],
                 f"but result[{i}].uncertainty has shape {r.uncertainty.shape}."
             )
 
+    # M2-10: Verify all results share the same CRS
+    if len(results) > 1:
+        ref_crs = results[0].geo.crs_wkt if results[0].geo else ''
+        for i, r in enumerate(results[1:], 1):
+            r_crs = r.geo.crs_wkt if r.geo else ''
+            if r_crs != ref_crs:
+                logger.warning(
+                    f"CRS mismatch: result[0] vs result[{i}] — composite may be spatially incoherent"
+                )
+
     all_depths = np.array([r.depth for r in results])
     all_uncertainties = np.array([r.uncertainty for r in results])
 
@@ -121,8 +131,15 @@ def _weighted_median(values: np.ndarray, weights: np.ndarray) -> np.ndarray:
     result = np.zeros(n_points)
 
     for j in range(n_points):
-        v = values[:, j]
-        w = weights[:, j]
+        v = np.asarray(values[:, j], dtype=np.float64)
+        w = np.asarray(weights[:, j], dtype=np.float64)
+        # H2-2: Filter NaN and non-positive weights to prevent cumsum corruption
+        valid = np.isfinite(v) & np.isfinite(w) & (w > 0)
+        if not np.any(valid):
+            result[j] = np.nan
+            continue
+        v = v[valid]
+        w = w[valid]
         sorted_idx = np.argsort(v)
         v_sorted = v[sorted_idx]
         w_sorted = w[sorted_idx]

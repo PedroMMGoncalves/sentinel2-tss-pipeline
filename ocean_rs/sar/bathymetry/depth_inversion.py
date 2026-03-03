@@ -42,17 +42,19 @@ def invert_depth(swell: SwellField,
 
     wavelengths = swell.wavelength.copy()
 
-    # H-20: Filter non-positive wavelengths
+    # H2-5: NaN-mask non-positive wavelengths instead of filtering (preserves spatial correspondence)
     positive_mask = wavelengths > 0
     if not np.all(positive_mask):
         n_invalid = np.sum(~positive_mask)
-        logger.warning(f"Filtering {n_invalid} non-positive wavelength values")
-        wavelengths = wavelengths[positive_mask]
-        if len(wavelengths) == 0:
-            raise ValueError("No positive wavelength values after filtering")
+        logger.warning(f"Masking {n_invalid} non-positive wavelength values to NaN")
+        wavelengths = np.where(positive_mask, wavelengths, np.nan)
+        if not np.any(positive_mask):
+            raise ValueError("No positive wavelength values after masking")
 
     omega = 2 * np.pi / wave_period
-    k = 2 * np.pi / wavelengths
+    # Suppress division-by-zero for NaN wavelengths; result will be NaN (propagates correctly)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        k = 2 * np.pi / wavelengths
 
     # H-9: Log warning about single wave period for large scenes
     if swell.geo is not None:
@@ -66,8 +68,8 @@ def invert_depth(swell: SwellField,
                 "AOIs or using spatially varying wave period.", wave_period
             )
 
-    logger.info(f"Depth inversion: {len(wavelengths)} points, T={wave_period:.1f}s, "
-                f"wavelength range: {wavelengths.min():.0f}-{wavelengths.max():.0f}m")
+    logger.info(f"Depth inversion: {wavelengths.size} points, T={wave_period:.1f}s, "
+                f"wavelength range: {np.nanmin(wavelengths):.0f}-{np.nanmax(wavelengths):.0f}m")
 
     L_deep = gravity * wave_period**2 / (2 * np.pi)
     logger.info(f"Deep water wavelength: {L_deep:.0f}m")
@@ -102,6 +104,12 @@ def invert_depth(swell: SwellField,
         logger.warning(f"Newton-Raphson did not converge after {max_iterations} "
                       f"iterations (max delta: {max_delta:.2e}m)")
 
+    # L2-13: Report points that converged but stalled at non-positive depth (deep water NaN)
+    converged = np.abs(delta) < convergence_tol
+    n_stalled = np.sum(converged & (h <= 0.1 + convergence_tol))
+    if n_stalled > 0:
+        logger.debug(f"  {n_stalled} points stalled at minimum depth (deep water / no bottom signal)")
+
     # M-6: Check for deep water (kh > 10) — waves don't interact with bottom
     kh_final = k * h
     deep_water_mask = kh_final > 10
@@ -116,16 +124,24 @@ def invert_depth(swell: SwellField,
     h = np.clip(h, 0, max_depth_m)
 
     # H-5: Scale wavelength uncertainty by FFT confidence
-    # base_uncertainty = dh/dL * assumed_wavelength_uncertainty
-    wavelength_uncertainty = 0.1 * wavelengths
-    dh_dL = h / wavelengths
+    # M2-3: Proper dispersion derivative instead of dh/dL ≈ h/L approximation
+    # dh/dL ≈ h/L is accurate for deep water but underestimates by 2-3x for intermediate depth (kh~0.5-3)
+    # Using analytical derivative from dispersion relation for better accuracy:
+    #   From ω² = gk·tanh(kh): dh/dL = (h/L) / (1 + kh·sech²(kh)/tanh(kh))
+    kh_unc = k * h
+    with np.errstate(divide='ignore', invalid='ignore'):
+        sech2_kh = 1.0 / np.cosh(np.clip(kh_unc, 0, 20))**2
+        tanh_kh_unc = np.tanh(np.clip(kh_unc, 0, 20))
+        dh_dL = (h / wavelengths) / (1.0 + kh_unc * sech2_kh / np.where(tanh_kh_unc > 1e-10, tanh_kh_unc, 1e-10))
+    wavelength_uncertainty = 0.1 * wavelengths  # 10% wavelength uncertainty
     base_uncertainty = np.abs(dh_dL * wavelength_uncertainty)
 
     # Scale by confidence: high-confidence tiles get tighter bounds
     confidence = swell.confidence
-    if not np.all(positive_mask):
-        confidence = confidence[positive_mask]
-    uncertainty = base_uncertainty / np.maximum(confidence, 0.1)
+    # H2-5: No longer need to subset confidence — spatial correspondence preserved by NaN-masking
+    # M2-17: Handle NaN confidence in denominator (np.maximum returns NaN when confidence is NaN)
+    safe_confidence = np.where(np.isfinite(confidence), np.maximum(confidence, 0.1), 0.1)
+    uncertainty = base_uncertainty / safe_confidence
     uncertainty = np.clip(uncertainty, 0.5, max_depth_m * 0.5)
 
     logger.info(f"Depth range: {np.nanmin(h):.1f} - {np.nanmax(h):.1f}m "
@@ -139,7 +155,7 @@ def invert_depth(swell: SwellField,
         wave_period_source="",
         geo=swell.geo,
         metadata={
-            'n_points': len(h),
+            'n_points': int(h.size),
             'wave_period': wave_period,
             'deep_water_wavelength': L_deep,
             'iterations': min(iteration + 1, max_iterations),

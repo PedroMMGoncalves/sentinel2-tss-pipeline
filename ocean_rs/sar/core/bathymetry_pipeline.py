@@ -223,12 +223,27 @@ class BathymetryPipeline:
                 f"Failed to transform center ({cx}, {cy}) to WGS84: {e}"
             ) from e
 
+        # M2-11: Sanity check — transformed coordinates must be plausible WGS84
+        if abs(lon) > 360 or abs(lat) > 90:
+            raise ValueError(
+                f"Center coordinates ({lon}, {lat}) not plausible WGS84 — "
+                f"CRS may be projected. Ensure image has geographic CRS metadata."
+            )
+
         logger.info(f"Image center: UTM ({cx:.0f}, {cy:.0f}) -> WGS84 ({lon:.4f}, {lat:.4f})")
         return lon, lat
 
     def _export_results(self, result: BathymetryResult, output_dir: Path):
         """Export bathymetry result as GeoTIFF."""
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        # H2-6: Guard against 1D tile-level arrays — write_raster requires 2D
+        if result.depth.ndim == 1:
+            logger.warning(
+                "Depth results are 1D tile-level arrays — gridding to 2D not yet implemented. "
+                "Skipping GeoTIFF export. Use compositor results directly."
+            )
+            return None
 
         if self.config.export_geotiff and result.geo is not None:
             # M-24: Ensure pixel_size_y is negative (GeoTIFF convention:

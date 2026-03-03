@@ -12,10 +12,15 @@ Water Type Classification: Type I-IV based on Rrs(490), Rrs(560), Rrs(620), Rrs(
 Part of the OceanRS toolkit (ocean_rs.optical).
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from .output_categories import OutputCategoryConfig
+
+if TYPE_CHECKING:
+    from .water_quality_config import WaterQualityConfig
 
 
 @dataclass
@@ -39,7 +44,7 @@ class TSSConfig:
 
     # Water quality sub-processing (HAB, clarity, trophic state)
     enable_water_quality: bool = True
-    water_quality_config: Optional[object] = None  # WaterQualityConfig, lazy init
+    water_quality_config: Optional[WaterQualityConfig] = None  # Lazy init in __post_init__
 
     # Visualization sub-processing (RGB composites + spectral indices)
     enable_visualization: bool = True

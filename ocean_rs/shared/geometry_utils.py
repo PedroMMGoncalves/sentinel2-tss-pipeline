@@ -282,6 +282,29 @@ def load_shapefile(shapefile_path: str) -> Tuple[Optional[str], str, bool]:
 
         # Reproject to WGS84 if the shapefile CRS is projected.
         # SNAP geoRegion expects WGS84 coordinates.
+        if not HAS_OGR and HAS_FIONA:
+            # Fiona was used but OGR is unavailable for automatic reprojection.
+            # Check if the CRS is projected — if so, we cannot reproject.
+            try:
+                with fiona.open(shapefile_path) as src:
+                    crs = src.crs
+                    if crs:
+                        # Fiona CRS may be a CRS object (fiona >= 1.9) or a dict
+                        is_geographic = False
+                        if hasattr(crs, 'is_geographic'):
+                            is_geographic = crs.is_geographic
+                        elif isinstance(crs, dict):
+                            epsg = crs.get('init', '').lower()
+                            is_geographic = (epsg == 'epsg:4326')
+                        if not is_geographic:
+                            logger.error("Shapefile has projected CRS (%s). Please reproject to "
+                                         "WGS84 (EPSG:4326) or install GDAL/OGR for automatic "
+                                         "reprojection.", crs)
+                            return None, ("Shapefile has projected CRS — requires WGS84. "
+                                          "Install GDAL or reproject."), False
+            except Exception as crs_check_err:
+                logger.debug(f"Could not verify CRS via Fiona: {crs_check_err}")
+
         if HAS_OGR:
             source_srs = None
             ds_for_crs = None
@@ -539,6 +562,17 @@ def load_geojson(geojson_path: str) -> Tuple[Optional[str], str, bool]:
             logger.info(f"Converted to WKT ({len(wkt_string)} characters)")
         except Exception as e:
             return None, f"Failed to convert geometry to WKT: {str(e)}", False
+
+        # Sanity-check that coordinates fall within WGS84 range
+        try:
+            bounds = combined_geometry.bounds  # (minx, miny, maxx, maxy)
+            if (abs(bounds[0]) > 360 or abs(bounds[2]) > 360
+                    or abs(bounds[1]) > 90 or abs(bounds[3]) > 90):
+                logger.error("GeoJSON coordinates exceed WGS84 range — likely projected CRS")
+                return None, ("GeoJSON coordinates exceed WGS84 range. "
+                              "Ensure geographic CRS (EPSG:4326)."), False
+        except Exception as bounds_err:
+            logger.debug(f"Could not check GeoJSON bounds: {bounds_err}")
 
         # Add bounds information
         info_msg = _add_bounds_info(combined_geometry, info_msg, "Assumed WGS84 (GeoJSON default)")

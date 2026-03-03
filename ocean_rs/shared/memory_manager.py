@@ -17,8 +17,8 @@ except ImportError:
 class MemoryManager:
     """Memory management utilities"""
 
-    # Cache the psutil.Process() handle for the current process to avoid
-    # re-creating it on every monitoring call.
+    # Class-level psutil.Process() cache. Benign race under CPython GIL:
+    # worst case creates a redundant Process() object.
     _process = None
 
     @classmethod

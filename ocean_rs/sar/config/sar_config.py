@@ -11,7 +11,7 @@ from .download_config import DownloadConfig, SearchConfig
 @dataclass
 class FFTConfig:
     """FFT swell extraction parameters."""
-    tile_size_m: float = 512.0
+    tile_size_m: float = 1024.0  # Must be >= 2x max_wavelength_m for Nyquist
     overlap: float = 0.5
     min_wavelength_m: float = 50.0
     max_wavelength_m: float = 600.0

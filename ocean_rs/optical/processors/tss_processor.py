@@ -241,12 +241,20 @@ class TSSProcessor:
             layer = shp.GetLayer()
             if layer is None:
                 logger.error(f"Could not get layer from shapefile: {shapefile_path}")
+                shp = None  # M2-14: Release OGR datasource handle
                 return None
 
             # Check CRS and reproject if needed
             shp_srs = layer.GetSpatialRef()
             raster_srs = osr.SpatialReference()
             raster_srs.ImportFromWkt(reference_metadata['projection'])
+
+            # M2-8: Force traditional lon/lat axis order for GDAL 3+
+            try:
+                shp_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+                raster_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+            except AttributeError:
+                pass  # GDAL < 3.0
 
             # Keep reference to memory dataset for reprojected layer
             mem_ds = None
@@ -955,6 +963,14 @@ class TSSProcessor:
         for wl, Rrs_val in vp.items():
             rrs[wl] = Rrs_val / (0.52 + 1.7 * Rrs_val)
 
+        # H2-1: Replace exact-zero rrs with epsilon to prevent NaN in QAA u computation
+        for wl in rrs:
+            zero_mask = rrs[wl] == 0
+            if np.any(zero_mask):
+                n_zero = int(np.sum(zero_mask))
+                logger.debug(f"  {n_zero} pixels have zero Rrs at {wl}nm — adding epsilon")
+                rrs[wl] = np.where(zero_mask, 1e-10, rrs[wl])
+
         # Step 2: Compute u for all wavelengths
         # u = (-g0 + sqrt(g0^2 + 4*g1*rrs)) / (2*g1)  where g0=0.089, g1=0.125
         u = {}
@@ -970,6 +986,7 @@ class TSSProcessor:
         Rrs665 = vp[665]
         rrs620 = (coeffs['a'] * Rrs665**3 + coeffs['b'] * Rrs665**2 +
                   coeffs['c'] * Rrs665 + coeffs['d'])
+        rrs620 = np.maximum(rrs620, 0.0)  # M2-4: polynomial can go negative for low Rrs665
 
         # Step 4: Classify water types (vectorized boolean masks)
         # Tie-breaking convention: lower-numbered type wins at exact boundary
@@ -1025,7 +1042,9 @@ class TSSProcessor:
         # Step 6: Type II (Moderately Turbid) — 665nm reference
         if np.any(type2):
             m = type2
-            ratio = vp[665][m] / (vp[443][m] + vp[490][m])
+            denominator = vp[443][m] + vp[490][m]
+            denominator = np.maximum(denominator, 1e-10)  # C2-1: zero guard
+            ratio = vp[665][m] / denominator
             a665 = aw[665] + 0.39 * np.power(ratio, 1.14)
             denom_u = 1.0 - u[665][m]
             safe = np.abs(denom_u) > 1e-10
@@ -1292,22 +1311,22 @@ ALGORITHM SELECTION CRITERIA (Jiang et al. 2021):
 
 Type I (Clear Water - 560nm):
 - Condition: Rrs(490) > Rrs(560)
-- Typical TSS: < 2 g/m3
+- Typical TSS: < 10 g/m3
 - Water clarity: High (Secchi depth > 10m)
 
 Type II (Moderately Turbid - 665nm):
 - Condition: Rrs(490) > Rrs(620) AND Rrs(490) <= Rrs(560)
-- Typical TSS: 2-10 g/m3
+- Typical TSS: 10-50 g/m3
 - Water clarity: Moderate (Secchi depth 3-10m)
 
 Type III (Highly Turbid - 740nm):
 - Condition: Rrs(740) <= Rrs(490) OR Rrs(740) <= 0.010
-- Typical TSS: 10-50 g/m3
+- Typical TSS: 50-200 g/m3
 - Water clarity: Low (Secchi depth 1-3m)
 
 Type IV (Extremely Turbid - 865nm):
 - Condition: Rrs(740) > Rrs(490) AND Rrs(740) > 0.010
-- Typical TSS: > 50 g/m3
+- Typical TSS: > 200 g/m3
 - Water clarity: Very low (Secchi depth < 1m)
 
 Reference: Jiang, D., et al. (2021). Remote Sensing of Environment, 258, 112386.

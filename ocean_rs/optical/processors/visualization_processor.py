@@ -27,7 +27,7 @@ import os
 import time
 import logging
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -946,13 +946,14 @@ class VisualizationProcessor:
 
                 band.SetStatistics(0, 255, float(np.mean(rgb_uint8[:, :, i])), float(np.std(rgb_uint8[:, :, i])))
 
-            # Set NoData to 0 on each band so black pixels are recognized as nodata
+            # Note: nodata=0 may mask very dark deep-water pixels.
+            # This is acceptable — transparent nodata in GIS mosaics is more useful than preserving near-black pixels.
             for i in range(dataset.RasterCount):
                 dataset.GetRasterBand(i + 1).SetNoDataValue(0)
 
             dataset.SetDescription(description)
             dataset.SetMetadataItem('DESCRIPTION', description)
-            dataset.SetMetadataItem('CREATION_DATE', datetime.now().isoformat())
+            dataset.SetMetadataItem('CREATION_DATE', datetime.now(timezone.utc).isoformat())
             dataset.SetMetadataItem('SOURCE', 'OceanRS v3.0.0')
 
             dataset.SetMetadataItem('PROCESSING_METHOD', 'Marine RGB Composite')
@@ -1005,7 +1006,7 @@ class VisualizationProcessor:
 
             band = dataset.GetRasterBand(1)
 
-            nodata_val = metadata.get('nodata', -9999)
+            nodata_val = -9999.0  # Never use 0 for indices — it's a valid value
             data = np.where(np.isnan(data), nodata_val, data)
 
             band.WriteArray(data.astype(np.float32))
@@ -1025,7 +1026,7 @@ class VisualizationProcessor:
 
             dataset.SetDescription(description)
             dataset.SetMetadataItem('DESCRIPTION', description)
-            dataset.SetMetadataItem('CREATION_DATE', datetime.now().isoformat())
+            dataset.SetMetadataItem('CREATION_DATE', datetime.now(timezone.utc).isoformat())
             dataset.SetMetadataItem('SOURCE', 'OceanRS v3.0.0')
 
             dataset.SetMetadataItem('PROCESSING_METHOD', 'Spectral Index Calculation')
@@ -1053,7 +1054,7 @@ class VisualizationProcessor:
                 f.write("MARINE VISUALIZATION PROCESSING SUMMARY\n")
                 f.write("=" * 60 + "\n")
                 f.write(f"Product: {product_name}\n")
-                f.write(f"Processing completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Processing completed: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"Pipeline: Unified S2-TSS Processing with Marine Visualization\n")
                 f.write(f"Output directory: {output_folder}\n\n")
 

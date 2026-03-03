@@ -109,6 +109,8 @@ class UnifiedS2TSSProcessor:
 
             # Track batch size and reset start time for accurate progress/ETA
             self.total_products = len(products)
+            if self.c2rcc_processor:
+                self.c2rcc_processor.total_products = self.total_products
             self.start_time = time.time()
 
             # Process each product
@@ -565,3 +567,9 @@ class UnifiedS2TSSProcessor:
 
         if self.c2rcc_processor:
             self.c2rcc_processor.cleanup()
+
+        if hasattr(self, 'tss_processor') and self.tss_processor and hasattr(self.tss_processor, 'cleanup'):
+            try:
+                self.tss_processor.cleanup()
+            except Exception as e:
+                logger.warning(f"TSSProcessor cleanup error: {e}")

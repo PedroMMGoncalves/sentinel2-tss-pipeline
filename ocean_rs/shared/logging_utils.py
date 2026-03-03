@@ -48,6 +48,9 @@ class ColoredFormatter(logging.Formatter):
     _BOX_CHARS = frozenset('│┌└═')
 
     def format(self, record):
+        # Work on a copy to avoid mutating the shared LogRecord
+        record = logging.makeLogRecord(record.__dict__)
+
         color = self.COLORS.get(record.levelname, self.COLORS['RESET'])
         reset = self.COLORS['RESET']
 
@@ -355,8 +358,8 @@ class _StepContext:
             try:
                 self._cpu_samples.append(psutil.cpu_percent(interval=0))
                 self._ram_samples.append(psutil.virtual_memory().used / (1024 ** 3))
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger('ocean_rs').debug(f"Resource sampling failed: {e}")
 
         # Format elapsed time
         if elapsed >= 60:
@@ -403,6 +406,6 @@ class _StepContext:
             try:
                 self._cpu_samples.append(psutil.cpu_percent(interval=0))
                 self._ram_samples.append(psutil.virtual_memory().used / (1024 ** 3))
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger('ocean_rs').debug(f"Resource sampling failed: {e}")
             time.sleep(self.SAMPLE_INTERVAL)

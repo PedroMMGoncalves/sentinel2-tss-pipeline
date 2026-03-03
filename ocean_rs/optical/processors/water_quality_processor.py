@@ -108,20 +108,32 @@ class WaterQualityProcessor:
                 # M-2: Clip Kd BEFORE computing derived products
                 kd_valid = np.clip(kd_valid, 0, 20)  # m^-1, max for extremely turbid
 
+                # M2-18: Conditional computation for Secchi/euphotic depth
+                # Minimum meaningful Kd (0.001 m^-1) avoids meaningless intermediates
+                # (e.g., 1.7e8 m) before clipping. Pixels with Kd <= 0.001 get NaN.
+                safe_kd = kd_valid > 0.001
+
                 # C=1.7 (Tyler 1968 in-situ disc convention). Satellite-appropriate value ~1.0 (Doron 2011)
-                secchi_valid = 1.7 / (kd_valid + 1e-8)
+                secchi_valid = np.full_like(kd_valid, np.nan)
+                secchi_valid[safe_kd] = 1.7 / kd_valid[safe_kd]
 
                 # Custom proxy indices, not peer-reviewed formulas
                 clarity_valid = 1 / (1 + kd_valid)
 
                 # Euphotic depth (1% light level)
-                euphotic_valid = 4.605 / (kd_valid + 1e-8)  # ln(100) / kd
+                euphotic_valid = np.full_like(kd_valid, np.nan)
+                euphotic_valid[safe_kd] = 4.605 / kd_valid[safe_kd]  # ln(100) / kd
 
                 # Beam attenuation: c = a + b (total scattering)
                 # bb_ratio=0.0183 (Petzold 1972 coastal average, range 0.005-0.03 by water type)
                 BACKSCATTER_RATIO = 0.0183
                 total_scattering = bb / BACKSCATTER_RATIO
                 beam_att_valid = a + total_scattering
+
+                # M2-1: Warn when beam attenuation exceeds clip limit (before clipping)
+                n_saturated = int(np.sum(beam_att_valid > 50.0))
+                if n_saturated > 0:
+                    logger.warning(f"  Beam attenuation: {n_saturated} pixels saturated at clip limit (50 m^-1)")
 
                 # Physical range clamping for derived products
                 secchi_valid = np.clip(secchi_valid, 0, 100)       # meters, max for clearest ocean
@@ -201,13 +213,16 @@ class WaterQualityProcessor:
             # H-4: Renamed from hab_probability to hab_score
             # Heuristic bloom likelihood score, not a calibrated probability
             hab_score = np.full(shape, np.nan, dtype=np.float32)
+            # H2-3: Per-pixel algorithm counting to avoid NaN propagation
+            # When one algorithm returns NaN for a pixel, only the other
+            # algorithm's score should be used (not dropped to NaN)
             hab_score_accum = np.zeros(shape, dtype=np.float32)
+            n_valid = np.zeros(shape, dtype=np.float32)
             ndci_values = np.full(shape, np.nan, dtype=np.float32)
             # flh_values removed: S2 lacks 681nm band for true FLH
             mci_values = np.full(shape, np.nan, dtype=np.float32)
 
             algorithms_applied = []
-            n_algorithms = 0
 
             # Method 1: Normalized Difference Chlorophyll Index (NDCI)
             if 705 in rrs_bands and 665 in rrs_bands:
@@ -239,8 +254,10 @@ class WaterQualityProcessor:
                     ndci_contribution = np.clip(
                         (ndci_values - 0.05) / (0.3 - 0.05), 0, 1
                     )
-                    hab_score_accum += ndci_contribution
-                    n_algorithms += 1
+                    # H2-3: Per-pixel accumulation — skip NaN pixels
+                    valid_alg = np.isfinite(ndci_contribution)
+                    hab_score_accum = np.where(valid_alg, hab_score_accum + ndci_contribution, hab_score_accum)
+                    n_valid = np.where(valid_alg, n_valid + 1, n_valid)
                     algorithms_applied.append("NDCI")
 
                     logger.debug(f"NDCI calculated for {np.sum(valid_mask)} pixels")
@@ -282,16 +299,20 @@ class WaterQualityProcessor:
                     mci_contribution = np.clip(
                         (mci_values - 0.004) / (0.02 - 0.004), 0, 1
                     )
-                    hab_score_accum += mci_contribution
-                    n_algorithms += 1
+                    # H2-3: Per-pixel accumulation — skip NaN pixels
+                    valid_alg = np.isfinite(mci_contribution)
+                    hab_score_accum = np.where(valid_alg, hab_score_accum + mci_contribution, hab_score_accum)
+                    n_valid = np.where(valid_alg, n_valid + 1, n_valid)
                     algorithms_applied.append("MCI")
 
                     logger.debug(f"MCI calculated for {np.sum(valid_mask)} pixels")
 
             # Calculate combined HAB score and risk levels
             if algorithms_applied:
-                # H-4: Average contributions, then clip to [0, 1]
-                hab_score = np.clip(hab_score_accum / n_algorithms, 0, 1)
+                # H2-3: Per-pixel average — only pixels with at least one valid
+                # algorithm get a score; others remain NaN
+                hab_score = np.where(n_valid > 0, hab_score_accum / n_valid, np.nan)
+                hab_score = np.clip(hab_score, 0, 1)
                 results['hab_score'] = hab_score
 
                 # Create risk level classification

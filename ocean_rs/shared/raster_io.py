@@ -10,6 +10,15 @@ from typing import Dict, Tuple, Optional
 
 import numpy as np
 
+try:
+    from osgeo import gdal, gdalconst
+    GDAL_AVAILABLE = True
+    gdal.UseExceptions()
+except ImportError:
+    GDAL_AVAILABLE = False
+
+logger = logging.getLogger('ocean_rs')
+
 _gdal_configured = False
 
 
@@ -35,16 +44,6 @@ def _configure_gdal():
 
         gdal.PushErrorHandler(_gdal_error_handler)
     _gdal_configured = True
-
-
-try:
-    from osgeo import gdal, gdalconst
-    GDAL_AVAILABLE = True
-    gdal.UseExceptions()
-except ImportError:
-    GDAL_AVAILABLE = False
-
-logger = logging.getLogger('ocean_rs')
 
 
 class RasterIO:
@@ -77,6 +76,7 @@ class RasterIO:
 
         _configure_gdal()
 
+        dataset = None
         try:
             dataset = gdal.Open(file_path, gdalconst.GA_ReadOnly)
             if dataset is None:
@@ -98,12 +98,13 @@ class RasterIO:
                 'nodata': nodata
             }
 
-            dataset = None  # Close dataset
             return data, metadata
 
         except Exception as e:
             logger.error(f"Error reading raster {file_path}: {e}")
             raise
+        finally:
+            dataset = None  # Ensure GDAL dataset is released
 
     @staticmethod
     def write_raster(data: np.ndarray, output_path: str, metadata: dict,
@@ -127,6 +128,11 @@ class RasterIO:
             raise ImportError("GDAL is required for raster operations")
 
         _configure_gdal()
+
+        # Ensure parent directory exists
+        parent_dir = os.path.dirname(output_path)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
 
         dataset = None
         try:
@@ -220,6 +226,17 @@ class RasterIO:
                 logger.error(error_msg)
                 raise RuntimeError(error_msg)
 
+            # Validate nodata is representable in the output dtype
+            dtype_info = None
+            if np.issubdtype(np_dtype, np.integer):
+                try:
+                    dtype_info = np.iinfo(np_dtype)
+                except ValueError:
+                    pass
+            if dtype_info and (nodata < dtype_info.min or nodata > dtype_info.max):
+                logger.warning(f"NoData value {nodata} out of range for {np_dtype} "
+                               f"[{dtype_info.min}, {dtype_info.max}]")
+
             band.SetNoDataValue(nodata)
             if description:
                 band.SetDescription(description)
@@ -276,7 +293,7 @@ class RasterIO:
             'min': float(np.min(valid_data)),
             'max': float(np.max(valid_data)),
             'mean': float(np.mean(valid_data)),
-            'std': float(np.std(valid_data)),
+            'std': float(np.std(valid_data, ddof=1)),
             'coverage_percent': (len(valid_data) / data.size) * 100
         }
 
