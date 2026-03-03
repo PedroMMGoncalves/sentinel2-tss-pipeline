@@ -1,0 +1,25 @@
+name: ocean_rs
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  # Python (3.12 — stable, wide package support)
+  - python=3.12.*
+
+  # Core (required)
+  - numpy
+  - gdal>=3.0
+  - psutil
+
+  # Geometry (recommended for shapefile/GeoJSON support)
+  - shapely
+  - fiona
+  - geopandas
+
+  # SAR downloads (optional — only needed for ocean_rs.sar scene discovery)
+  - requests
+  - pip
+  - pip:
+    - asf_search
+    - python-dotenv
+    - tkintermapview
