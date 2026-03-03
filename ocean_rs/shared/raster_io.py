@@ -163,6 +163,13 @@ class RasterIO:
             }
             gdal_dtype, np_dtype, predictor = dtype_map.get(dtype, (gdal.GDT_Float32, np.float32, '3'))
 
+            # Replace NaN with nodata for integer output types (NaN can't be represented in integers)
+            if np.issubdtype(np_dtype, np.integer) and np.issubdtype(data.dtype, np.floating):
+                nan_mask = np.isnan(data)
+                if np.any(nan_mask):
+                    data = data.copy()
+                    data[nan_mask] = nodata
+
             # Ensure contiguous array with correct type
             output_data = np.ascontiguousarray(data, dtype=np_dtype)
 
@@ -215,7 +222,10 @@ class RasterIO:
                 dataset.SetGeoTransform(geotransform)
                 dataset.SetProjection(projection)
             except Exception as georef_error:
-                logger.warning(f"Error setting georeference: {georef_error}")
+                dataset = None  # Close file
+                raise RuntimeError(
+                    f"Failed to set georeference on {output_path}: {georef_error}"
+                ) from georef_error
 
             # Write data
             band = dataset.GetRasterBand(1)
@@ -293,7 +303,7 @@ class RasterIO:
             'min': float(np.min(valid_data)),
             'max': float(np.max(valid_data)),
             'mean': float(np.mean(valid_data)),
-            'std': float(np.std(valid_data, ddof=1)),
+            'std': float(np.std(valid_data)),
             'coverage_percent': (len(valid_data) / data.size) * 100
         }
 

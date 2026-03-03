@@ -304,7 +304,9 @@ class Sentinel1Adapter(SensorAdapter):
         data_dir = dim_path.with_suffix('.data')
         sigma0_files = list(data_dir.glob(f"Sigma0_{polarization}*.img"))
         if not sigma0_files:
-            sigma0_files = list(data_dir.glob("Sigma0*.img"))
+            sigma0_files = sorted(data_dir.glob("Sigma0*.img"))
+            if sigma0_files:
+                logger.warning(f"Exact polarization '{polarization}' not found, using: {sigma0_files[0].name}")
         if not sigma0_files:
             raise FileNotFoundError(f"No Sigma0 band found in: {data_dir}")
 

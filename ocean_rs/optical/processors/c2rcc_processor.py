@@ -304,7 +304,8 @@ class C2RCCProcessor:
         else:
             target_dir = tempfile.mkdtemp(prefix='ocean_rs_snap_')
             self._temp_dirs.append(target_dir)
-        return os.path.join(target_dir, f"snap_graph_{os.getpid()}.xml")
+        graph_filename = f"snap_graph_{base_name}_{os.getpid()}.xml"
+        return os.path.join(target_dir, graph_filename)
 
     def _get_subset_parameters(self) -> str:
         """Generate subset parameters for XML with proper escaping"""
@@ -1054,8 +1055,8 @@ class C2RCCProcessor:
         # Calculate ETA with protection against division by zero
         if self.processed_count > 0 and elapsed_time > 0:
             avg_time_per_product = elapsed_time / self.processed_count
-            # Estimate based on a typical batch size
-            eta_minutes = avg_time_per_product / 60
+            remaining = max(self.total_products - total, 0)
+            eta_minutes = (avg_time_per_product * remaining) / 60
             processing_speed = (self.processed_count / elapsed_time) * 60  # products per minute
         else:
             eta_minutes = 0.0

@@ -563,6 +563,10 @@ class UnifiedS2TSSProcessor:
 
     def cleanup(self):
         """Cleanup resources"""
+        if getattr(self, '_cleaned_up', False):
+            return
+        self._cleaned_up = True
+
         self.system_monitor.stop_monitoring()
 
         if self.c2rcc_processor:

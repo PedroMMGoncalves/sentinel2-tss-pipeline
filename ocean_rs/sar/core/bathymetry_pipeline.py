@@ -249,7 +249,13 @@ class BathymetryPipeline:
             # M-24: Ensure pixel_size_y is negative (GeoTIFF convention:
             # origin is top-left, y increases downward in pixel space)
             pixel_size_y = result.geo.pixel_size_y
-            pixel_size_y = pixel_size_y if pixel_size_y < 0 else -abs(pixel_size_y)
+            origin_y = result.geo.origin_y
+            if pixel_size_y > 0:
+                # Flip to north-origin convention: move origin to north edge
+                n_rows = result.depth.shape[0] if result.depth.ndim == 2 else 1
+                origin_y = origin_y + pixel_size_y * n_rows
+                pixel_size_y = -pixel_size_y
+                logger.warning("Corrected pixel_size_y sign and adjusted origin_y to north edge")
 
             # Build GDAL-compatible metadata dict
             geo_metadata = {
@@ -257,7 +263,7 @@ class BathymetryPipeline:
                     result.geo.origin_x,
                     result.geo.pixel_size_x,
                     0,
-                    result.geo.origin_y,
+                    origin_y,
                     0,
                     pixel_size_y,
                 ),

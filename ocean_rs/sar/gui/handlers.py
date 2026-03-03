@@ -2,6 +2,7 @@
 Event Handlers for SAR Bathymetry Toolkit GUI.
 """
 
+import os
 import logging
 
 logger = logging.getLogger('ocean_rs')
@@ -30,7 +31,7 @@ def update_system_info(gui):
         import psutil
         cpu = psutil.cpu_percent(interval=0)
         ram = psutil.virtual_memory()
-        disk = psutil.disk_usage('/')
+        disk = psutil.disk_usage(os.path.abspath('.'))
 
         gui.sys_info_labels['cpu'].config(text=f"{cpu:.0f}%")
         gui.sys_info_labels['ram'].config(

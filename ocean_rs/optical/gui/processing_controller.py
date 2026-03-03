@@ -209,14 +209,21 @@ def _run_processing_thread(gui, config, products):
         logger.error(f"Processing thread error: {e}")
         gui.root.after(0, lambda msg=str(e): gui.status_var.set(f"Processing error: {msg}"))
     finally:
-        gui.root.after(0, lambda: setattr(gui, 'processing_active', False))
-        gui.root.after(0, lambda: gui.start_button.config(state=tk.NORMAL))
-        gui.root.after(0, lambda: gui.stop_button.config(state=tk.DISABLED))
+        def _safe_after(callback):
+            try:
+                if gui.root.winfo_exists():
+                    gui.root.after(0, callback)
+            except Exception:
+                pass
+
+        _safe_after(lambda: setattr(gui, 'processing_active', False))
+        _safe_after(lambda: gui.start_button.config(state=tk.NORMAL))
+        _safe_after(lambda: gui.stop_button.config(state=tk.DISABLED))
         # Capture processor reference at definition time under lock
         with _processor_lock:
             processor = gui.processor
         if processor:
-            gui.root.after(0, lambda p=processor: p.cleanup() if hasattr(p, 'cleanup') else None)
+            _safe_after(lambda p=processor: p.cleanup() if hasattr(p, 'cleanup') else None)
 
 
 def stop_processing(gui):

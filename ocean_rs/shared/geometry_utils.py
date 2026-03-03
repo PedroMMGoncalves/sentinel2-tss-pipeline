@@ -566,7 +566,7 @@ def load_geojson(geojson_path: str) -> Tuple[Optional[str], str, bool]:
         # Sanity-check that coordinates fall within WGS84 range
         try:
             bounds = combined_geometry.bounds  # (minx, miny, maxx, maxy)
-            if (abs(bounds[0]) > 360 or abs(bounds[2]) > 360
+            if (abs(bounds[0]) > 180 or abs(bounds[2]) > 180
                     or abs(bounds[1]) > 90 or abs(bounds[3]) > 90):
                 logger.error("GeoJSON coordinates exceed WGS84 range — likely projected CRS")
                 return None, ("GeoJSON coordinates exceed WGS84 range. "

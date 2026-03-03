@@ -138,6 +138,7 @@ Examples:
     print()
 
     # Run processing
+    processor = None
     try:
         processor = UnifiedS2TSSProcessor(config)
         results = processor.process_batch()
@@ -150,7 +151,6 @@ Examples:
         print(f"Skipped (existing): {results['skipped']}")
         print(f"Failed: {results['failed']}")
 
-        processor.cleanup()
         return results['failed'] == 0
 
     except KeyboardInterrupt:
@@ -160,6 +160,9 @@ Examples:
         print(f"\nProcessing failed: {str(e)}")
         logger.error(f"CLI processing failed: {str(e)}")
         return False
+    finally:
+        if processor:
+            processor.cleanup()
 
 
 def _check_snap_installation():

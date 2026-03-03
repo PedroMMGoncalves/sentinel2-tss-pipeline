@@ -86,6 +86,11 @@ class WaterQualityProcessor:
             valid_mask = np.isfinite(absorption) & np.isfinite(backscattering)
             logger.info(f"Water clarity: {np.sum(valid_mask)} valid pixels of {valid_mask.size}")
 
+            # WARNING: For Type III/IV water, 'absorption' is pure-water absorption only
+            # (aw at 740/865nm). Particulate absorption is not estimated for these water types.
+            # Kd, Secchi, and euphotic depth may underestimate turbidity for Type III/IV pixels.
+            logger.debug("  Note: Absorption for Types III/IV is pure-water only — clarity products may underestimate turbidity")
+
             # Initialize all output arrays as NaN
             kd = np.full_like(absorption, np.nan)
             secchi_depth = np.full_like(absorption, np.nan)
@@ -100,6 +105,10 @@ class WaterQualityProcessor:
 
                 # Lee et al. (2005) diffuse attenuation coefficient
                 # Kd = (1 + 0.005 * theta_s) * [a + 4.18 * (1 - 0.52 * exp(-10.8 * a)) * bb]
+                # NOTE: Kd is computed from water-type-specific a and bb (reference wavelengths vary:
+                # 560nm for Type I, 665nm for Type II, 740/865nm for Types III/IV).
+                # This is NOT a standardized Kd(490). Secchi and euphotic depth inherit this
+                # wavelength dependence. Compare values within the same water type only.
                 theta_s = solar_zenith
                 kd_valid = (1 + 0.005 * theta_s) * (
                     a + 4.18 * (1 - 0.52 * np.exp(-10.8 * a)) * bb
@@ -234,8 +243,8 @@ class WaterQualityProcessor:
                 valid_mask = (
                     (~np.isnan(band_705)) &
                     (~np.isnan(band_665)) &
-                    (band_705 > 0) &
-                    (band_665 > 0)
+                    (band_705 > -0.001) &   # Allow slight negatives from atm. correction
+                    (band_665 > -0.001)
                 )
 
                 denominator = band_705 + band_665
@@ -246,7 +255,9 @@ class WaterQualityProcessor:
                                             denominator[valid_mask])
 
                     # NDCI bloom threshold (Mishra & Mishra, 2012)
-                    ndci_bloom = (ndci_values > 0.05).astype(np.float32)
+                    ndci_bloom = np.where(np.isfinite(ndci_values),
+                                          (ndci_values > 0.05).astype(np.float32),
+                                          np.nan)
                     results['ndci_bloom'] = ndci_bloom
                     results['ndci_values'] = ndci_values
 
@@ -291,7 +302,9 @@ class WaterQualityProcessor:
                     )
 
                     # MCI bloom threshold
-                    mci_bloom = (mci_values > 0.004).astype(np.float32)
+                    mci_bloom = np.where(np.isfinite(mci_values),
+                                         (mci_values > 0.004).astype(np.float32),
+                                         np.nan)
                     results['mci_bloom'] = mci_bloom
                     results['mci_values'] = mci_values
 
@@ -315,12 +328,13 @@ class WaterQualityProcessor:
                 hab_score = np.clip(hab_score, 0, 1)
                 results['hab_score'] = hab_score
 
-                # Create risk level classification
-                hab_risk = np.zeros(shape, dtype=np.uint8)
-                hab_risk[hab_score > 0.7] = 3  # High risk
-                hab_risk[(hab_score > 0.4) & (hab_score <= 0.7)] = 2  # Medium risk
-                hab_risk[(hab_score > 0.2) & (hab_score <= 0.4)] = 1  # Low risk
-                # hab_risk = 0 for score <= 0.2 (no risk)
+                # Create risk level classification (255 = nodata)
+                hab_risk = np.full(shape, 255, dtype=np.uint8)  # 255 = nodata
+                valid_score = np.isfinite(hab_score)
+                hab_risk[valid_score & (hab_score > 0.7)] = 3   # High risk
+                hab_risk[valid_score & (hab_score > 0.4) & (hab_score <= 0.7)] = 2  # Moderate risk
+                hab_risk[valid_score & (hab_score > 0.2) & (hab_score <= 0.4)] = 1  # Low risk
+                hab_risk[valid_score & (hab_score <= 0.2)] = 0   # No risk
 
                 results['hab_risk_level'] = hab_risk
 
@@ -330,8 +344,10 @@ class WaterQualityProcessor:
                     results['potential_bloom'] = results['ndci_bloom'].copy()
 
                 # Biomass alert levels
-                high_biomass = (hab_score > 0.6).astype(np.float32)
-                extreme_biomass = (hab_score > 0.8).astype(np.float32)
+                high_biomass = np.where(np.isfinite(hab_score),
+                                        (hab_score > 0.6).astype(np.float32), np.nan)
+                extreme_biomass = np.where(np.isfinite(hab_score),
+                                           (hab_score > 0.8).astype(np.float32), np.nan)
 
                 results['high_biomass_alert'] = high_biomass
                 results['extreme_biomass_alert'] = extreme_biomass
@@ -427,11 +443,12 @@ class WaterQualityProcessor:
             # Calculate statistics
             valid_tsi = ~np.isnan(tsi_primary)
             if np.any(valid_tsi):
-                oligotrophic = np.sum(trophic_class == 1)
-                mesotrophic = np.sum(trophic_class == 2)
-                eutrophic = np.sum(trophic_class == 3)
-                hypereutrophic = np.sum(trophic_class == 4)
-                total = np.sum(valid_tsi)
+                valid_tc = trophic_class[valid_tsi]
+                oligotrophic = int(np.sum(valid_tc == 1))
+                mesotrophic = int(np.sum(valid_tc == 2))
+                eutrophic = int(np.sum(valid_tc == 3))
+                hypereutrophic = int(np.sum(valid_tc == 4))
+                total = len(valid_tc)
 
                 logger.info(f"Trophic state classification completed:")
                 logger.info(f"  Mean TSI: {np.nanmean(tsi_primary):.1f}")

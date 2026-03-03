@@ -88,8 +88,9 @@ def setup_enhanced_logging(log_level=logging.INFO, output_folder: str = None):
     logger = logging.getLogger('ocean_rs')
     logger.setLevel(log_level)
 
-    # Remove existing handlers
+    # Remove existing handlers (close first to release file descriptors)
     for handler in logger.handlers[:]:
+        handler.close()
         logger.removeHandler(handler)
 
     # Determine log file location

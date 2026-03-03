@@ -87,6 +87,12 @@ def extract_swell(image: OceanImage,
     valid_wavelength = (wavelength_map >= min_wavelength_m) & \
                        (wavelength_map <= max_wavelength_m)
 
+    # Pre-compute shifted frequency grids (tile-independent)
+    wl_shifted = np.fft.fftshift(wavelength_map)
+    valid_shifted = np.fft.fftshift(valid_wavelength)
+    fx_shifted = np.fft.fftshift(fx)
+    fy_shifted = np.fft.fftshift(fy)
+
     wavelengths = []
     directions = []
     confidences = []
@@ -96,7 +102,6 @@ def extract_swell(image: OceanImage,
     for r0 in row_starts:
         for c0 in col_starts:
             tile = data[r0:r0+tile_px, c0:c0+tile_px].astype(np.float64)
-            tile_original = tile.copy()
 
             valid_frac = np.sum(np.isfinite(tile) & (tile != 0)) / tile.size
             if valid_frac < 0.5:
@@ -111,11 +116,6 @@ def extract_swell(image: OceanImage,
             fft2 = np.fft.fft2(tile)
             power = np.abs(np.fft.fftshift(fft2))**2
 
-            wl_shifted = np.fft.fftshift(wavelength_map)
-            valid_shifted = np.fft.fftshift(valid_wavelength)
-            fx_shifted = np.fft.fftshift(fx)
-            fy_shifted = np.fft.fftshift(fy)
-
             masked_power = power * valid_shifted
 
             # M-8: Avoid exact float comparison — use threshold instead
@@ -129,18 +129,26 @@ def extract_swell(image: OceanImage,
 
             peak_fx = fx_shifted[peak_idx]
             peak_fy = fy_shifted[peak_idx]
+            # Wave direction: angle from image y-axis (clockwise).
+            # FFT power spectrum has inherent 180° directional ambiguity.
+            # If pixel_size_y < 0 (north-up GIS convention), direction is from North.
             direction = np.degrees(np.arctan2(peak_fx, peak_fy)) % 360
 
             # M-9: Heuristic confidence metric (SNR/snr_scale, capped at 1.0).
             # Not calibrated — threshold 0.3 is empirical.
-            mean_power = np.mean(masked_power[masked_power > 0])
-            snr = peak_power / mean_power if mean_power > 0 else 0
+            background = masked_power.copy()
+            peak_flat_idx = np.argmax(background)
+            background.flat[peak_flat_idx] = 0
+            background_positive = background[background > 0]
+            if len(background_positive) > 0:
+                mean_power = np.mean(background_positive)
+            else:
+                mean_power = peak_power  # Degenerate case: SNR=1
+            snr = peak_power / mean_power
             confidence = min(1.0, snr / snr_scale)
 
             # M-7: Scale confidence by valid data fraction to penalize NaN-heavy tiles
-            # M2-2: Use consistent valid-pixel criteria (isfinite AND nonzero) matching the gate above
-            valid_data_frac = np.sum(np.isfinite(tile_original) & (tile_original != 0)) / tile_original.size
-            confidence *= valid_data_frac
+            confidence *= valid_frac  # Reuse already-computed fraction
 
             if confidence >= confidence_threshold:
                 wavelengths.append(wl)

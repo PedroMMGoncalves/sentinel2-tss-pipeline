@@ -613,7 +613,7 @@ class VisualizationProcessor:
                     'formula': '4 * (B3 - B11) - (0.25 * B8A + 2.75 * B12)',
                     'required_bands': [560, 1610, 865, 2190],
                     'fallback_bands': [560, 1610, 842, 2190],
-                    'description': 'Automated Water Extraction Index',
+                    'description': 'Automated Water Extraction Index — AWEInsh (Feyisa et al. 2014)',
                     'application': 'Enhanced water body extraction',
                     'enabled': indices_enabled,
                     'category': 'water_quality'
@@ -776,7 +776,7 @@ class VisualizationProcessor:
 
             elif index_name == 'MNDWI':
                 b3 = bands_data[bands_to_use[0]]  # 560nm
-                b_swir = bands_data[bands_to_use[1]]  # 865nm or 1610nm
+                b_swir = bands_data[bands_to_use[1]]  # 1610nm (SWIR-1)
                 return (b3 - b_swir) / (b3 + b_swir + 1e-8)
 
             elif index_name == 'NDTI':
@@ -900,7 +900,7 @@ class VisualizationProcessor:
         """Save RGB array as GeoTIFF with proper metadata"""
         dataset = None
         try:
-            rgb_uint8 = (rgb_array * 255).astype(np.uint8)
+            rgb_uint8 = np.round(rgb_array * 255).astype(np.uint8)
             height, width, bands = rgb_uint8.shape
 
             driver = gdal.GetDriverByName('GTiff')
@@ -944,7 +944,11 @@ class VisualizationProcessor:
                     band.SetDescription('Blue')
                     band.SetColorInterpretation(gdal.GCI_BlueBand)
 
-                band.SetStatistics(0, 255, float(np.mean(rgb_uint8[:, :, i])), float(np.std(rgb_uint8[:, :, i])))
+                band_data = rgb_uint8[:, :, i]
+                valid = band_data[band_data != 0]
+                if len(valid) > 0:
+                    band.SetStatistics(int(np.min(valid)), int(np.max(valid)),
+                                      float(np.mean(valid)), float(np.std(valid)))
 
             # Note: nodata=0 may mask very dark deep-water pixels.
             # This is acceptable — transparent nodata in GIS mosaics is more useful than preserving near-black pixels.

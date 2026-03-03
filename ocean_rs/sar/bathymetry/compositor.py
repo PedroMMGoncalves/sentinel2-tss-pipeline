@@ -69,9 +69,17 @@ def composite_bathymetry(results: List[BathymetryResult],
     weights = 1.0 / (all_uncertainties**2 + epsilon)
 
     if method == "weighted_mean":
-        weight_sum = np.sum(weights, axis=0)
-        depth = np.sum(all_depths * weights, axis=0) / weight_sum
-        uncertainty = 1.0 / np.sqrt(weight_sum)
+        valid = np.isfinite(all_depths) & np.isfinite(all_uncertainties)
+        safe_weights = np.where(valid, weights, 0)
+        safe_depths = np.where(valid, all_depths, 0)
+        weight_sum = np.sum(safe_weights, axis=0)
+        has_data = weight_sum > 0
+        depth = np.where(has_data,
+                         np.sum(safe_depths * safe_weights, axis=0) / weight_sum,
+                         np.nan)
+        uncertainty = np.where(has_data,
+                              1.0 / np.sqrt(np.maximum(weight_sum, 1e-10)),
+                              np.nan)
     else:
         depth = _weighted_median(all_depths, weights)
         residuals = np.abs(all_depths - depth[np.newaxis, :])
@@ -82,7 +90,7 @@ def composite_bathymetry(results: List[BathymetryResult],
                 f"Only N={n_obs} observations: using half-range (max-min)/2 "
                 "as uncertainty (MAD requires N>=3)"
             )
-            uncertainty = (np.max(all_depths, axis=0) - np.min(all_depths, axis=0)) / 2.0
+            uncertainty = (np.nanmax(all_depths, axis=0) - np.nanmin(all_depths, axis=0)) / 2.0
         else:
             if n_obs < 5:
                 logger.warning(

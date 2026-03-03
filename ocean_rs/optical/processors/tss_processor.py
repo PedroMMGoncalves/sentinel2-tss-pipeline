@@ -23,7 +23,7 @@ import os
 import glob
 import logging
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -164,16 +164,17 @@ class TSSProcessor:
 
     def _create_nir_water_mask(self, bands_data: Dict[int, np.ndarray]) -> Optional[np.ndarray]:
         """
-        Create water mask using simple NIR threshold.
+        Create water mask using NDWI+NIR threshold (D3-4).
 
-        Water absorbs NIR strongly, so low NIR reflectance indicates water.
-        This is simpler and more robust for turbid waters than index-based methods.
+        Combines NDWI (green-NIR)/(green+NIR) > 0 with NIR < threshold for
+        more robust discrimination against dark land surfaces.
+        Falls back to NIR-only if green band (560nm) is unavailable.
 
         Args:
             bands_data: Dictionary mapping wavelength (nm) to Rrs data
 
         Returns:
-            Boolean array where True = water (NIR < threshold), False = land
+            Boolean array where True = water, False = land
             Returns None if NIR band not available
         """
         try:
@@ -187,24 +188,34 @@ class TSSProcessor:
                 logger.debug("Cannot create NIR water mask: neither 865nm nor 842nm available")
                 return None
 
-            nir = bands_data[nir_wl]
+            nir_data = bands_data[nir_wl]
             threshold = self.config.water_mask_threshold  # Default 0.03
 
-            valid = ~np.isnan(nir)
-            water_mask = np.zeros_like(nir, dtype=bool)
-            water_mask[valid] = nir[valid] < threshold
+            valid = ~np.isnan(nir_data)
+            water_mask = np.zeros_like(nir_data, dtype=bool)
+
+            # D3-4: NDWI+NIR water mask (more robust against dark land surfaces)
+            if 560 in bands_data:
+                green = bands_data[560]
+                valid = valid & ~np.isnan(green)
+                ndwi = (green - nir_data) / np.maximum(green + nir_data, 1e-10)
+                water_mask[valid] = (nir_data[valid] < threshold) & (ndwi[valid] > 0)
+            else:
+                # Fallback to NIR-only if green band unavailable
+                logger.debug("Green band (560nm) unavailable, falling back to NIR-only water mask")
+                water_mask[valid] = nir_data[valid] < threshold
 
             water_pixels = np.sum(water_mask)
             total_valid = np.sum(valid)
             if total_valid > 0:
                 water_pct = 100.0 * water_pixels / total_valid
                 masked_pct = 100.0 - water_pct
-                logger.info(f"NIR water mask (< {threshold}): {water_pct:.1f}% water, {masked_pct:.1f}% land")
+                logger.info(f"NDWI+NIR water mask (< {threshold}): {water_pct:.1f}% water, {masked_pct:.1f}% land")
 
                 # M-11: Warn when too many pixels are masked out (common with turbid Type IV water)
                 if masked_pct > 30.0:
                     logger.warning(
-                        f"High masking rate: {masked_pct:.1f}% of pixels masked by NIR threshold "
+                        f"High masking rate: {masked_pct:.1f}% of pixels masked by NDWI+NIR threshold "
                         f"-- consider increasing for turbid water"
                     )
 
@@ -362,8 +373,9 @@ class TSSProcessor:
 
             else:
                 # L-13: Filename detection inconclusive — use range-check fallback
-                valid_sample = data[~np.isnan(data)]
-                if len(valid_sample) > 0 and np.max(valid_sample[:min(1000, len(valid_sample))]) > 0.1:
+                # S3-8: Use percentile on full array instead of spatially biased sample
+                p95 = np.nanpercentile(data, 95) if np.any(~np.isnan(data)) else 0.0
+                if p95 > 0.1:
                     # Values > 0.1 are too high for Rrs (sr^-1), likely rhow
                     converted_data[wavelength] = data / np.pi
                     conversion_log.append(f"{wavelength}nm: unknown filename, range-check -> rhow (/pi)")
@@ -963,12 +975,14 @@ class TSSProcessor:
         for wl, Rrs_val in vp.items():
             rrs[wl] = Rrs_val / (0.52 + 1.7 * Rrs_val)
 
-        # H2-1: Replace exact-zero rrs with epsilon to prevent NaN in QAA u computation
+        # H2-1/ML3-11: Borderline zero-Rrs pixels substituted with epsilon.
+        # These pixels will produce near-zero TSS (physical: very clear water).
+        # Diagnostic count logged at DEBUG level.
         for wl in rrs:
             zero_mask = rrs[wl] == 0
             if np.any(zero_mask):
                 n_zero = int(np.sum(zero_mask))
-                logger.debug(f"  {n_zero} pixels have zero Rrs at {wl}nm — adding epsilon")
+                logger.debug(f"  {n_zero} pixels have zero Rrs at {wl}nm — substituting epsilon (1e-10)")
                 rrs[wl] = np.where(zero_mask, 1e-10, rrs[wl])
 
         # Step 2: Compute u for all wavelengths
@@ -982,24 +996,26 @@ class TSSProcessor:
             u[wl] = u_val
 
         # Step 3: Estimate Rrs620 for water type classification
+        # Renamed from rrs620 to Rrs620: this is above-water remote sensing reflectance
         coeffs = self.constants.RRS620_COEFFICIENTS
         Rrs665 = vp[665]
-        rrs620 = (coeffs['a'] * Rrs665**3 + coeffs['b'] * Rrs665**2 +
+        Rrs620 = (coeffs['a'] * Rrs665**3 + coeffs['b'] * Rrs665**2 +
                   coeffs['c'] * Rrs665 + coeffs['d'])
-        rrs620 = np.maximum(rrs620, 0.0)  # M2-4: polynomial can go negative for low Rrs665
+        Rrs620 = np.maximum(Rrs620, 0.0)  # M2-4: polynomial can go negative for low Rrs665
+        Rrs620 = np.clip(Rrs620, 0.0, 2.0 * Rrs665 + 0.01)  # S3-10: Rrs620 should not greatly exceed Rrs665
 
         # Step 4: Classify water types (vectorized boolean masks)
         # Tie-breaking convention: lower-numbered type wins at exact boundary
         # (evaluated in order: Type I > Type II > Type IV > Type III as default)
         type1 = vp[490] > vp[560]                                                  # Clear
-        type2 = (~type1) & (vp[490] > rrs620)                                      # Moderate
+        type2 = (~type1) & (vp[490] > Rrs620)                                      # Moderate
         type4 = (~type1) & (~type2) & (vp[740] > vp[490]) & (vp[740] > 0.010)      # Extreme
         type3 = (~type1) & (~type2) & (~type4)                                      # Turbid (default)
 
         # H-3: Log pixels within 5% of classification thresholds (boundary pixels)
         eps_frac = 0.05
         near_t1 = np.abs(vp[490] - vp[560]) < eps_frac * np.maximum(np.abs(vp[560]), 1e-10)
-        near_t2 = np.abs(vp[490] - rrs620) < eps_frac * np.maximum(np.abs(rrs620), 1e-10)
+        near_t2 = np.abs(vp[490] - Rrs620) < eps_frac * np.maximum(np.abs(Rrs620), 1e-10)
         near_t4_a = np.abs(vp[740] - vp[490]) < eps_frac * np.maximum(np.abs(vp[490]), 1e-10)
         near_t4_b = np.abs(vp[740] - 0.010) < eps_frac * 0.010
         boundary_count = int(np.sum(near_t1 | near_t2 | near_t4_a | near_t4_b))
@@ -1034,6 +1050,7 @@ class TSSProcessor:
                 logger.debug(f"Type I guard losses: {n_lost_a560} from a560 NaN, {n_lost_denom} from denom ~0")
             bbp = np.full_like(a560, np.nan)
             bbp[safe] = (u[560][m][safe] * a560[safe]) / denom_u[safe] - bbw[560]
+            bbp = np.maximum(bbp, 0.0)  # ML3-6: particulate backscattering cannot be negative
             absorption_out[m] = a560
             backscattering_out[m] = bbp
             reference_band_out[m] = 560
@@ -1050,6 +1067,7 @@ class TSSProcessor:
             safe = np.abs(denom_u) > 1e-10
             bbp = np.full_like(a665, np.nan)
             bbp[safe] = (u[665][m][safe] * a665[safe]) / denom_u[safe] - bbw[665]
+            bbp = np.maximum(bbp, 0.0)  # ML3-6: particulate backscattering cannot be negative
             absorption_out[m] = a665
             backscattering_out[m] = bbp
             reference_band_out[m] = 665
@@ -1062,6 +1080,7 @@ class TSSProcessor:
             safe = np.abs(denom_u) > 1e-10
             bbp = np.full_like(denom_u, np.nan)
             bbp[safe] = (u[740][m][safe] * aw[740]) / denom_u[safe] - bbw[740]
+            bbp = np.maximum(bbp, 0.0)  # ML3-6: particulate backscattering cannot be negative
             absorption_out[m] = aw[740]
             backscattering_out[m] = bbp
             reference_band_out[m] = 740
@@ -1074,6 +1093,7 @@ class TSSProcessor:
             safe = np.abs(denom_u) > 1e-10
             bbp = np.full_like(denom_u, np.nan)
             bbp[safe] = (u[865][m][safe] * aw[865]) / denom_u[safe] - bbw[865]
+            bbp = np.maximum(bbp, 0.0)  # ML3-6: particulate backscattering cannot be negative
             absorption_out[m] = aw[865]
             backscattering_out[m] = bbp
             reference_band_out[m] = 865
@@ -1214,20 +1234,29 @@ class TSSProcessor:
 
                     # Apply water mask (set land pixels to NaN) if available
                     # Skip masking for mask products themselves
-                    if water_mask is not None and 'mask' not in product_key.lower():
+                    # G3-6: Validate shape before applying water mask
+                    water_mask_to_use = water_mask
+                    if water_mask is not None and water_mask.shape != product_info['data'].shape:
+                        logger.warning(
+                            f"Water mask shape {water_mask.shape} != data shape "
+                            f"{product_info['data'].shape}, skipping mask for {product_key}"
+                        )
+                        water_mask_to_use = None
+
+                    if water_mask_to_use is not None and 'mask' not in product_key.lower():
                         try:
-                            masked_data = np.where(water_mask, product_info['data'], np.nan)
+                            masked_data = np.where(water_mask_to_use, product_info['data'], np.nan)
                             product_info['data'] = masked_data
                         except Exception as e:
                             logger.debug(f"Could not apply water mask to {product_key}: {e}")
 
                     if any(class_key in product_key for class_key in classification_product_keys):
                         nodata_value = 255
+                        # ML3-9: Simplified clip/NaN/nodata ordering
                         data_to_save = product_info['data'].copy().astype(np.float64)
-                        data_to_save[np.isnan(data_to_save)] = nodata_value
+                        nan_mask = np.isnan(data_to_save)
                         data_to_save = np.clip(data_to_save, 0, 254)
-                        original_data = product_info['data']
-                        data_to_save[np.isnan(original_data)] = 255
+                        data_to_save[nan_mask] = 255  # nodata after clip
                         data_to_save = data_to_save.astype(np.uint8)
                         write_dtype = "uint8"
                     else:
@@ -1350,7 +1379,7 @@ DOI: https://doi.org/10.1016/j.rse.2021.112386
                 f.write(f"SENTINEL-2 TSS PROCESSING RESULTS\n")
                 f.write(f"{'='*50}\n")
                 f.write(f"Product: {product_name}\n")
-                f.write(f"Processing Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Processing Date: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n")
                 f.write(f"Pipeline: OceanRS v3.0.0\n\n")
 
                 total_count = 0

@@ -174,7 +174,8 @@ def configure_proj_environment(verbose: bool = True) -> bool:
 # Module-level initialization
 # This ensures PROJ is configured when the module is imported
 # Benign race -- configure_proj_environment() is idempotent, no lock needed
-_proj_configured = False
+# None = not checked yet, True = success, False = failed (won't retry)
+_proj_configured = None
 
 
 def ensure_proj_configured(verbose: bool = False) -> bool:
@@ -182,7 +183,8 @@ def ensure_proj_configured(verbose: bool = False) -> bool:
     Ensure PROJ is configured (only runs once).
 
     This function can be called multiple times safely - it will only
-    configure PROJ on the first call.
+    configure PROJ on the first call. If PROJ was not found on the first
+    attempt, subsequent calls return False immediately without re-scanning.
 
     Args:
         verbose: If True, print status messages.
@@ -192,10 +194,10 @@ def ensure_proj_configured(verbose: bool = False) -> bool:
     """
     global _proj_configured
 
-    if not _proj_configured:
+    if _proj_configured is None:
         _proj_configured = configure_proj_environment(verbose=verbose)
 
-    return _proj_configured
+    return _proj_configured if _proj_configured is not None else False
 
 
 __all__ = [
