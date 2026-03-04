@@ -123,29 +123,28 @@ def create_processing_tab(gui, notebook):
         variable=gui.delete_intermediate_var
     ).pack(anchor=tk.W, pady=2)
 
-    # Right column - performance settings
-    right_options = ttk.Frame(options_grid)
-    right_options.pack(side=tk.RIGHT, fill=tk.X, expand=True)
-
-    perf_frame = ttk.Frame(right_options)
-    perf_frame.pack(anchor=tk.W)
-
-    # Numeric validation for spinboxes
-    vcmd = (gui.root.register(_validate_numeric), '%P')
-
-    ttk.Label(perf_frame, text="Memory Limit (GB):").pack(side=tk.LEFT)
-    ttk.Spinbox(
-        perf_frame, from_=4, to=256, width=5,
-        textvariable=gui.memory_limit_var,
-        validate='key', validatecommand=vcmd
-    ).pack(side=tk.LEFT, padx=(5, 20))
-
-    ttk.Label(perf_frame, text="Thread Count:").pack(side=tk.LEFT)
-    ttk.Spinbox(
-        perf_frame, from_=1, to=64, width=5,
-        textvariable=gui.thread_count_var,
-        validate='key', validatecommand=vcmd
-    ).pack(side=tk.LEFT, padx=(5, 0))
+    # # Right column - performance settings (hidden: auto-detected from system)
+    # right_options = ttk.Frame(options_grid)
+    # right_options.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+    #
+    # perf_frame = ttk.Frame(right_options)
+    # perf_frame.pack(anchor=tk.W)
+    #
+    # vcmd = (gui.root.register(_validate_numeric), '%P')
+    #
+    # ttk.Label(perf_frame, text="Memory Limit (GB):").pack(side=tk.LEFT)
+    # ttk.Spinbox(
+    #     perf_frame, from_=4, to=256, width=5,
+    #     textvariable=gui.memory_limit_var,
+    #     validate='key', validatecommand=vcmd
+    # ).pack(side=tk.LEFT, padx=(5, 20))
+    #
+    # ttk.Label(perf_frame, text="Thread Count:").pack(side=tk.LEFT)
+    # ttk.Spinbox(
+    #     perf_frame, from_=1, to=64, width=5,
+    #     textvariable=gui.thread_count_var,
+    #     validate='key', validatecommand=vcmd
+    # ).pack(side=tk.LEFT, padx=(5, 0))
 
     # Bind input directory change to validation
     gui.input_dir_var.trace("w", gui.validate_input_directory)
