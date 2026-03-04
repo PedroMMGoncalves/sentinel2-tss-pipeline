@@ -1,23 +1,25 @@
 """
-OceanRS Environment Setup Helper.
+OceanRS Environment Verification.
 
-Run this script to check your environment and install missing dependencies.
-Works with Anaconda/Miniconda.
+Checks that all required and optional dependencies are installed
+and importable. Run this after setting up the environment.
 
 Usage (from Anaconda Prompt):
-    1. Create the environment:
-       conda env create -f environment.yml
+    1. Automated install (recommended):
+       install_environment.bat
 
-    2. Activate it:
+    2. Or manual setup:
+       conda create -n ocean_rs python=3.12.* -c conda-forge
        conda activate ocean_rs
+       conda install -c conda-forge numpy gdal psutil shapely fiona geopandas requests spyder
+       python -m pip install sv-ttk asf_search python-dotenv tkintermapview
 
-    3. Verify everything works:
+    3. Verify:
        python setup_environment.py
 
-    4. Open Spyder:
-       spyder
-
-    5. In Spyder, open run_gui.py or run_sar_gui.py and press F5.
+    4. In Spyder, set interpreter to ocean_rs:
+       Tools > Preferences > Python interpreter >
+       "Use the following interpreter" > ocean_rs/python.exe
 """
 
 import sys
@@ -28,12 +30,18 @@ def check_dependency(name, import_name=None, required=True):
     import_name = import_name or name
     try:
         mod = __import__(import_name)
-        version = getattr(mod, '__version__', getattr(mod, 'version', '?'))
-        print(f"  [OK] {name:20s} {version}")
+        version = getattr(mod, '__version__', getattr(mod, 'version', None))
+        if version:
+            print(f"  [OK] {name:20s} {version}")
+        else:
+            print(f"  [OK] {name:20s} installed")
         return True
     except ImportError:
         tag = "MISSING" if required else "optional"
         print(f"  [{tag}] {name:20s} not installed")
+        return False
+    except PermissionError:
+        print(f"  [BLOCKED] {name:20s} antivirus is blocking this package")
         return False
 
 
@@ -42,6 +50,12 @@ def main():
     print("OceanRS Environment Check")
     print(f"Python {sys.version}")
     print("=" * 60)
+
+    # Python version check
+    major, minor = sys.version_info[:2]
+    if minor != 12:
+        print(f"\n  WARNING: Python 3.12 recommended (you have 3.{minor})")
+        print(f"  GDAL and fiona may not work with Python 3.{minor}")
 
     print("\n--- Core (required) ---")
     ok = True
@@ -54,14 +68,18 @@ def main():
     check_dependency("fiona", required=False)
     check_dependency("geopandas", required=False)
 
-    print("\n--- GUI (optional) ---")
+    print("\n--- GUI ---")
     check_dependency("tkinter", "_tkinter", required=False)
+    check_dependency("sv-ttk (Azure theme)", "sv_ttk", required=False)
     check_dependency("tkintermapview", required=False)
 
     print("\n--- SAR Downloads (optional) ---")
     check_dependency("requests", required=False)
     check_dependency("asf_search", required=False)
     check_dependency("python-dotenv", "dotenv", required=False)
+
+    print("\n--- IDE ---")
+    check_dependency("spyder", required=False)
 
     print("\n--- OceanRS Package ---")
     try:
@@ -85,8 +103,7 @@ def main():
         print("  - run_sar_gui.py  (SAR Bathymetry Toolkit)")
     else:
         print("MISSING required dependencies. Run:")
-        print("  conda env create -f environment.yml")
-        print("  conda activate ocean_rs")
+        print("  install_environment.bat")
     print("=" * 60)
 
 

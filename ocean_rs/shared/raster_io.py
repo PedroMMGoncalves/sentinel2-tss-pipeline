@@ -30,6 +30,10 @@ def _configure_gdal():
     global _gdal_configured
     if _gdal_configured:
         return
+    # Configure PROJ before any GDAL operation to prevent conflicts
+    # with other PROJ installations (PostgreSQL/PostGIS, QGIS, etc.)
+    from .proj_fix import ensure_proj_configured
+    ensure_proj_configured(verbose=False)
     os.environ['CPL_LOG'] = 'NUL' if os.name == 'nt' else '/dev/null'
     os.environ['PROJ_DEBUG'] = '0'
     if GDAL_AVAILABLE:

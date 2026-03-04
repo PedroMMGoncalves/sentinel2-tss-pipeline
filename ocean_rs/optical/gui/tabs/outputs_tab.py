@@ -72,9 +72,9 @@ def _create_snap_note(parent):
     note_frame.pack(fill=tk.X, padx=10, pady=5)
 
     note_text = (
-        "SNAP TSM/CHL Products:\n"
-        "  TSM and CHL concentrations are automatically generated during C2RCC processing.\n"
-        "  No additional configuration needed - always included in C2RCC output."
+        "Processing: C2RCC rhow bands \u2192 Jiang et al. (2021) TSS \u2192 Water Quality Products\n"
+        "  Jiang TSS classifies water into 4 types and estimates suspended solids (g/m\u00b3)\n"
+        "  TSM and CHL are always produced by C2RCC (SNAP) \u2014 no extra configuration needed"
     )
 
     ttk.Label(

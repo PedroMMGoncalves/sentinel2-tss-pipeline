@@ -145,20 +145,39 @@ def configure_proj_environment(verbose: bool = True) -> bool:
     if proj_data_paths:
         proj_data = proj_data_paths[0]
         os.environ['PROJ_DATA'] = proj_data
+        os.environ['PROJ_LIB'] = proj_data  # Some GDAL versions use PROJ_LIB
         if verbose:
             print(f"  PROJ_DATA set to: {proj_data}")
+
+        # Set PROJ_DB explicitly to prevent conflicts with other
+        # PROJ installations (e.g. PostgreSQL/PostGIS, QGIS, OSGeo4W)
+        proj_db = os.path.join(proj_data, 'proj.db')
+        if os.path.exists(proj_db):
+            os.environ['PROJ_DB'] = proj_db
+            if verbose:
+                print(f"  PROJ_DB set to: {proj_db}")
+
+        # Ensure conda's PROJ library path is first on PATH to prevent
+        # GDAL from loading an incompatible proj.dll from other software
+        conda_prefix = os.environ.get('CONDA_PREFIX')
+        if conda_prefix:
+            conda_lib_dir = os.path.join(conda_prefix, 'Library', 'bin')
+            if os.path.exists(conda_lib_dir):
+                current_path = os.environ.get('PATH', '')
+                if conda_lib_dir not in current_path:
+                    os.environ['PATH'] = conda_lib_dir + os.pathsep + current_path
+                    if verbose:
+                        print(f"  Prepended to PATH: {conda_lib_dir}")
     else:
         if verbose:
             print("  WARNING: No PROJ data directory found")
         return False
 
-    # Step 2: Find and set PROJ_LIB
+    # Step 2: Find and set library paths
     proj_lib_paths = find_proj_lib_paths()
 
-    if proj_lib_paths:
-        os.environ['PROJ_LIB'] = proj_lib_paths[0]
-        if verbose:
-            print(f"  PROJ_LIB set to: {proj_lib_paths[0]}")
+    if proj_lib_paths and verbose:
+        print(f"  PROJ lib path: {proj_lib_paths[0]}")
 
     # Step 3: Test the configuration
     if test_proj_configuration():

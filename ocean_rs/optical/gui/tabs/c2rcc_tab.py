@@ -80,10 +80,10 @@ def _create_info_note(parent):
     note_frame.pack(fill=tk.X, padx=10, pady=5)
 
     note_text = (
-        "Automatic SNAP Products:\n"
-        "  TSM and CHL concentrations are automatically calculated during C2RCC processing\n"
-        "  Uncertainty maps (unc_tsm.img, unc_chl.img) are generated when uncertainties are enabled\n"
-        "  Water leaving reflectance (rhow) bands are generated for optional Jiang TSS processing"
+        "C2RCC converts L1C top-of-atmosphere radiance to water-leaving reflectance (rhow).\n"
+        "  Neural Network: C2RCC-Nets (clear water) | C2X-Nets (turbid) | C2X-COMPLEX (extreme turbidity)\n"
+        "  ECMWF: Uses real atmospheric conditions at acquisition time for higher accuracy\n"
+        "  Outputs: rhow bands (required for Jiang TSS), TSM, CHL, Kd, and optional uncertainties"
     )
 
     ttk.Label(

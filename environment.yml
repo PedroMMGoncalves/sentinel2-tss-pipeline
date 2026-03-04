@@ -3,7 +3,7 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  # Python (3.12 — stable, wide package support)
+  # Python 3.12 — MUST be pinned; 3.13+ breaks GDAL/fiona bindings
   - python=3.12.*
 
   # Core (required)
@@ -16,10 +16,18 @@ dependencies:
   - fiona
   - geopandas
 
-  # SAR downloads (optional — only needed for ocean_rs.sar scene discovery)
+  # Networking
   - requests
   - pip
-  - pip:
-    - asf_search
-    - python-dotenv
-    - tkintermapview
+
+  # IDE
+  - spyder
+
+  # NOTE: Do NOT add a pip: section here — it conflicts with system pip
+  # on machines that have ArcGIS Pro or multiple Python installations.
+  #
+  # After creating the environment, install pip-only packages manually:
+  #   python -m pip install sv-ttk asf_search python-dotenv tkintermapview
+  #
+  # Or use the automated installer:
+  #   install_environment.bat
