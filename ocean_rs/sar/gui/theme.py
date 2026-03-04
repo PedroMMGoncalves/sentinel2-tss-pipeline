@@ -69,8 +69,16 @@ class ThemeManager:
 
     def _configure_styles(self):
         style = ttk.Style()
-        style.theme_use('clam')
-        self.root.configure(bg=self.COLORS['bg_main'])
+
+        # Try modern Sun Valley (Azure) theme first
+        try:
+            import sv_ttk
+            sv_ttk.set_theme("light")
+            logger.info("Applied Sun Valley (Azure) light theme")
+        except ImportError:
+            style.theme_use('clam')
+            self.root.configure(bg=self.COLORS['bg_main'])
+            logger.info("sv-ttk not installed, using fallback theme")
 
         style.configure('Primary.TButton',
                         background=self.COLORS['primary'],

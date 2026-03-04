@@ -54,6 +54,41 @@ def _configure_gdal():
     _gdal_configured = True
 
 
+def check_memory_for_array(rows, cols, bytes_per_pixel=8, description="array"):
+    """Check available memory before allocating a large array.
+
+    Args:
+        rows: Number of rows.
+        cols: Number of columns.
+        bytes_per_pixel: Bytes per pixel (8 for complex64, 16 for complex128).
+        description: Description for log messages.
+
+    Returns:
+        bool: True if sufficient memory, False if warning issued.
+    """
+    estimated_bytes = rows * cols * bytes_per_pixel
+    estimated_gb = estimated_bytes / (1024**3)
+    try:
+        import psutil
+        available = psutil.virtual_memory().available
+        available_gb = available / (1024**3)
+        if estimated_bytes > available * 0.5:
+            logger.warning(
+                f"Loading {description} requires ~{estimated_gb:.1f} GB "
+                f"but only {available_gb:.1f} GB available (50% threshold). "
+                f"Consider processing in smaller tiles."
+            )
+            return False
+    except ImportError:
+        if estimated_gb > 8.0:
+            logger.warning(
+                f"Loading {description} requires ~{estimated_gb:.1f} GB. "
+                f"psutil not available for memory check."
+            )
+            return False
+    return True
+
+
 class RasterIO:
     """Utilities for raster input/output operations using GDAL"""
 
@@ -91,7 +126,14 @@ class RasterIO:
                 raise ValueError(f"Could not open raster file: {file_path}")
 
             band = dataset.GetRasterBand(band_index)
-            data = band.ReadAsArray(buf_type=gdal.GDT_Float32)
+            # Detect data type from the band
+            band_dtype = band.DataType
+            if band_dtype in (gdal.GDT_CFloat32, gdal.GDT_CFloat64, gdal.GDT_CInt16, gdal.GDT_CInt32):
+                # Complex data: read as complex, let GDAL preserve the type
+                data = band.ReadAsArray()
+                logger.debug(f"Read complex raster: dtype={data.dtype}")
+            else:
+                data = band.ReadAsArray(buf_type=gdal.GDT_Float32)
             nodata = band.GetNoDataValue()
 
             # Apply nodata mask
@@ -168,6 +210,8 @@ class RasterIO:
                 'int16':   (gdal.GDT_Int16, np.int16, '2'),
                 'int32':   (gdal.GDT_Int32, np.int32, '2'),
                 'uint16':  (gdal.GDT_UInt16, np.uint16, '2'),
+                'complex64':  (gdal.GDT_CFloat32, np.complex64, '1'),   # No predictor for complex
+                'complex128': (gdal.GDT_CFloat64, np.complex128, '1'),
             }
             gdal_dtype, np_dtype, predictor = dtype_map.get(dtype, (gdal.GDT_Float32, np.float32, '3'))
 

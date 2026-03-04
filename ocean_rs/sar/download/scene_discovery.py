@@ -63,6 +63,21 @@ def search_scenes(aoi_wkt: str,
             "Install with: pip install asf_search"
         )
 
+    # M16: Validate WKT before sending to API
+    if not aoi_wkt or not aoi_wkt.strip():
+        raise ValueError("AOI WKT is empty")
+    aoi_wkt = aoi_wkt.strip()
+    if not any(aoi_wkt.upper().startswith(t) for t in ['POLYGON', 'MULTIPOLYGON', 'POINT', 'LINESTRING']):
+        raise ValueError(f"Invalid WKT: must start with a geometry type (POLYGON, etc.), got: {aoi_wkt[:50]}")
+    # Also try to validate with shared utility if available
+    try:
+        from ocean_rs.shared.geometry_utils import validate_wkt
+        valid, msg = validate_wkt(aoi_wkt)
+        if not valid:
+            raise ValueError(f"Invalid WKT geometry: {msg}")
+    except ImportError:
+        pass  # validate_wkt not available, proceed with basic validation
+
     logger.info(f"Searching ASF: platform={platform}, beam={beam_mode}, "
                 f"dates={start_date} to {end_date}")
 
@@ -73,11 +88,27 @@ def search_scenes(aoi_wkt: str,
         'maxResults': max_results,
     }
 
+    # M9: Raise clear error instead of silent fallback for ALOS-2
+    alos2_platform = getattr(asf.PLATFORM, 'ALOS2', None)
+    if platform == "ALOS-2" and alos2_platform is None:
+        raise ImportError(
+            "asf_search library does not have ALOS2 platform constant. "
+            "Upgrade asf_search to version 7.0+ for ALOS-2 support: "
+            "pip install --upgrade asf_search"
+        )
+
     platform_map = {
         "Sentinel-1": asf.PLATFORM.SENTINEL1,
+        "ALOS-2": alos2_platform,
     }
-    if platform in platform_map:
+    # NISAR: added conditionally (requires asf_search >= 7.x)
+    if hasattr(asf.PLATFORM, 'NISAR'):
+        platform_map["NISAR"] = asf.PLATFORM.NISAR
+
+    if platform in platform_map and platform_map[platform] is not None:
         search_params['platform'] = platform_map[platform]
+    elif platform not in platform_map:
+        logger.warning(f"Unknown platform '{platform}', searching without platform filter")
 
     if beam_mode:
         search_params['beamMode'] = [beam_mode]

@@ -16,6 +16,10 @@ dependencies:
   - fiona
   - geopandas
 
+  # SAR toolkit
+  - scipy
+  - h5py
+
   # Networking
   - requests
   - pip
@@ -27,7 +31,7 @@ dependencies:
   # on machines that have ArcGIS Pro or multiple Python installations.
   #
   # After creating the environment, install pip-only packages manually:
-  #   python -m pip install sv-ttk asf_search python-dotenv tkintermapview
+  #   python -m pip install sv-ttk asf_search python-dotenv tkintermapview snaphu
   #
   # Or use the automated installer:
   #   install_environment.bat

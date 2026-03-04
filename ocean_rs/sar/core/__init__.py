@@ -1,7 +1,7 @@
 """
-Core module for OceanRS SAR Bathymetry Toolkit.
+Core module for OceanRS SAR Toolkit.
 
-Contains data models and the main bathymetry pipeline orchestrator.
+Contains data models and the main pipeline orchestrators.
 """
 
 from .data_models import (
@@ -10,6 +10,11 @@ from .data_models import (
     OceanImage,
     SwellField,
     BathymetryResult,
+    OrbitStateVector,
+    SLCImage,
+    InSARPair,
+    Interferogram,
+    DisplacementField,
 )
 from .bathymetry_pipeline import BathymetryPipeline
 
@@ -19,5 +24,10 @@ __all__ = [
     'OceanImage',
     'SwellField',
     'BathymetryResult',
+    'OrbitStateVector',
+    'SLCImage',
+    'InSARPair',
+    'Interferogram',
+    'DisplacementField',
     'BathymetryPipeline',
 ]

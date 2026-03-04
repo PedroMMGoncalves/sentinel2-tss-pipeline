@@ -96,6 +96,29 @@ def main():
         print(f"  [FAIL] ocean_rs.sar       {e}")
         ok = False
 
+    # SAR toolkit verification
+    print("\n--- SAR Toolkit ---")
+    print("Verifying SAR toolkit imports...")
+    try:
+        from ocean_rs.sar.insar import InSARPipeline
+        print("  InSARPipeline: OK")
+    except ImportError as e:
+        print(f"  InSARPipeline: FAILED ({e})")
+
+    try:
+        from ocean_rs.sar.displacement import compute_dinsar, compute_sbas
+        print("  Displacement: OK")
+    except ImportError as e:
+        print(f"  Displacement: FAILED ({e})")
+
+    # Optional dependencies
+    for pkg, desc in [('h5py', 'NISAR HDF5 support'), ('snaphu', 'Phase unwrapping'), ('scipy', 'Scientific computing')]:
+        try:
+            __import__(pkg)
+            print(f"  {pkg} ({desc}): OK")
+        except ImportError:
+            print(f"  {pkg} ({desc}): NOT INSTALLED (optional)")
+
     print("\n" + "=" * 60)
     if ok:
         print("Environment is ready! Open Spyder and run:")

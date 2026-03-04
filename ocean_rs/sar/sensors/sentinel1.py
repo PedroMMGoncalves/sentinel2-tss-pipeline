@@ -18,14 +18,43 @@ from xml.sax.saxutils import escape as xml_escape
 
 import numpy as np
 
-from ..core.data_models import OceanImage, ImageType, GeoTransform
+from ..core.data_models import (
+    OceanImage, SLCImage, ImageType, GeoTransform, OrbitStateVector,
+)
 from .base import SensorAdapter
 
 logger = logging.getLogger('ocean_rs')
 
 
+from ocean_rs.shared.raster_io import check_memory_for_array
+
+
+_VALID_POLARIZATIONS = frozenset(('VV', 'VH', 'HH', 'HV'))
+
+
 class Sentinel1Adapter(SensorAdapter):
     """Preprocess Sentinel-1 SLC to calibrated sigma0 via SNAP GPT."""
+
+    @staticmethod
+    def _validate_polarization(polarization: str) -> str:
+        """Validate and normalize the polarization parameter.
+
+        Args:
+            polarization: Polarization string to validate.
+
+        Returns:
+            Uppercase polarization string.
+
+        Raises:
+            ValueError: If polarization is not one of VV, VH, HH, HV.
+        """
+        pol = polarization.upper()
+        if pol not in _VALID_POLARIZATIONS:
+            raise ValueError(
+                f"Invalid polarization '{polarization}'. "
+                f"Must be one of: {sorted(_VALID_POLARIZATIONS)}"
+            )
+        return pol
 
     def __init__(self, pixel_spacing_m: float = 10.0):
         """Initialize Sentinel-1 adapter.
@@ -68,6 +97,7 @@ class Sentinel1Adapter(SensorAdapter):
             snap_gpt_path: Optional explicit path to SNAP GPT executable.
             polarization: Polarization to calibrate (VV, VH, HH, HV).
         """
+        polarization = self._validate_polarization(polarization)
         return self._run_snap_graph(
             input_path, output_dir, snap_gpt_path, polarization,
             include_tc=False, suffix="_sigma0_fft"
@@ -94,6 +124,7 @@ class Sentinel1Adapter(SensorAdapter):
             snap_gpt_path: Optional explicit path to SNAP GPT executable.
             polarization: Polarization to calibrate (VV, VH, HH, HV).
         """
+        polarization = self._validate_polarization(polarization)
         return self._run_snap_graph(
             input_path, output_dir, snap_gpt_path, polarization,
             include_tc=True, suffix="_sigma0"
@@ -364,3 +395,416 @@ class Sentinel1Adapter(SensorAdapter):
 
         logger.warning(f"Could not parse datetime from filename: {scene_name}")
         return ""
+
+    # ------------------------------------------------------------------
+    # InSAR SLC support
+    # ------------------------------------------------------------------
+
+    # Sentinel-1 C-band radar wavelength (m)
+    S1_WAVELENGTH_M = 0.05546576
+
+    def read_slc(self, input_path: Path, output_dir: Path,
+                 polarization: str = "VV") -> SLCImage:
+        """Read Sentinel-1 SLC for InSAR processing.
+
+        For IW (TOPS) mode, automatically debursts before reading.
+        For SM (Stripmap) mode, reads SLC directly.
+
+        The complex SLC data is read from the measurement TIFF files
+        inside the .SAFE directory. Orbit state vectors are parsed
+        from the annotation XML.
+
+        Args:
+            input_path: Path to S1 SLC product (.SAFE or .zip)
+            output_dir: Working directory for intermediate files
+            polarization: Polarization channel (default: VV)
+
+        Returns:
+            SLCImage with complex data and orbit metadata.
+        """
+        polarization = self._validate_polarization(polarization)
+        input_path = Path(input_path)
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        scene_name = input_path.stem.replace('.SAFE', '')
+        beam_mode = self._detect_beam_mode(scene_name)
+
+        if beam_mode == 'IW':
+            # TOPS mode: deburst first via SNAP GPT
+            debursted_path = self.deburst_slc(
+                input_path, output_dir, polarization=polarization
+            )
+            return self._load_slc_from_snap(
+                debursted_path, polarization, scene_name, beam_mode
+            )
+        else:
+            # Stripmap or other: read SLC directly from .SAFE
+            return self._load_slc_from_safe(
+                input_path, output_dir, polarization, scene_name, beam_mode
+            )
+
+    def deburst_slc(self, input_path: Path, output_dir: Path,
+                    swaths: Optional[list] = None,
+                    polarization: str = "VV") -> Path:
+        """Deburst Sentinel-1 IW TOPS SLC using SNAP GPT.
+
+        Processing chain:
+            Read → TOPSAR-Split (per swath) → Apply-Orbit-File →
+            TOPSAR-Deburst → TOPSAR-Merge → Write (BEAM-DIMAP)
+
+        Args:
+            input_path: Path to S1 IW SLC product (.SAFE or .zip)
+            output_dir: Working directory for debursted output
+            swaths: List of swaths to process (e.g. ['IW1','IW2','IW3']).
+                    None = all swaths.
+            polarization: Polarization channel (VV, VH, HH, HV). Default: VV.
+
+        Returns:
+            Path to debursted .dim file.
+        """
+        gpt = self._find_gpt()
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        scene_name = Path(input_path).stem.replace('.SAFE', '')
+        output_file = output_dir / f"{scene_name}_debursted.dim"
+
+        if output_file.exists():
+            logger.info(f"Debursted file exists, reusing: {output_file.name}")
+            return output_file
+
+        graph_xml = self._create_deburst_graph(
+            str(input_path), str(output_file), swaths=swaths,
+            polarization=polarization
+        )
+
+        graph_path = output_dir / f"{scene_name}_deburst_graph.xml"
+        with open(graph_path, 'w') as f:
+            f.write(graph_xml)
+
+        logger.info(f"Running SNAP GPT TOPS deburst: {scene_name}")
+        process = subprocess.Popen(
+            [gpt, str(graph_path)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        try:
+            stdout, stderr = process.communicate(timeout=7200)
+            if process.returncode != 0:
+                raise RuntimeError(
+                    f"SNAP GPT deburst failed (exit {process.returncode}):\n"
+                    f"{stderr[-500:]}"
+                )
+            logger.info(f"SNAP GPT deburst completed: {scene_name}")
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            raise RuntimeError(
+                f"SNAP GPT deburst timed out after 2 hours: {scene_name}"
+            )
+
+        graph_path.unlink(missing_ok=True)
+        return output_file
+
+    def _create_deburst_graph(self, input_path: str, output_path: str,
+                               swaths: Optional[list] = None,
+                               polarization: str = "VV") -> str:
+        """Create SNAP GPT XML graph for TOPS deburst + merge.
+
+        Chain: Read → Apply-Orbit-File → TOPSAR-Deburst → Write
+
+        SNAP's TOPSAR-Deburst operator handles all sub-swaths.
+        Explicit TOPSAR-Merge is not needed when debursting all swaths.
+        """
+        xml = f"""<graph id="S1-TOPS-Deburst">
+  <version>1.0</version>
+  <node id="Read">
+    <operator>Read</operator>
+    <sources/>
+    <parameters>
+      <file>{xml_escape(str(input_path))}</file>
+    </parameters>
+  </node>
+  <node id="Apply-Orbit-File">
+    <operator>Apply-Orbit-File</operator>
+    <sources>
+      <sourceProduct refid="Read"/>
+    </sources>
+    <parameters>
+      <orbitType>Sentinel Precise (Auto Download)</orbitType>
+      <polyDegree>3</polyDegree>
+      <continueOnFail>true</continueOnFail>
+    </parameters>
+  </node>
+  <node id="TOPSAR-Deburst">
+    <operator>TOPSAR-Deburst</operator>
+    <sources>
+      <sourceProduct refid="Apply-Orbit-File"/>
+    </sources>
+    <parameters>
+      <selectedPolarisations>{xml_escape(str(polarization))}</selectedPolarisations>
+    </parameters>
+  </node>
+  <node id="Write">
+    <operator>Write</operator>
+    <sources>
+      <sourceProduct refid="TOPSAR-Deburst"/>
+    </sources>
+    <parameters>
+      <file>{xml_escape(str(output_path))}</file>
+      <formatName>BEAM-DIMAP</formatName>
+    </parameters>
+  </node>
+</graph>"""
+        return xml
+
+    def _load_slc_from_snap(self, dim_path: Path, polarization: str,
+                             scene_name: str, beam_mode: str) -> SLCImage:
+        """Load debursted SLC from SNAP BEAM-DIMAP output.
+
+        Reads the complex (i+q) bands from the .data directory.
+        """
+        from ocean_rs.shared.raster_io import RasterIO
+
+        data_dir = dim_path.with_suffix('.data')
+
+        # SNAP stores complex as separate i_* and q_* bands
+        i_files = sorted(data_dir.glob(f"i_{polarization}*.img"))
+        q_files = sorted(data_dir.glob(f"q_{polarization}*.img"))
+
+        if i_files and q_files:
+            i_data, metadata = RasterIO.read_raster(str(i_files[0]))
+            q_data, _ = RasterIO.read_raster(str(q_files[0]))
+            complex_data = i_data.astype(np.float32) + 1j * q_data.astype(np.float32)
+        else:
+            # Fallback: try amplitude band
+            amp_files = sorted(data_dir.glob(f"*{polarization}*.img"))
+            if not amp_files:
+                raise FileNotFoundError(
+                    f"No SLC bands found for {polarization} in: {data_dir}"
+                )
+            logger.warning(
+                f"Complex bands not found, loading amplitude only: {amp_files[0].name}"
+            )
+            real_data, metadata = RasterIO.read_raster(str(amp_files[0]))
+            complex_data = real_data.astype(np.complex64)
+
+        gt = metadata['geotransform']
+        geo = GeoTransform(
+            origin_x=gt[0], origin_y=gt[3],
+            pixel_size_x=gt[1], pixel_size_y=gt[5],
+            crs_wkt=metadata.get('projection', ''),
+            rows=complex_data.shape[0], cols=complex_data.shape[1],
+        )
+
+        # Parse orbit state vectors from annotation XML
+        orbit_vectors = self._parse_orbit_from_safe(dim_path)
+
+        return SLCImage(
+            data=complex_data,
+            geo=geo,
+            metadata={
+                'sensor': 'Sentinel-1',
+                'beam_mode': beam_mode,
+                'acquisition_time': self._parse_datetime(scene_name),
+                'source_file': str(dim_path),
+                'orbit_state_vectors': orbit_vectors,
+            },
+            wavelength_m=self.S1_WAVELENGTH_M,
+            pixel_spacing_range=abs(geo.pixel_size_x),
+            pixel_spacing_azimuth=abs(geo.pixel_size_y),
+            is_debursted=(beam_mode == 'IW'),
+        )
+
+    def _load_slc_from_safe(self, safe_path: Path, output_dir: Path,
+                             polarization: str, scene_name: str,
+                             beam_mode: str) -> SLCImage:
+        """Load SLC directly from .SAFE directory (Stripmap mode).
+
+        Reads the measurement TIFF files containing complex data.
+        """
+        safe_path = Path(safe_path)
+
+        # Handle .zip files
+        if safe_path.suffix.upper() == '.ZIP':
+            raise NotImplementedError(
+                "Direct SLC reading from .zip not supported. "
+                "Extract the .SAFE directory first, or use deburst_slc() for IW mode."
+            )
+
+        measurement_dir = safe_path / 'measurement'
+        if not measurement_dir.exists():
+            raise FileNotFoundError(
+                f"No measurement directory in: {safe_path}"
+            )
+
+        # Find matching TIFF file
+        pol_lower = polarization.lower()
+        tiff_files = sorted(measurement_dir.glob(f"*{pol_lower}*.tiff"))
+        if not tiff_files:
+            tiff_files = sorted(measurement_dir.glob("*.tiff"))
+            if tiff_files:
+                logger.warning(
+                    f"Exact pol '{polarization}' not found, using: {tiff_files[0].name}"
+                )
+        if not tiff_files:
+            raise FileNotFoundError(
+                f"No measurement TIFF found for {polarization} in: {measurement_dir}"
+            )
+
+        # Read complex data via GDAL
+        try:
+            from osgeo import gdal
+        except ImportError:
+            raise ImportError("GDAL is required for SLC reading")
+
+        ds = gdal.Open(str(tiff_files[0]))
+        if ds is None:
+            raise RuntimeError(f"GDAL failed to open: {tiff_files[0]}")
+
+        try:
+            # M15: Check memory before reading large SLC
+            check_memory_for_array(
+                ds.RasterYSize, ds.RasterXSize,
+                bytes_per_pixel=8, description="Sentinel-1 SLC"
+            )
+
+            # S1 measurement TIFFs are stored as complex int16
+            band = ds.GetRasterBand(1)
+            complex_data = band.ReadAsArray().astype(np.complex64)
+
+            gt = ds.GetGeoTransform()
+            crs_wkt = ds.GetProjection() or ''
+            rows, cols = ds.RasterYSize, ds.RasterXSize
+        finally:
+            ds = None
+
+        geo = GeoTransform(
+            origin_x=gt[0], origin_y=gt[3],
+            pixel_size_x=gt[1], pixel_size_y=gt[5],
+            crs_wkt=crs_wkt, rows=rows, cols=cols,
+        )
+
+        # m11: Geotransform in radar coordinates has pixel_size = 1.0 (pixel indices)
+        # Use sensor defaults in that case
+        pixel_spacing_range = abs(geo.pixel_size_x) if geo.pixel_size_x != 0 else 2.329
+        pixel_spacing_azimuth = abs(geo.pixel_size_y) if geo.pixel_size_y != 0 else 13.97
+        if abs(pixel_spacing_range - 1.0) < 0.01:
+            pixel_spacing_range = 2.329  # S1 IW range pixel spacing (m)
+            logger.debug("Using default S1 IW range pixel spacing (2.329m)")
+        if abs(pixel_spacing_azimuth - 1.0) < 0.01:
+            pixel_spacing_azimuth = 13.97  # S1 IW azimuth pixel spacing (m)
+            logger.debug("Using default S1 IW azimuth pixel spacing (13.97m)")
+
+        orbit_vectors = self._parse_orbit_from_safe(safe_path)
+
+        return SLCImage(
+            data=complex_data,
+            geo=geo,
+            metadata={
+                'sensor': 'Sentinel-1',
+                'beam_mode': beam_mode,
+                'acquisition_time': self._parse_datetime(scene_name),
+                'source_file': str(safe_path),
+                'orbit_state_vectors': orbit_vectors,
+            },
+            wavelength_m=self.S1_WAVELENGTH_M,
+            pixel_spacing_range=pixel_spacing_range,
+            pixel_spacing_azimuth=pixel_spacing_azimuth,
+            is_debursted=False,
+        )
+
+    def _parse_orbit_from_safe(self, path: Path) -> list:
+        """Parse orbit state vectors from S1 annotation XML.
+
+        Looks for orbit state vectors in the annotation directory
+        of the .SAFE product, or from the SNAP .dim metadata.
+
+        Returns:
+            List of OrbitStateVector objects, or empty list if parsing fails.
+        """
+        import xml.etree.ElementTree as ET
+
+        path = Path(path)
+        orbit_vectors = []
+
+        # Try annotation XML in .SAFE directory
+        annotation_dir = None
+        if path.suffix.upper() == '.SAFE':
+            annotation_dir = path / 'annotation'
+        elif path.suffix == '.dim':
+            # For SNAP output, orbit info may be in the .dim XML
+            safe_dir = self._find_original_safe(path)
+            if safe_dir:
+                annotation_dir = safe_dir / 'annotation'
+
+        if annotation_dir and annotation_dir.exists():
+            xml_files = sorted(annotation_dir.glob("*.xml"))
+            if xml_files:
+                try:
+                    # m24: Prefer defusedxml for safer XML parsing
+                    try:
+                        from defusedxml import ElementTree as SafeET
+                        tree = SafeET.parse(str(xml_files[0]))
+                    except ImportError:
+                        # defusedxml not available, use standard (safe for trusted local files)
+                        tree = ET.parse(str(xml_files[0]))
+                    root = tree.getroot()
+
+                    for orbit_elem in root.iter('orbit'):
+                        time_elem = orbit_elem.find('time')
+                        pos = orbit_elem.find('position')
+                        vel = orbit_elem.find('velocity')
+
+                        if time_elem is not None and pos is not None and vel is not None:
+                            orbit_vectors.append(OrbitStateVector(
+                                time_utc=time_elem.text.strip(),
+                                x=float(pos.find('x').text),
+                                y=float(pos.find('y').text),
+                                z=float(pos.find('z').text),
+                                vx=float(vel.find('x').text),
+                                vy=float(vel.find('y').text),
+                                vz=float(vel.find('z').text),
+                            ))
+
+                    if orbit_vectors:
+                        logger.info(
+                            f"Parsed {len(orbit_vectors)} orbit state vectors"
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to parse orbit XML: {e}")
+
+        if not orbit_vectors:
+            logger.warning(
+                "No orbit state vectors found. Baseline computation will "
+                "require external orbit files (EOF)."
+            )
+
+        return orbit_vectors
+
+    def _find_original_safe(self, dim_path: Path) -> Optional[Path]:
+        """Try to find the original .SAFE directory from a SNAP .dim path.
+
+        Looks for .SAFE directories in the parent directory matching
+        the scene name extracted from the .dim filename.
+        """
+        scene_name = dim_path.stem.replace('_debursted', '').replace('_sigma0_fft', '')
+        parent = dim_path.parent.parent
+        for safe_dir in parent.glob(f"{scene_name}*.SAFE"):
+            if safe_dir.is_dir():
+                return safe_dir
+        return None
+
+    @staticmethod
+    def _detect_beam_mode(scene_name: str) -> str:
+        """Detect beam mode from Sentinel-1 filename.
+
+        S1 filenames: S1A_IW_SLC__1SDV_... or S1B_SM_SLC__1SSH_...
+        The beam mode is the 2nd field.
+        """
+        parts = scene_name.split('_')
+        if len(parts) >= 2:
+            mode = parts[1].upper()
+            if mode in ('IW', 'EW', 'SM', 'WV'):
+                return mode
+        return 'IW'  # Default to IW

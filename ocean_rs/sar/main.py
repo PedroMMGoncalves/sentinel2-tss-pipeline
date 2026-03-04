@@ -13,8 +13,6 @@ import os
 import sys
 import logging
 import argparse
-import tkinter as tk
-from tkinter import messagebox
 
 from ocean_rs.shared import setup_enhanced_logging
 
@@ -133,6 +131,8 @@ def main():
         logger.error(traceback.format_exc())
         try:
             if len(sys.argv) == 1:
+                import tkinter as tk
+                from tkinter import messagebox
                 root = tk.Tk()
                 root.withdraw()
                 messagebox.showerror("Critical Error", f"{e}\n\nCheck log for details.")

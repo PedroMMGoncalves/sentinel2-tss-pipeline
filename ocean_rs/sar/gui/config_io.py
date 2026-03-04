@@ -1,5 +1,5 @@
 """
-Configuration I/O for SAR Bathymetry Toolkit GUI.
+Configuration I/O for SAR Toolkit GUI.
 
 Saves/loads processing parameters as JSON. NEVER saves credentials.
 """
@@ -46,6 +46,37 @@ def update_configurations(gui):
         cfg.compositing_config.method = gui.compositing_method_var.get()
 
         cfg.output_directory = gui.output_dir_var.get()
+        cfg.processing_mode = gui.processing_mode_var.get()
+
+        # InSAR config
+        cfg.insar_config.coregistration_method = gui.insar_coreg_method_var.get()
+        cfg.insar_config.coregistration_patch_size = gui.insar_coreg_patch_var.get()
+        cfg.insar_config.coherence_window_range = gui.insar_coh_range_var.get()
+        cfg.insar_config.coherence_window_azimuth = gui.insar_coh_azimuth_var.get()
+        cfg.insar_config.phase_filter_alpha = gui.insar_filter_alpha_var.get()
+        cfg.insar_config.phase_filter_patch_size = gui.insar_filter_patch_var.get()
+        cfg.insar_config.unwrapping_method = gui.insar_unwrap_method_var.get()
+        cfg.insar_config.remove_topography = gui.insar_remove_topo_var.get()
+        cfg.insar_config.dem_path = gui.insar_dem_path_var.get()
+        cfg.insar_config.output_coherence = gui.insar_output_coh_var.get()
+        cfg.insar_config.output_interferogram = gui.insar_output_ifg_var.get()
+        cfg.insar_config.output_unwrapped = gui.insar_output_unwrap_var.get()
+
+        # Displacement config
+        cfg.displacement_config.mode = gui.disp_mode_var.get()
+        cfg.displacement_config.max_temporal_baseline_days = gui.disp_max_temporal_var.get()
+        cfg.displacement_config.max_perpendicular_baseline_m = gui.disp_max_perp_var.get()
+        cfg.displacement_config.atmospheric_filter = gui.disp_atm_filter_var.get()
+        cfg.displacement_config.temporal_coherence_threshold = gui.disp_temp_coh_var.get()
+        cfg.displacement_config.output_quasi_vertical = gui.disp_output_vertical_var.get()
+        cfg.displacement_config.output_los = gui.disp_output_los_var.get()
+        if gui.disp_use_ref_point_var.get():
+            cfg.displacement_config.reference_point = (
+                gui.disp_ref_lon_var.get(),
+                gui.disp_ref_lat_var.get(),
+            )
+        else:
+            cfg.displacement_config.reference_point = None
 
         return True
     except Exception as e:
@@ -68,7 +99,8 @@ def save_config(gui):
         return
 
     config_dict = {
-        "version": "1.0",
+        "version": "1.1",
+        "processing_mode": gui.config.processing_mode,
         # Note: SearchConfig contains no credential fields — safe to serialize fully
         "search": asdict(gui.config.search_config),
         "processing": {
@@ -77,6 +109,8 @@ def save_config(gui):
             "depth": asdict(gui.config.depth_config),
             "compositing": asdict(gui.config.compositing_config),
         },
+        "insar": asdict(gui.config.insar_config),
+        "displacement": asdict(gui.config.displacement_config),
         "output": {
             "output_directory": gui.config.output_directory,
             "export_geotiff": gui.config.export_geotiff,
@@ -106,6 +140,15 @@ def load_config(gui):
     try:
         with open(filename, 'r') as f:
             data = json.load(f)
+
+        version = data.get("version", "unknown")
+        if version not in ("1.0", "1.1"):
+            messagebox.showwarning(
+                "Config Version",
+                f"Config file version '{version}' may not be fully compatible "
+                f"with current SAR toolkit (expected 1.0 or 1.1).",
+                parent=gui.root
+            )
 
         search = data.get("search", {})
         gui.platform_var.set(search.get("platform", "Sentinel-1"))
@@ -140,6 +183,40 @@ def load_config(gui):
 
         output = data.get("output", {})
         gui.output_dir_var.set(output.get("output_directory", ""))
+
+        gui.processing_mode_var.set(data.get("processing_mode", "bathymetry"))
+
+        # InSAR config
+        insar = data.get("insar", {})
+        gui.insar_coreg_method_var.set(insar.get("coregistration_method", "auto"))
+        gui.insar_coreg_patch_var.set(insar.get("coregistration_patch_size", 128))
+        gui.insar_coh_range_var.set(insar.get("coherence_window_range", 15))
+        gui.insar_coh_azimuth_var.set(insar.get("coherence_window_azimuth", 3))
+        gui.insar_filter_alpha_var.set(insar.get("phase_filter_alpha", 0.5))
+        gui.insar_filter_patch_var.set(insar.get("phase_filter_patch_size", 32))
+        gui.insar_unwrap_method_var.set(insar.get("unwrapping_method", "auto"))
+        gui.insar_remove_topo_var.set(insar.get("remove_topography", True))
+        gui.insar_dem_path_var.set(insar.get("dem_path", ""))
+        gui.insar_output_coh_var.set(insar.get("output_coherence", True))
+        gui.insar_output_ifg_var.set(insar.get("output_interferogram", True))
+        gui.insar_output_unwrap_var.set(insar.get("output_unwrapped", True))
+
+        # Displacement config
+        disp = data.get("displacement", {})
+        gui.disp_mode_var.set(disp.get("mode", "dinsar"))
+        gui.disp_max_temporal_var.set(disp.get("max_temporal_baseline_days", 180))
+        gui.disp_max_perp_var.set(disp.get("max_perpendicular_baseline_m", 200.0))
+        gui.disp_atm_filter_var.set(disp.get("atmospheric_filter", False))
+        gui.disp_temp_coh_var.set(disp.get("temporal_coherence_threshold", 0.7))
+        gui.disp_output_vertical_var.set(disp.get("output_quasi_vertical", True))
+        gui.disp_output_los_var.set(disp.get("output_los", True))
+        ref = disp.get("reference_point")
+        if ref and isinstance(ref, (list, tuple)) and len(ref) == 2:
+            gui.disp_use_ref_point_var.set(True)
+            gui.disp_ref_lon_var.set(ref[0])
+            gui.disp_ref_lat_var.set(ref[1])
+        else:
+            gui.disp_use_ref_point_var.set(False)
 
         logger.info(f"Config loaded from: {filename}")
         messagebox.showinfo("Loaded", "Configuration loaded successfully.",

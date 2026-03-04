@@ -1,4 +1,8 @@
 @echo off
+REM NOTE: This script is for Windows only.
+REM For Linux/macOS, use: conda env create -f environment.yml
+REM Then: conda activate ocean_rs
+REM Then: python setup_environment.py --verify
 REM ============================================================
 REM OceanRS Environment Installer
 REM

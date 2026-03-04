@@ -1,11 +1,13 @@
 """
-Unified GUI for SAR Bathymetry Toolkit.
+Unified GUI for SAR Toolkit.
 
-4-tab layout:
+6-tab layout:
     1. Search & Select
     2. Download & Credentials
     3. Processing
-    4. Results & Monitor
+    4. InSAR
+    5. Displacement
+    6. Results & Monitor
 """
 
 import sys
@@ -15,7 +17,8 @@ from tkinter import ttk
 
 from ..config import SARProcessingConfig
 from .theme import ThemeManager
-from .tabs import create_search_tab, create_download_tab, create_processing_tab, create_results_tab
+from .tabs import (create_search_tab, create_download_tab, create_processing_tab,
+                    create_insar_tab, create_displacement_tab, create_results_tab)
 from .handlers import on_closing, start_gui_updates
 from .config_io import save_config, load_config
 
@@ -43,11 +46,11 @@ def bring_window_to_front(window):
 
 
 class UnifiedSARGUI:
-    """Unified GUI for SAR Bathymetry Toolkit."""
+    """Unified GUI for SAR Toolkit."""
 
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("OceanRS \u2014 SAR Bathymetry Toolkit v0.1")
+        self.root.title("OceanRS \u2014 SAR Toolkit v1.0")
 
         self.theme = ThemeManager(self.root)
 
@@ -96,8 +99,9 @@ class UnifiedSARGUI:
         self.download_dir_var = tk.StringVar()
 
         # Processing
+        self.processing_mode_var = tk.StringVar(value="bathymetry")
         self.snap_gpt_var = tk.StringVar()
-        self.tile_size_var = tk.DoubleVar(value=512.0)
+        self.tile_size_var = tk.DoubleVar(value=1024.0)
         self.overlap_var = tk.DoubleVar(value=0.5)
         self.min_wavelength_var = tk.DoubleVar(value=50.0)
         self.max_wavelength_var = tk.DoubleVar(value=600.0)
@@ -108,6 +112,34 @@ class UnifiedSARGUI:
         self.compositing_var = tk.BooleanVar(value=True)
         self.compositing_method_var = tk.StringVar(value="weighted_median")
         self.output_dir_var = tk.StringVar()
+
+        # InSAR
+        self.insar_primary_var = tk.StringVar()
+        self.insar_secondary_var = tk.StringVar()
+        self.insar_coreg_method_var = tk.StringVar(value="auto")
+        self.insar_coreg_patch_var = tk.IntVar(value=128)
+        self.insar_coh_range_var = tk.IntVar(value=15)
+        self.insar_coh_azimuth_var = tk.IntVar(value=3)
+        self.insar_filter_alpha_var = tk.DoubleVar(value=0.5)
+        self.insar_filter_patch_var = tk.IntVar(value=32)
+        self.insar_unwrap_method_var = tk.StringVar(value="auto")
+        self.insar_remove_topo_var = tk.BooleanVar(value=True)
+        self.insar_dem_path_var = tk.StringVar()
+        self.insar_output_coh_var = tk.BooleanVar(value=True)
+        self.insar_output_ifg_var = tk.BooleanVar(value=True)
+        self.insar_output_unwrap_var = tk.BooleanVar(value=True)
+
+        # Displacement
+        self.disp_mode_var = tk.StringVar(value="dinsar")
+        self.disp_max_temporal_var = tk.IntVar(value=180)
+        self.disp_max_perp_var = tk.DoubleVar(value=200.0)
+        self.disp_atm_filter_var = tk.BooleanVar(value=False)
+        self.disp_temp_coh_var = tk.DoubleVar(value=0.7)
+        self.disp_ref_lon_var = tk.DoubleVar(value=0.0)
+        self.disp_ref_lat_var = tk.DoubleVar(value=0.0)
+        self.disp_use_ref_point_var = tk.BooleanVar(value=False)
+        self.disp_output_vertical_var = tk.BooleanVar(value=True)
+        self.disp_output_los_var = tk.BooleanVar(value=True)
 
         # Status
         self.status_var = tk.StringVar(value="Ready")
@@ -128,11 +160,12 @@ class UnifiedSARGUI:
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        self.tab_indices = {}
-        self.tab_indices['search'] = create_search_tab(self, self.notebook)
-        self.tab_indices['download'] = create_download_tab(self, self.notebook)
-        self.tab_indices['processing'] = create_processing_tab(self, self.notebook)
-        self.tab_indices['results'] = create_results_tab(self, self.notebook)
+        create_search_tab(self, self.notebook)
+        create_download_tab(self, self.notebook)
+        create_processing_tab(self, self.notebook)
+        create_insar_tab(self, self.notebook)
+        create_displacement_tab(self, self.notebook)
+        create_results_tab(self, self.notebook)
 
         # Status bar
         status_frame = ttk.Frame(self.root)
@@ -141,6 +174,14 @@ class UnifiedSARGUI:
                   style='Status.TLabel').pack(side=tk.LEFT, padx=5)
         ttk.Progressbar(status_frame, variable=self.progress_var,
                        maximum=100, length=200).pack(side=tk.RIGHT, padx=5)
+
+        # Research-grade disclaimer
+        disclaimer = ttk.Label(
+            self.root,
+            text="Research-grade software \u2014 not validated for production displacement monitoring",
+            style='Status.TLabel'
+        )
+        disclaimer.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=2)
 
         self.root.protocol("WM_DELETE_WINDOW", lambda: on_closing(self))
 

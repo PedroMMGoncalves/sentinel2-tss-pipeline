@@ -1,13 +1,16 @@
 """
-Data models for SAR Bathymetry Toolkit.
+Data models for SAR Toolkit.
 
-Sensor-agnostic containers for SAR imagery, swell fields, and bathymetry results.
+Sensor-agnostic containers for SAR imagery, swell fields, bathymetry results,
+InSAR interferograms, and displacement fields.
+
 The OceanImage contract decouples sensor adapters from the bathymetry pipeline.
+The SLCImage contract decouples sensor adapters from the InSAR pipeline.
 """
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 import numpy as np
 
 
@@ -60,5 +63,87 @@ class BathymetryResult:
     method: str = "linear_dispersion"
     wave_period: float = 0.0
     wave_period_source: str = "wavewatch3"
+    geo: Optional[GeoTransform] = None
+    metadata: dict = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# InSAR and Displacement data models
+# ---------------------------------------------------------------------------
+
+@dataclass
+class OrbitStateVector:
+    """Single orbit state vector (position + velocity at a time)."""
+    time_utc: str               # ISO 8601 timestamp
+    x: float                    # ECEF position X (m)
+    y: float                    # ECEF position Y (m)
+    z: float                    # ECEF position Z (m)
+    vx: float                   # ECEF velocity X (m/s)
+    vy: float                   # ECEF velocity Y (m/s)
+    vz: float                   # ECEF velocity Z (m/s)
+
+
+@dataclass
+class SLCImage:
+    """Complex SAR Single Look Complex image.
+
+    Metadata dict must include:
+        - 'orbit_state_vectors': List[OrbitStateVector]
+        - 'acquisition_time': str (ISO 8601)
+        - 'sensor': str (e.g. 'Sentinel-1', 'NISAR', 'ALOS-2')
+        - 'beam_mode': str (e.g. 'IW', 'SM', 'FBS')
+    """
+    data: np.ndarray              # complex64 or complex128
+    geo: GeoTransform
+    metadata: dict
+    wavelength_m: float           # Read from product metadata
+    pixel_spacing_range: float    # Range pixel spacing (m)
+    pixel_spacing_azimuth: float  # Azimuth pixel spacing (m)
+    is_debursted: bool = False    # True after TOPS deburst (S1 IW)
+
+
+@dataclass
+class InSARPair:
+    """Paired SLC images for interferometric processing."""
+    primary: SLCImage
+    secondary: SLCImage
+    temporal_baseline_days: float
+    perpendicular_baseline_m: float  # Computed from orbit state vectors
+
+
+@dataclass
+class Interferogram:
+    """Interferometric phase and coherence.
+
+    Phase convention: ifg = primary * conj(secondary).
+    Positive unwrapped phase = increased sensor-to-target range.
+    """
+    phase: np.ndarray               # Wrapped phase [-pi, pi]
+    coherence: np.ndarray           # [0, 1]
+    unwrapped_phase: Optional[np.ndarray] = None
+    geo: Optional[GeoTransform] = None
+    wavelength_m: float = 0.0
+    temporal_baseline_days: float = 0.0
+    perpendicular_baseline_m: float = 0.0
+    incidence_angle: Optional[np.ndarray] = None  # Radians, for LOS decomposition
+    metadata: dict = field(default_factory=dict)
+
+
+@dataclass
+class DisplacementField:
+    """Line-of-sight or decomposed displacement.
+
+    Sign convention (for ifg = primary * conj(secondary)):
+        Positive LOS = increased sensor-to-target distance
+        (subsidence / motion away from sensor).
+
+    Component 'quasi_vertical' assumes purely vertical motion
+    (no horizontal component). This is an approximation.
+    """
+    displacement_m: np.ndarray
+    uncertainty_m: np.ndarray
+    component: str = "LOS"          # "LOS" | "quasi_vertical"
+    reference_date: str = ""
+    measurement_date: str = ""
     geo: Optional[GeoTransform] = None
     metadata: dict = field(default_factory=dict)

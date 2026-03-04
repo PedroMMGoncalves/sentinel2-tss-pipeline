@@ -84,20 +84,32 @@ def create_download_tab(gui, notebook):
 
 
 def _test_connection(gui):
-    """Test Earthdata credentials."""
-    from ocean_rs.sar.download import CredentialManager
-    creds = CredentialManager()
-    username = gui.username_var.get().strip()
-    password = gui.password_var.get().strip()
-    if username and password:
-        creds.set_credentials(username, password)
+    """Test Earthdata credentials in a background thread."""
+    gui.connection_status.config(text="Testing...")
 
-    success, msg = creds.test_connection()
-    if success:
-        gui.connection_status.config(text="\u2713 Connected", foreground='green')
-    else:
-        gui.connection_status.config(text="\u2717 Failed", foreground='red')
-        messagebox.showwarning("Connection Failed", msg, parent=gui.root)
+    def _test():
+        try:
+            from ocean_rs.sar.download import CredentialManager
+            creds = CredentialManager()
+            username = gui.username_var.get()
+            password = gui.password_var.get()
+            if username.strip() and password.strip():
+                creds.set_credentials(username.strip(), password.strip())
+
+            success, msg = creds.test_connection()
+            if success:
+                gui.root.after(0, lambda: gui.connection_status.config(
+                    text="\u2713 Connected", foreground='green'))
+            else:
+                gui.root.after(0, lambda: gui.connection_status.config(
+                    text="\u2717 Failed", foreground='red'))
+                gui.root.after(0, lambda m=msg: messagebox.showwarning(
+                    "Connection Failed", m, parent=gui.root))
+        except Exception as e:
+            gui.root.after(0, lambda: gui.connection_status.config(
+                text=f"Error: {e}", foreground='red'))
+
+    threading.Thread(target=_test, daemon=True).start()
 
 
 def _save_to_env(gui):

@@ -4,6 +4,7 @@ Processing Tab for SAR Bathymetry Toolkit GUI.
 SNAP GPT config, FFT parameters, wave period, depth inversion, output.
 """
 
+import sys
 import tkinter as tk
 from tkinter import ttk, filedialog
 import logging
@@ -29,11 +30,34 @@ def create_processing_tab(gui, notebook):
     canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-    # Mousewheel scrolling
+    # Mousewheel scrolling (canvas-specific, not global bind_all)
     def _on_mousewheel(event):
         canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-    canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
-    canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+    def _bind_mousewheel(event):
+        canvas.bind("<MouseWheel>", _on_mousewheel)
+    def _unbind_mousewheel(event):
+        canvas.unbind("<MouseWheel>")
+    canvas.bind("<Enter>", _bind_mousewheel)
+    canvas.bind("<Leave>", _unbind_mousewheel)
+
+    # --- Processing Mode ---
+    mode_frame = ttk.LabelFrame(scrollable, text="Processing Mode", padding="10")
+    mode_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
+
+    mode_row = ttk.Frame(mode_frame)
+    mode_row.pack(fill=tk.X)
+    ttk.Radiobutton(mode_row, text="Bathymetry",
+                    variable=gui.processing_mode_var,
+                    value="bathymetry").pack(side=tk.LEFT, padx=5)
+    ttk.Radiobutton(mode_row, text="InSAR",
+                    variable=gui.processing_mode_var,
+                    value="insar").pack(side=tk.LEFT, padx=5)
+    ttk.Radiobutton(mode_row, text="Displacement",
+                    variable=gui.processing_mode_var,
+                    value="displacement").pack(side=tk.LEFT, padx=5)
+    ttk.Label(mode_frame,
+              text="Select processing mode. InSAR/Displacement params on dedicated tabs.",
+              style='Status.TLabel').pack(anchor=tk.W, pady=(2, 0))
 
     # --- SNAP GPT ---
     snap_frame = ttk.LabelFrame(scrollable, text="SNAP GPT", padding="10")
@@ -52,11 +76,11 @@ def create_processing_tab(gui, notebook):
     fft_frame = ttk.LabelFrame(scrollable, text="FFT Swell Extraction", padding="10")
     fft_frame.pack(fill=tk.X, padx=10, pady=5)
 
-    _create_param_row(fft_frame, "Tile Size (m):", gui.tile_size_var, 128, 2048)
-    _create_param_row(fft_frame, "Overlap:", gui.overlap_var, 0.0, 0.9, increment=0.1)
-    _create_param_row(fft_frame, "Min Wavelength (m):", gui.min_wavelength_var, 10, 200)
-    _create_param_row(fft_frame, "Max Wavelength (m):", gui.max_wavelength_var, 100, 1000)
-    _create_param_row(fft_frame, "Confidence Threshold:", gui.confidence_var, 0.0, 1.0, increment=0.05)
+    create_param_row(fft_frame, "Tile Size (m):", gui.tile_size_var, 128, 2048)
+    create_param_row(fft_frame, "Overlap:", gui.overlap_var, 0.0, 0.9, increment=0.1)
+    create_param_row(fft_frame, "Min Wavelength (m):", gui.min_wavelength_var, 10, 200)
+    create_param_row(fft_frame, "Max Wavelength (m):", gui.max_wavelength_var, 100, 1000)
+    create_param_row(fft_frame, "Confidence Threshold:", gui.confidence_var, 0.0, 1.0, increment=0.05)
 
     # --- Wave Period ---
     wave_frame = ttk.LabelFrame(scrollable, text="Wave Period", padding="10")
@@ -79,7 +103,7 @@ def create_processing_tab(gui, notebook):
     depth_frame = ttk.LabelFrame(scrollable, text="Depth Inversion", padding="10")
     depth_frame.pack(fill=tk.X, padx=10, pady=5)
 
-    _create_param_row(depth_frame, "Max Depth (m):", gui.max_depth_var, 1, 500)
+    create_param_row(depth_frame, "Max Depth (m):", gui.max_depth_var, 1, 500)
 
     comp_row = ttk.Frame(depth_frame)
     comp_row.pack(fill=tk.X, pady=2)
@@ -113,10 +137,23 @@ def create_processing_tab(gui, notebook):
                                        command=lambda: _stop_processing(gui))
     gui.process_stop_btn.pack(side=tk.LEFT, padx=2)
 
+    # Show/hide bathymetry-specific params based on processing mode
+    def _on_mode_change(*args):
+        mode = gui.processing_mode_var.get()
+        bath_state = tk.NORMAL if mode == "bathymetry" else tk.DISABLED
+        for target_frame in (fft_frame, wave_frame, depth_frame):
+            for widget in target_frame.winfo_children():
+                try:
+                    widget.configure(state=bath_state)
+                except tk.TclError:
+                    pass
+
+    gui.processing_mode_var.trace_add('write', _on_mode_change)
+
     return tab_index
 
 
-def _create_param_row(parent, label, variable, from_val, to_val, increment=1.0):
+def create_param_row(parent, label, variable, from_val, to_val, increment=1.0):
     """Create a labeled Spinbox row."""
     row = ttk.Frame(parent)
     row.pack(fill=tk.X, pady=2)
@@ -126,9 +163,13 @@ def _create_param_row(parent, label, variable, from_val, to_val, increment=1.0):
 
 
 def _browse_gpt(gui):
+    if sys.platform == 'win32':
+        filetypes = [("Executable", "*.exe"), ("All", "*.*")]
+    else:
+        filetypes = [("All files", "*.*")]
     filepath = filedialog.askopenfilename(
         title="Select SNAP GPT",
-        filetypes=[("Executable", "*.exe"), ("All", "*.*")]
+        filetypes=filetypes
     )
     if filepath:
         gui.snap_gpt_var.set(filepath)

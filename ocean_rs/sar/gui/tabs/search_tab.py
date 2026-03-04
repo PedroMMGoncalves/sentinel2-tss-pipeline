@@ -60,11 +60,17 @@ def create_search_tab(gui, notebook):
     filter_row1 = ttk.Frame(filter_frame)
     filter_row1.pack(fill=tk.X, pady=2)
     ttk.Label(filter_row1, text="Platform:").pack(side=tk.LEFT)
-    ttk.Combobox(filter_row1, textvariable=gui.platform_var, width=15,
-                 values=["Sentinel-1"], state="readonly").pack(side=tk.LEFT, padx=5)
+    gui.platform_combo = ttk.Combobox(
+        filter_row1, textvariable=gui.platform_var, width=15,
+        values=["Sentinel-1", "NISAR", "ALOS-2"], state="readonly")
+    gui.platform_combo.pack(side=tk.LEFT, padx=5)
+    gui.platform_combo.bind("<<ComboboxSelected>>",
+                            lambda e: _update_beam_modes(gui))
     ttk.Label(filter_row1, text="Beam Mode:").pack(side=tk.LEFT, padx=(20, 0))
-    ttk.Combobox(filter_row1, textvariable=gui.beam_mode_var, width=10,
-                 values=["IW", "EW", "SM"], state="readonly").pack(side=tk.LEFT, padx=5)
+    gui.beam_mode_combo = ttk.Combobox(
+        filter_row1, textvariable=gui.beam_mode_var, width=10,
+        values=["IW", "EW", "SM"], state="readonly")
+    gui.beam_mode_combo.pack(side=tk.LEFT, padx=5)
 
     filter_row2 = ttk.Frame(filter_frame)
     filter_row2.pack(fill=tk.X, pady=2)
@@ -128,6 +134,22 @@ def create_search_tab(gui, notebook):
     gui.results_tree.bind("<<TreeviewSelect>>", lambda e: _update_selection_count(gui))
 
     return tab_index
+
+
+BEAM_MODES = {
+    "Sentinel-1": ["IW", "EW", "SM"],
+    "NISAR": ["LSAR", "SSAR"],
+    "ALOS-2": ["FBS", "FBD", "PLR", "SM"],
+}
+
+
+def _update_beam_modes(gui):
+    """Update beam mode combobox when platform changes."""
+    platform = gui.platform_var.get()
+    modes = BEAM_MODES.get(platform, ["IW"])
+    gui.beam_mode_combo['values'] = modes
+    if gui.beam_mode_var.get() not in modes:
+        gui.beam_mode_var.set(modes[0])
 
 
 def _load_aoi_file(gui):
