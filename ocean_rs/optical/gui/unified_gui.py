@@ -174,8 +174,8 @@ class UnifiedS2TSSGUI:
         self.skip_existing_var = tk.BooleanVar(value=True)
         self.test_mode_var = tk.BooleanVar(value=False)
         self.delete_intermediate_var = tk.BooleanVar(value=False)
-        self.memory_limit_var = tk.StringVar(value="8")
-        self.thread_count_var = tk.StringVar(value="4")
+        self.memory_limit_var = tk.StringVar(value="128")
+        self.thread_count_var = tk.StringVar(value="32")
 
         # --- Spatial (Resampling) ---
         self.resolution_var = tk.StringVar(value="10")
