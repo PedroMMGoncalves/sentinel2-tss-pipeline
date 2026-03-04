@@ -75,6 +75,11 @@ def goldstein_filter(
     weight_map = np.zeros((rows, cols), dtype=np.float64)
 
     step = patch_size - overlap
+    if step < 1:
+        logger.warning(
+            f"overlap ({overlap}) >= patch_size ({patch_size}), clamping step to 1"
+        )
+        step = 1
 
     for row_start in range(0, rows, step):
         for col_start in range(0, cols, step):

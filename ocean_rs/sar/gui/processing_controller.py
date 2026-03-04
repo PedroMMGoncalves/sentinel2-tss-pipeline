@@ -197,6 +197,8 @@ def _start_displacement(gui, output_dir):
             # Generate interferogram via InSAR pipeline first
             _log_processing(gui, "Generating interferogram from SLC pair...")
             insar_pipeline = InSARPipeline(gui.config)
+            # Store inner pipeline so stop_processing can cancel it too
+            gui.root.after(0, lambda p=insar_pipeline: setattr(gui, '_insar_pipeline', p))
             ifg_result = insar_pipeline.process(
                 primary_path=primary,
                 secondary_path=secondary,
@@ -232,9 +234,11 @@ def _start_displacement(gui, output_dir):
 
 
 def stop_processing(gui):
-    """Stop processing."""
+    """Stop processing — cancels both outer and inner pipelines."""
     if hasattr(gui, 'pipeline') and gui.pipeline:
         gui.pipeline.cancel()
+    if hasattr(gui, '_insar_pipeline') and gui._insar_pipeline:
+        gui._insar_pipeline.cancel()
     gui.status_var.set("Cancelling...")
 
 

@@ -111,14 +111,17 @@ def remove_topographic_phase(
     phi_topo = phi_topo.astype(np.float32)
 
     logger.info(
-        f"Topographic phase range: [{phi_topo.min():.1f}, {phi_topo.max():.1f}] rad"
+        f"Topographic phase range: [{np.nanmin(phi_topo):.1f}, {np.nanmax(phi_topo):.1f}] rad"
     )
 
     # Remove topographic phase
     if interferogram.unwrapped_phase is not None:
         # Direct subtraction on unwrapped phase
         defo_unwrapped = interferogram.unwrapped_phase - phi_topo
-        defo_wrapped = np.angle(np.exp(1j * defo_unwrapped)).astype(np.float32)
+        # np.angle(np.exp(1j*NaN)) returns 0.0, not NaN — preserve NaN mask
+        nan_mask = np.isnan(defo_unwrapped)
+        defo_wrapped = np.angle(np.exp(1j * np.nan_to_num(defo_unwrapped))).astype(np.float32)
+        defo_wrapped[nan_mask] = np.nan
 
         return Interferogram(
             phase=defo_wrapped,
@@ -137,10 +140,15 @@ def remove_topographic_phase(
         )
     else:
         # Complex subtraction on wrapped phase
-        complex_ifg = np.exp(1j * interferogram.phase.astype(np.float64))
-        complex_topo = np.exp(1j * phi_topo.astype(np.float64))
+        # Preserve NaN mask: np.angle(np.exp(1j*NaN)) returns 0.0, not NaN
+        phase_f64 = interferogram.phase.astype(np.float64)
+        topo_f64 = phi_topo.astype(np.float64)
+        nan_mask = np.isnan(phase_f64) | np.isnan(topo_f64)
+        complex_ifg = np.exp(1j * np.nan_to_num(phase_f64))
+        complex_topo = np.exp(1j * np.nan_to_num(topo_f64))
         defo_complex = complex_ifg * np.conj(complex_topo)
         defo_phase = np.angle(defo_complex).astype(np.float32)
+        defo_phase[nan_mask] = np.nan
 
         return Interferogram(
             phase=defo_phase,

@@ -109,7 +109,7 @@ def coregister(
         fine_offset_r, fine_offset_a = _esd_refinement(
             primary.data, secondary.data,
             coarse_offset_r, coarse_offset_a,
-            patch_size, oversample
+            patch_size, oversample, grid_spacing
         )
     else:
         fine_offset_r, fine_offset_a = _coherence_refinement(

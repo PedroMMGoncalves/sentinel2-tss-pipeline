@@ -30,6 +30,10 @@ def _check_dependencies():
         from osgeo import gdal
     except ImportError:
         missing.append('gdal')
+    try:
+        import scipy
+    except ImportError:
+        missing.append('scipy (required for InSAR/displacement)')
     return missing
 
 

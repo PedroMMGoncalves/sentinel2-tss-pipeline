@@ -44,9 +44,9 @@ def create_results_tab(gui, notebook):
     results_frame.pack(fill=tk.X, padx=10, pady=5)
 
     gui.results_labels = {}
-    for key, label in [("scenes", "Scenes Processed:"),
-                       ("depth_range", "Depth Range:"),
-                       ("mean_depth", "Mean Depth:"),
+    for key, label in [("scenes", "Scenes/Pairs Processed:"),
+                       ("depth_range", "Result Range:"),
+                       ("mean_depth", "Mean Value:"),
                        ("uncertainty", "Mean Uncertainty:")]:
         row = ttk.Frame(results_frame)
         row.pack(fill=tk.X, pady=1)

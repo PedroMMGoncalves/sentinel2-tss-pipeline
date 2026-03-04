@@ -138,15 +138,20 @@ def create_processing_tab(gui, notebook):
     gui.process_stop_btn.pack(side=tk.LEFT, padx=2)
 
     # Show/hide bathymetry-specific params based on processing mode
+    def _set_state_recursive(widget, state):
+        """Recursively set state on widget and all descendants."""
+        try:
+            widget.configure(state=state)
+        except tk.TclError:
+            pass
+        for child in widget.winfo_children():
+            _set_state_recursive(child, state)
+
     def _on_mode_change(*args):
         mode = gui.processing_mode_var.get()
         bath_state = tk.NORMAL if mode == "bathymetry" else tk.DISABLED
         for target_frame in (fft_frame, wave_frame, depth_frame):
-            for widget in target_frame.winfo_children():
-                try:
-                    widget.configure(state=bath_state)
-                except tk.TclError:
-                    pass
+            _set_state_recursive(target_frame, bath_state)
 
     gui.processing_mode_var.trace_add('write', _on_mode_change)
 

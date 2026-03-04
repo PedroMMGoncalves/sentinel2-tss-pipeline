@@ -289,10 +289,13 @@ def compute_sbas(
         disp_map[mask] = np.nan
 
         # Scale uncertainty by normalized cumulative time from reference
-        # Epochs further from reference accumulate more error
+        # Epochs further from reference accumulate more error proportionally
         sorted_pos = int(np.where(sorted_indices == t)[0][0])
         days_from_ref = abs((sorted_dates[sorted_pos] - sorted_dates[0]).days)
-        time_scale = max(1.0, np.sqrt(days_from_ref / max(total_span, 1)))
+        # Linear scaling: uncertainty grows with sqrt of number of integration steps
+        # from the reference epoch (error propagation through cumulative sum)
+        n_steps = max(sorted_pos, 1)  # number of intervals integrated
+        time_scale = np.sqrt(n_steps)
         uncertainty = (base_uncertainty * time_scale).reshape(rows, cols).astype(np.float32)
         uncertainty[mask] = np.nan
 
@@ -301,7 +304,7 @@ def compute_sbas(
             uncertainty_m=uncertainty,
             component="LOS",
             reference_date=dates[sorted_indices[0]],
-            measurement_date=dates[sorted_indices[t]],
+            measurement_date=dates[t],
             geo=geo,
             metadata={
                 'method': 'SBAS',
@@ -310,14 +313,16 @@ def compute_sbas(
                 'n_dates': n_dates,
                 'temporal_coherence_threshold': temporal_coherence_threshold,
                 'reference_pixel': (int(ref_r), int(ref_c)),
-                'sign_convention': 'positive = subsidence / away from sensor',
+                'sign_convention': 'positive = uplift / toward sensor; negative = subsidence / away',
             },
         ))
 
+    # Report max displacement from the last chronological epoch
+    last_sorted_idx = sorted_indices[-1]
     logger.info(
         f"SBAS complete: {n_dates} displacement maps. "
-        f"Max cumulative displacement: "
-        f"{np.nanmax(np.abs(cumulative[-1, :]))*1000:.1f} mm"
+        f"Max cumulative displacement (last epoch): "
+        f"{np.nanmax(np.abs(cumulative[last_sorted_idx, :]))*1000:.1f} mm"
     )
 
     return results

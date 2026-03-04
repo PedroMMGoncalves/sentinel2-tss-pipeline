@@ -207,8 +207,9 @@ class NISARAdapter(SensorAdapter):
                     # Compute approximate affine from corners
                     origin_x = float(x[0, 0])
                     origin_y = float(y[0, 0])
-                    pixel_size_x = float(x[0, -1] - x[0, 0]) / max(x.shape[1] - 1, 1)
-                    pixel_size_y = float(y[-1, 0] - y[0, 0]) / max(y.shape[0] - 1, 1)
+                    # Scale pixel sizes to image dimensions, not geolocation grid dimensions
+                    pixel_size_x = float(x[0, -1] - x[0, 0]) / max(shape[1] - 1, 1)
+                    pixel_size_y = float(y[-1, 0] - y[0, 0]) / max(shape[0] - 1, 1)
                     epsg_ds = f'{geo_path}/epsg'
                     crs_wkt = ''
                     if epsg_ds in f:

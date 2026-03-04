@@ -32,11 +32,16 @@ def update_configurations(gui):
 
         cfg.snap_gpt_path = gui.snap_gpt_var.get()
 
-        cfg.fft_config.tile_size_m = gui.tile_size_var.get()
-        cfg.fft_config.overlap = gui.overlap_var.get()
-        cfg.fft_config.min_wavelength_m = gui.min_wavelength_var.get()
-        cfg.fft_config.max_wavelength_m = gui.max_wavelength_var.get()
-        cfg.fft_config.confidence_threshold = gui.confidence_var.get()
+        # Rebuild FFTConfig to trigger __post_init__ validation
+        from ocean_rs.sar.config.sar_config import FFTConfig
+        cfg.fft_config = FFTConfig(
+            tile_size_m=gui.tile_size_var.get(),
+            overlap=gui.overlap_var.get(),
+            min_wavelength_m=gui.min_wavelength_var.get(),
+            max_wavelength_m=gui.max_wavelength_var.get(),
+            confidence_threshold=gui.confidence_var.get(),
+            window_function=cfg.fft_config.window_function,
+        )
 
         cfg.depth_config.wave_period_source = gui.wave_source_var.get()
         cfg.depth_config.manual_wave_period = gui.manual_period_var.get()
@@ -166,7 +171,7 @@ def load_config(gui):
         gui.snap_gpt_var.set(proc.get("snap_gpt_path", ""))
 
         fft = proc.get("fft", {})
-        gui.tile_size_var.set(fft.get("tile_size_m", 512.0))
+        gui.tile_size_var.set(fft.get("tile_size_m", 1024.0))
         gui.overlap_var.set(fft.get("overlap", 0.5))
         gui.min_wavelength_var.set(fft.get("min_wavelength_m", 50.0))
         gui.max_wavelength_var.set(fft.get("max_wavelength_m", 600.0))

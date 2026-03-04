@@ -8,8 +8,10 @@ Displacement formula:
     d_LOS = -(λ / 4π) · φ_unwrapped
 
 Sign convention (for ifg = primary * conj(secondary)):
-    Positive LOS = increased sensor-to-target distance
-    (subsidence / motion away from sensor)
+    Negative phase = increased sensor-to-target distance (subsidence/away)
+    d_LOS = -(λ/4π)·φ maps negative phase to positive displacement.
+    Therefore: Positive d_LOS = motion toward sensor (uplift).
+               Negative d_LOS = motion away from sensor (subsidence).
 
 References:
     Massonnet, D. & Feigl, K. (1998). Radar interferometry and its
@@ -75,10 +77,15 @@ def compute_dinsar(
     # Based on coherence: lower coherence → higher uncertainty
     # σ_phase = √((1 - γ²) / (2·N·γ²)) for N looks (Touzi et al., 1999)
     # σ_d = (λ/4π) · σ_phase
+    # Note: This formula assumes unbiased coherence estimates. Small estimation
+    # windows (e.g., 15×3 = 45 looks) produce positively biased coherence,
+    # leading to optimistic (underestimated) uncertainty. Consider this when
+    # interpreting uncertainty maps from small multilook windows.
     coherence = interferogram.coherence
 
     # Determine effective number of looks from metadata if not explicitly provided
-    if nlooks <= 1:
+    # Use < 1 (not <= 1) so caller can explicitly request single-look (nlooks=1)
+    if nlooks < 1:
         nlooks = (
             interferogram.metadata.get('nlooks', 0)
             or interferogram.metadata.get('coherence_window_range', 1)
@@ -101,7 +108,9 @@ def compute_dinsar(
     if output_vertical and interferogram.incidence_angle is not None:
         incidence = interferogram.incidence_angle
         cos_theta = np.cos(incidence)
-        cos_theta = np.where(np.abs(cos_theta) > 0.01, cos_theta, 0.01)
+        # Clamp to avoid extreme amplification: cos(80°)≈0.17, so 0.17 limits
+        # vertical amplification to ~6x LOS (physically reasonable for SAR geometry)
+        cos_theta = np.where(np.abs(cos_theta) > 0.17, cos_theta, np.sign(cos_theta) * 0.17)
 
         d_vertical = d_los / cos_theta
         uncertainty_vertical = uncertainty_los / np.abs(cos_theta)
@@ -127,7 +136,7 @@ def compute_dinsar(
                 'wavelength_m': wavelength,
                 'temporal_baseline_days': interferogram.temporal_baseline_days,
                 'perpendicular_baseline_m': interferogram.perpendicular_baseline_m,
-                'sign_convention': 'positive = subsidence / away from sensor',
+                'sign_convention': 'positive = uplift / toward sensor; negative = subsidence / away',
                 'decomposition': 'quasi_vertical (assumes no horizontal motion)',
                 'los_displacement_range_mm': (
                     float(np.nanmin(d_los) * 1000),
@@ -148,6 +157,6 @@ def compute_dinsar(
                 'wavelength_m': wavelength,
                 'temporal_baseline_days': interferogram.temporal_baseline_days,
                 'perpendicular_baseline_m': interferogram.perpendicular_baseline_m,
-                'sign_convention': 'positive = subsidence / away from sensor',
+                'sign_convention': 'positive = uplift / toward sensor; negative = subsidence / away',
             },
         )

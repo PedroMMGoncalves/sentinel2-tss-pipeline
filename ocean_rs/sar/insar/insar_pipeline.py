@@ -33,9 +33,6 @@ from ..core.data_models import (
     Interferogram, SLCImage, InSARPair, GeoTransform,
 )
 from ..sensors.base import SensorAdapter
-from ..sensors.sentinel1 import Sentinel1Adapter
-from ..sensors.nisar import NISARAdapter
-from ..sensors.alos2 import ALOS2Adapter
 from .baseline import compute_baseline
 from .coregistration import coregister
 from .interferogram import form_interferogram
@@ -59,12 +56,29 @@ class InSARPipeline:
         self.insar_config = config.insar_config or InSARConfig()
         self._cancelled = False
 
-        # Initialize sensor adapters
-        self._adapters = [
-            Sentinel1Adapter(),
-            NISARAdapter(),
-            ALOS2Adapter(),
-        ]
+        # Deferred sensor imports to avoid circular import and provide
+        # clear error messages when optional sensor deps are missing
+        self._adapters = []
+        try:
+            from ..sensors.sentinel1 import Sentinel1Adapter
+            self._adapters.append(Sentinel1Adapter())
+        except ImportError as e:
+            logger.debug(f"Sentinel-1 adapter not available: {e}")
+        try:
+            from ..sensors.nisar import NISARAdapter
+            self._adapters.append(NISARAdapter())
+        except ImportError as e:
+            logger.debug(f"NISAR adapter not available: {e}")
+        try:
+            from ..sensors.alos2 import ALOS2Adapter
+            self._adapters.append(ALOS2Adapter())
+        except ImportError as e:
+            logger.debug(f"ALOS-2 adapter not available: {e}")
+        if not self._adapters:
+            raise ImportError(
+                "No sensor adapters available. Check dependencies: "
+                "numpy, GDAL, h5py (NISAR)"
+            )
 
     def cancel(self):
         """Request pipeline cancellation."""

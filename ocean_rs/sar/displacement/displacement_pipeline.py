@@ -113,7 +113,8 @@ class DisplacementPipeline:
             lon, lat = self.disp_config.reference_point
             first_ifg = interferograms[0]
             # Convert geographic (lon, lat) to pixel (col, row) using geo transform
-            if first_ifg.geo and first_ifg.geo.pixel_size_x != 0:
+            if (first_ifg.geo and first_ifg.geo.pixel_size_x != 0
+                    and first_ifg.geo.pixel_size_y != 0):
                 col = int((lon - first_ifg.geo.origin_x) / first_ifg.geo.pixel_size_x)
                 row = int((lat - first_ifg.geo.origin_y) / first_ifg.geo.pixel_size_y)
                 # Validate bounds
