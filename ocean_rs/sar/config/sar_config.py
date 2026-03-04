@@ -87,6 +87,7 @@ class DisplacementConfig:
 @dataclass
 class SARProcessingConfig:
     """Complete SAR processing configuration."""
+    config_version: str = "1.0"
     processing_mode: str = "bathymetry"  # "bathymetry" | "insar" | "displacement"
     search_config: Optional[SearchConfig] = None
     download_config: Optional[DownloadConfig] = None
@@ -102,6 +103,11 @@ class SARProcessingConfig:
     memory_limit_gb: int = 8
 
     def __post_init__(self):
+        if self.config_version != "1.0":
+            raise ValueError(
+                f"Unsupported SAR config version: {self.config_version}. "
+                f"Expected '1.0'."
+            )
         if self.search_config is None:
             self.search_config = SearchConfig()
         if self.download_config is None:

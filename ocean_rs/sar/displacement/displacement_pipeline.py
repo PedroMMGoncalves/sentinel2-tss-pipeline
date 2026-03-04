@@ -61,6 +61,9 @@ class DisplacementPipeline:
         if self._cancelled:
             return None
 
+        if progress_callback:
+            progress_callback(1, 3, "Computing DInSAR displacement...")
+
         # Derive nlooks from InSAR config if available
         insar_config = self.config.insar_config
         nlooks = 1
@@ -73,8 +76,17 @@ class DisplacementPipeline:
             nlooks=nlooks,
         )
 
+        if self._cancelled:
+            return None
+
+        if progress_callback:
+            progress_callback(2, 3, "Exporting displacement results...")
+
         # Export results
         self._export_displacement(displacement, output_dir, 'DInSAR')
+
+        if progress_callback:
+            progress_callback(3, 3, "DInSAR processing complete")
 
         logger.info("DInSAR displacement analysis complete")
         return displacement
@@ -107,6 +119,9 @@ class DisplacementPipeline:
         if self._cancelled:
             return None
 
+        if progress_callback:
+            progress_callback(1, 4, "Building interferogram network...")
+
         # Determine reference pixel by converting (lon, lat) to (row, col)
         reference_pixel = None
         if self.disp_config.reference_point is not None:
@@ -134,6 +149,12 @@ class DisplacementPipeline:
                 )
                 reference_pixel = None
 
+        if self._cancelled:
+            return None
+
+        if progress_callback:
+            progress_callback(2, 4, "Computing SBAS displacement time-series...")
+
         results = compute_sbas(
             interferograms,
             pair_indices,
@@ -146,12 +167,18 @@ class DisplacementPipeline:
         if self._cancelled:
             return None
 
+        if progress_callback:
+            progress_callback(3, 4, "Exporting displacement results...")
+
         # Export results
         for i, disp in enumerate(results):
             self._export_displacement(
                 disp, output_dir, f'SBAS_{i:03d}',
                 date_label=disp.measurement_date
             )
+
+        if progress_callback:
+            progress_callback(4, 4, "SBAS processing complete")
 
         logger.info(f"SBAS analysis complete: {len(results)} displacement maps")
         return results
@@ -169,12 +196,9 @@ class DisplacementPipeline:
         disp_dir = output_dir / 'Displacement'
         disp_dir.mkdir(exist_ok=True)
 
-        metadata = {
-            'geotransform': [
-                displacement.geo.origin_x, displacement.geo.pixel_size_x, 0,
-                displacement.geo.origin_y, 0, displacement.geo.pixel_size_y,
-            ] if displacement.geo else [0, 1, 0, 0, 0, -1],
-            'projection': displacement.geo.crs_wkt if displacement.geo else '',
+        metadata = displacement.geo.to_gdal_metadata() if displacement.geo else {
+            'geotransform': [0, 1, 0, 0, 0, -1],
+            'projection': '',
         }
 
         # Displacement map

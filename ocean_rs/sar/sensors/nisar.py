@@ -223,7 +223,7 @@ class NISARAdapter(SensorAdapter):
                         crs_wkt=crs_wkt,
                         rows=shape[0], cols=shape[1],
                     )
-                except Exception as e:
+                except (KeyError, ValueError, TypeError, IndexError) as e:
                     logger.warning(f"Failed to read NISAR geolocation grid: {e}")
 
         # Fallback to radar coordinates
@@ -288,7 +288,7 @@ class NISARAdapter(SensorAdapter):
                         vx=float(vel[0]), vy=float(vel[1]), vz=float(vel[2]),
                     ))
                 logger.info(f"Read {len(orbit_vectors)} orbit state vectors from NISAR")
-        except Exception as e:
+        except (KeyError, ValueError, TypeError, IndexError) as e:
             logger.warning(f"Failed to read NISAR orbit data: {e}")
 
         return orbit_vectors

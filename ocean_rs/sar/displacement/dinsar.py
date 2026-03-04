@@ -31,7 +31,7 @@ logger = logging.getLogger('ocean_rs')
 def compute_dinsar(
     interferogram: Interferogram,
     output_vertical: bool = True,
-    nlooks: int = 1,
+    nlooks: int = 0,
 ) -> DisplacementField:
     """Compute DInSAR displacement from unwrapped interferogram.
 
@@ -43,9 +43,9 @@ def compute_dinsar(
     Args:
         interferogram: Interferogram with unwrapped_phase and wavelength.
         output_vertical: If True, also compute quasi-vertical displacement.
-        nlooks: Number of independent looks used in coherence estimation.
-            If not provided, extracted from interferogram metadata
-            (coherence_window_range * coherence_window_azimuth).
+        nlooks: Number of looks. 0 = auto-detect from metadata (default).
+            When auto-detecting, uses coherence_window_range * coherence_window_azimuth
+            from interferogram metadata. Set to 1 for explicit single-look.
 
     Returns:
         DisplacementField with LOS or quasi-vertical displacement.

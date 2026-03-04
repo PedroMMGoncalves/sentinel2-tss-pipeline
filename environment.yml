@@ -19,6 +19,7 @@ dependencies:
   # SAR toolkit
   - scipy
   - h5py
+  - numba                # optional: JIT acceleration for InSAR phase unwrapping/filtering
 
   # Networking
   - requests

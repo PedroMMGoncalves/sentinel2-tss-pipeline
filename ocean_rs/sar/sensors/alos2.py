@@ -282,14 +282,15 @@ class ALOS2Adapter(SensorAdapter):
         # Try filename pattern: first YYYYMMDD, then ALOS2XXXXXXX-YYMMDD-...
         name = input_path.name
         # Prefer 8-digit YYYYMMDD date
+        from datetime import datetime
         match = re.search(r'(\d{8})', name)
         if match:
             raw = match.group(1)
-            year = int(raw[0:4])
-            month = int(raw[4:6])
-            day = int(raw[6:8])
-            if 1990 <= year <= 2099 and 1 <= month <= 12 and 1 <= day <= 31:
-                return f"{raw[0:4]}-{raw[4:6]}-{raw[6:8]}T00:00:00Z"
+            try:
+                dt = datetime.strptime(raw[0:8], '%Y%m%d')
+                return dt.strftime('%Y-%m-%dT00:00:00Z')
+            except ValueError:
+                pass  # not a valid date, continue searching
 
         # Fall back to hyphen-delimited 6-digit YYMMDD
         match = re.search(r'-(\d{6})-', name)
@@ -305,4 +306,5 @@ class ALOS2Adapter(SensorAdapter):
         for mode in ('FBS', 'FBD', 'PLR', 'SM1', 'SM2', 'SM3'):
             if mode in name:
                 return mode
+        logger.warning(f"Could not detect beam mode from filename, defaulting to FBD")
         return "FBD"  # Default

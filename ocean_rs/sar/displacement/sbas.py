@@ -19,12 +19,14 @@ References:
 """
 
 import logging
+from collections import deque
 from datetime import datetime
 from typing import List, Optional, Tuple
 
 import numpy as np
 
 from ..core.data_models import Interferogram, DisplacementField
+from ocean_rs.shared.raster_io import check_memory_for_array
 
 logger = logging.getLogger('ocean_rs')
 
@@ -203,13 +205,19 @@ def compute_sbas(
             sign = 1.0 if pos_j > pos_i else -1.0
             A[k, m] = sign * dt_interval
 
+    # Memory check before allocating large phase stack
+    check_memory_for_array(n_ifg, rows * cols, bytes_per_pixel=8,
+                           description="SBAS phase stack")
+
     # Stack all unwrapped phases: (n_ifg, n_pixels)
     phase_stack = np.zeros((n_ifg, rows * cols), dtype=np.float64)
     for k, ifg in enumerate(interferograms):
         phase_stack[k, :] = ifg.unwrapped_phase.ravel()
 
-    # Convert phase to displacement (m)
-    disp_stack = -(wavelength / (4 * np.pi)) * phase_stack
+    # In-place conversion: phase -> displacement (saves one full-stack copy)
+    phase_stack *= -(wavelength / (4 * np.pi))
+    disp_stack = phase_stack  # rename, same memory
+    del phase_stack
 
     # SVD inversion per pixel
     logger.info("Running SVD inversion...")
@@ -243,7 +251,10 @@ def compute_sbas(
     # Temporal coherence: circular mean of residual phase
     # Convert displacement residuals back to phase for coherence calculation
     model_disp = A @ displacement_rate
-    residual_disp = disp_stack - model_disp
+    # In-place residual: avoids allocating a separate residual array
+    residual_disp = disp_stack.copy()
+    residual_disp -= model_disp
+    del model_disp
     residual_phase = -(4 * np.pi / wavelength) * residual_disp
     temporal_coherence = np.abs(
         np.mean(np.exp(1j * residual_phase), axis=0)
@@ -349,10 +360,10 @@ def _check_connectivity(n_nodes: int, edges: List[Tuple[int, int]]) -> bool:
         adj[j].add(i)
 
     visited = set()
-    queue = [0]
+    queue = deque([0])
     visited.add(0)
     while queue:
-        node = queue.pop(0)
+        node = queue.popleft()  # O(1) instead of list.pop(0) O(N)
         for neighbor in adj[node]:
             if neighbor not in visited:
                 visited.add(neighbor)

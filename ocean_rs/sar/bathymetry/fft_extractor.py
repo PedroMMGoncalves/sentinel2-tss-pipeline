@@ -130,7 +130,8 @@ def extract_swell(image: OceanImage,
             peak_fx = fx_shifted[peak_idx]
             peak_fy = fy_shifted[peak_idx]
             # Wave direction: angle from image y-axis (clockwise).
-            # FFT power spectrum has inherent 180° directional ambiguity.
+            # Note: FFT power spectrum is symmetric — direction has inherent 180° ambiguity.
+            # The reported direction may be offset by 180° from true propagation direction.
             # If pixel_size_y < 0 (north-up GIS convention), direction is from North.
             direction = np.degrees(np.arctan2(peak_fx, peak_fy)) % 360
 

@@ -83,13 +83,22 @@ def _start_bathymetry(gui, output_dir):
         return
 
     _activate_processing(gui)
+    gui._stop_requested = False
 
     def run():
         try:
+            # H-7: Check stop flag before creating pipeline
+            if gui._stop_requested:
+                return
+
             from ocean_rs.sar.core import BathymetryPipeline
 
             pipeline = BathymetryPipeline(gui.config)
-            gui.root.after(0, lambda p=pipeline: setattr(gui, 'pipeline', p))
+            gui.pipeline = pipeline  # H-7: Set immediately (thread-safe reference)
+
+            if gui._stop_requested:
+                pipeline.cancel()
+                return
 
             result = pipeline.process_scenes(
                 [Path(p) for p in scene_paths],
@@ -124,13 +133,22 @@ def _start_insar(gui, output_dir):
         return
 
     _activate_processing(gui)
+    gui._stop_requested = False
 
     def run():
         try:
+            # H-7: Check stop flag before creating pipeline
+            if gui._stop_requested:
+                return
+
             from ocean_rs.sar.insar import InSARPipeline
 
             pipeline = InSARPipeline(gui.config)
-            gui.root.after(0, lambda p=pipeline: setattr(gui, 'pipeline', p))
+            gui.pipeline = pipeline  # H-7: Set immediately (thread-safe reference)
+
+            if gui._stop_requested:
+                pipeline.cancel()
+                return
 
             result = pipeline.process(
                 primary_path=primary,
@@ -185,20 +203,34 @@ def _start_displacement(gui, output_dir):
         return
 
     _activate_processing(gui)
+    gui._stop_requested = False
 
     def run():
         try:
+            # H-7: Check stop flag before creating pipeline
+            if gui._stop_requested:
+                return
+
             from ocean_rs.sar.displacement import DisplacementPipeline
             from ocean_rs.sar.insar import InSARPipeline
 
             pipeline = DisplacementPipeline(gui.config)
-            gui.root.after(0, lambda p=pipeline: setattr(gui, 'pipeline', p))
+            gui.pipeline = pipeline  # H-7: Set immediately (thread-safe reference)
+
+            if gui._stop_requested:
+                pipeline.cancel()
+                return
 
             # Generate interferogram via InSAR pipeline first
             _log_processing(gui, "Generating interferogram from SLC pair...")
             insar_pipeline = InSARPipeline(gui.config)
-            # Store inner pipeline so stop_processing can cancel it too
-            gui.root.after(0, lambda p=insar_pipeline: setattr(gui, '_insar_pipeline', p))
+            # H-7: Set immediately (thread-safe reference)
+            gui._insar_pipeline = insar_pipeline
+
+            if gui._stop_requested:
+                pipeline.cancel()
+                insar_pipeline.cancel()
+                return
             ifg_result = insar_pipeline.process(
                 primary_path=primary,
                 secondary_path=secondary,
@@ -234,7 +266,12 @@ def _start_displacement(gui, output_dir):
 
 
 def stop_processing(gui):
-    """Stop processing — cancels both outer and inner pipelines."""
+    """Stop processing — cancels both outer and inner pipelines.
+
+    H-7: Uses _stop_requested flag to handle the race where Stop is clicked
+    before gui.pipeline is assigned by the background thread.
+    """
+    gui._stop_requested = True
     if hasattr(gui, 'pipeline') and gui.pipeline:
         gui.pipeline.cancel()
     if hasattr(gui, '_insar_pipeline') and gui._insar_pipeline:

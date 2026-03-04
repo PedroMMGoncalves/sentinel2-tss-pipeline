@@ -263,6 +263,10 @@ def _coherence_refinement(
         with the same shape as primary, representing per-pixel fine offsets.
     """
     rows, cols = primary.shape
+
+    from ocean_rs.shared.raster_io import check_memory_for_array
+    check_memory_for_array(rows, cols, bytes_per_pixel=16,
+                           description="coregistration offset grids")
     half = patch_size // 2
 
     offsets_r = []
@@ -341,20 +345,19 @@ def _coherence_refinement(
     logger.info(f"Affine range offset model: {range_coeffs}")
     logger.info(f"Affine azimuth offset model: {azimuth_coeffs}")
 
-    # Generate full offset grids from affine model
-    all_rows, all_cols = np.mgrid[0:rows, 0:cols]
-    all_rows = all_rows.astype(np.float64)
-    all_cols = all_cols.astype(np.float64)
+    # Generate full offset grids from affine model (broadcasting saves ~4.8 GB)
+    row_vec = np.arange(rows, dtype=np.float64)[:, np.newaxis]
+    col_vec = np.arange(cols, dtype=np.float64)[np.newaxis, :]
 
     range_offset_grid = (
         range_coeffs[0]
-        + range_coeffs[1] * all_rows
-        + range_coeffs[2] * all_cols
+        + range_coeffs[1] * row_vec
+        + range_coeffs[2] * col_vec
     )
     azimuth_offset_grid = (
         azimuth_coeffs[0]
-        + azimuth_coeffs[1] * all_rows
-        + azimuth_coeffs[2] * all_cols
+        + azimuth_coeffs[1] * row_vec
+        + azimuth_coeffs[2] * col_vec
     )
 
     # Log representative offset at image center
@@ -531,14 +534,13 @@ def _resample_slc(
 
     rows, cols = data.shape
 
-    # Build base coordinate grids
-    base_rows, base_cols = np.mgrid[0:rows, 0:cols]
-    base_rows = base_rows.astype(np.float64)
-    base_cols = base_cols.astype(np.float64)
+    # Build base coordinate grids (broadcasting saves ~4.8 GB)
+    row_vec = np.arange(rows, dtype=np.float64)[:, np.newaxis]
+    col_vec = np.arange(cols, dtype=np.float64)[np.newaxis, :]
 
     # Add offsets (works for both scalar and array)
-    row_grid = base_rows + offset_azimuth
-    col_grid = base_cols + offset_range
+    row_grid = row_vec + offset_azimuth
+    col_grid = col_vec + offset_range
 
     # Resample real and imaginary parts separately
     coords = np.array([row_grid.ravel(), col_grid.ravel()])

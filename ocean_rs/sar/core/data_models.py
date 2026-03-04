@@ -32,6 +32,16 @@ class GeoTransform:
     rows: int = 0
     cols: int = 0
 
+    def to_gdal_metadata(self) -> dict:
+        """Convert to GDAL-compatible metadata dict for RasterIO."""
+        return {
+            'geotransform': (
+                self.origin_x, self.pixel_size_x, 0,
+                self.origin_y, 0, self.pixel_size_y,
+            ),
+            'projection': self.crs_wkt,
+        }
+
 
 @dataclass
 class OceanImage:
@@ -116,7 +126,8 @@ class Interferogram:
     """Interferometric phase and coherence.
 
     Phase convention: ifg = primary * conj(secondary).
-    Positive unwrapped phase = increased sensor-to-target range.
+    Positive unwrapped phase = decreased range (motion toward sensor).
+    Negative unwrapped phase = increased range (motion away from sensor).
     """
     phase: np.ndarray               # Wrapped phase [-pi, pi]
     coherence: np.ndarray           # [0, 1]
@@ -134,8 +145,8 @@ class DisplacementField:
     """Line-of-sight or decomposed displacement.
 
     Sign convention (for ifg = primary * conj(secondary)):
-        Positive LOS = increased sensor-to-target distance
-        (subsidence / motion away from sensor).
+        Positive LOS = motion toward sensor (uplift).
+        Negative LOS = motion away from sensor (subsidence).
 
     Component 'quasi_vertical' assumes purely vertical motion
     (no horizontal component). This is an approximation.

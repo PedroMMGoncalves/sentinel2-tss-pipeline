@@ -771,7 +771,7 @@ class Sentinel1Adapter(SensorAdapter):
                         logger.info(
                             f"Parsed {len(orbit_vectors)} orbit state vectors"
                         )
-                except Exception as e:
+                except (ET.ParseError, KeyError, ValueError, AttributeError, IndexError) as e:
                     logger.warning(f"Failed to parse orbit XML: {e}")
 
         if not orbit_vectors:
@@ -807,4 +807,5 @@ class Sentinel1Adapter(SensorAdapter):
             mode = parts[1].upper()
             if mode in ('IW', 'EW', 'SM', 'WV'):
                 return mode
+        logger.warning(f"Could not detect beam mode from filename, defaulting to IW")
         return 'IW'  # Default to IW

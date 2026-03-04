@@ -13,12 +13,10 @@ from typing import List, Optional, Callable
 
 from ..core.data_models import OceanImage, BathymetryResult
 from ..config.sar_config import SARProcessingConfig
-from ..sensors.sentinel1 import Sentinel1Adapter
-from ..bathymetry.fft_extractor import extract_swell
-from ..bathymetry.wave_period import get_wave_period
-from ..bathymetry.depth_inversion import invert_depth
-from ..bathymetry.compositor import composite_bathymetry
 from ocean_rs.shared import RasterIO
+
+# NOTE: bathymetry subpackage imports are deferred to method level
+# to avoid circular imports (core.__init__ -> bathymetry_pipeline -> bathymetry -> core.data_models)
 
 logger = logging.getLogger('ocean_rs')
 
@@ -31,7 +29,27 @@ class BathymetryPipeline:
 
     def __init__(self, config: SARProcessingConfig):
         self.config = config
-        self.adapter = Sentinel1Adapter()
+
+        # M-8: Deferred multi-sensor adapter loading
+        self._adapters = []
+        try:
+            from ..sensors.sentinel1 import Sentinel1Adapter
+            self._adapters.append(Sentinel1Adapter())
+        except ImportError as e:
+            logger.debug(f"Sentinel-1 adapter not available: {e}")
+        try:
+            from ..sensors.alos2 import ALOS2Adapter
+            self._adapters.append(ALOS2Adapter())
+        except ImportError as e:
+            logger.debug(f"ALOS-2 adapter not available: {e}")
+        try:
+            from ..sensors.nisar import NISARAdapter
+            self._adapters.append(NISARAdapter())
+        except ImportError as e:
+            logger.debug(f"NISAR adapter not available: {e}")
+
+        if not self._adapters:
+            raise ImportError("No SAR sensor adapters available")
 
         self.processed_count = 0
         self.failed_count = 0
@@ -96,6 +114,7 @@ class BathymetryPipeline:
             return None
 
         if len(results) > 1 and self.config.compositing_config.enabled:
+            from ..bathymetry.compositor import composite_bathymetry
             logger.info(f"Compositing {len(results)} results...")
             final = composite_bathymetry(
                 results,
@@ -115,14 +134,37 @@ class BathymetryPipeline:
 
         return final
 
+    def _detect_sensor(self, input_path: Path):
+        """Detect which sensor adapter can process the input.
+
+        M-8: Iterates registered adapters and returns the first that
+        recognises the input product.
+
+        Raises:
+            ValueError: If no adapter can process the input.
+        """
+        for adapter in self._adapters:
+            if adapter.can_process(input_path):
+                return adapter
+        raise ValueError(f"No sensor adapter can process: {input_path.name}")
+
     def _process_single_scene(self, scene_path: Path,
                                intermediate_dir: Path) -> Optional[BathymetryResult]:
         """Process a single SAR scene through the pipeline."""
+        # Deferred imports to avoid circular dependency
+        from ..bathymetry.fft_extractor import extract_swell
+        from ..bathymetry.wave_period import get_wave_period
+        from ..bathymetry.depth_inversion import invert_depth
+
+        # M-8: Auto-detect sensor adapter for this scene
+        adapter = self._detect_sensor(scene_path)
+        logger.info(f"Detected sensor adapter: {adapter.__class__.__name__}")
+
         # Step 1: Preprocess (no TC — for FFT analysis)
         logger.info("Step 1/4: Preprocessing (SNAP GPT, no TC for FFT)...")
         # Extract primary polarization (e.g. "VV" from "VV+VH")
         pol = self.config.search_config.polarization.split('+')[0]
-        image = self.adapter.preprocess(
+        image = adapter.preprocess(
             scene_path,
             intermediate_dir,
             snap_gpt_path=self.config.snap_gpt_path or None,
@@ -248,27 +290,14 @@ class BathymetryPipeline:
         if self.config.export_geotiff and result.geo is not None:
             # M-24: Ensure pixel_size_y is negative (GeoTIFF convention:
             # origin is top-left, y increases downward in pixel space)
-            pixel_size_y = result.geo.pixel_size_y
-            origin_y = result.geo.origin_y
-            if pixel_size_y > 0:
+            if result.geo.pixel_size_y > 0:
                 # Flip to north-origin convention: move origin to north edge
                 n_rows = result.depth.shape[0] if result.depth.ndim == 2 else 1
-                origin_y = origin_y + pixel_size_y * n_rows
-                pixel_size_y = -pixel_size_y
+                result.geo.origin_y = result.geo.origin_y + result.geo.pixel_size_y * n_rows
+                result.geo.pixel_size_y = -result.geo.pixel_size_y
                 logger.warning("Corrected pixel_size_y sign and adjusted origin_y to north edge")
 
-            # Build GDAL-compatible metadata dict
-            geo_metadata = {
-                'geotransform': (
-                    result.geo.origin_x,
-                    result.geo.pixel_size_x,
-                    0,
-                    origin_y,
-                    0,
-                    pixel_size_y,
-                ),
-                'projection': result.geo.crs_wkt,
-            }
+            geo_metadata = result.geo.to_gdal_metadata()
 
             tiff_path = output_dir / "bathymetry_depth.tif"
             try:

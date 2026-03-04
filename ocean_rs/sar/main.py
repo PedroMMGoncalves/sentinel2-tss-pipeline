@@ -34,6 +34,14 @@ def _check_dependencies():
         import scipy
     except ImportError:
         missing.append('scipy (required for InSAR/displacement)')
+
+    # Optional: Numba JIT acceleration (non-blocking)
+    try:
+        import numba
+        logger.info(f"Numba {numba.__version__} available — JIT acceleration enabled")
+    except ImportError:
+        logger.info("Numba not installed — using pure NumPy (slower for phase unwrapping)")
+
     return missing
 
 

@@ -335,6 +335,11 @@ class InSARPipeline:
             delta = abs((dt_secondary - dt_primary).total_seconds())
             return delta / 86400.0
 
+        if primary_time and dt_primary is None:
+            logger.warning(f"Could not parse primary acquisition time: {primary_time!r}")
+        if secondary_time and dt_secondary is None:
+            logger.warning(f"Could not parse secondary acquisition time: {secondary_time!r}")
+        logger.warning("Temporal baseline defaulting to 0.0 days — results may be inaccurate")
         return 0.0
 
     def _export_results(self, ifg: Interferogram, output_dir: Path):
@@ -379,8 +384,8 @@ class InSARPipeline:
             f.write(f"Mean coherence: {np.nanmean(ifg.coherence):.4f}\n")
             if ifg.unwrapped_phase is not None:
                 f.write(f"Unwrapped phase range: "
-                        f"[{ifg.unwrapped_phase.min():.2f}, "
-                        f"{ifg.unwrapped_phase.max():.2f}] rad\n")
+                        f"[{np.nanmin(ifg.unwrapped_phase):.2f}, "
+                        f"{np.nanmax(ifg.unwrapped_phase):.2f}] rad\n")
             for key, value in ifg.metadata.items():
                 f.write(f"{key}: {value}\n")
         logger.info(f"Exported: {meta_path}")

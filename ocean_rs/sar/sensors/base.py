@@ -33,7 +33,8 @@ class SensorAdapter(ABC):
 
     @abstractmethod
     def preprocess(self, input_path: Path, output_dir: Path,
-                   snap_gpt_path: Optional[str] = None) -> OceanImage:
+                   snap_gpt_path: Optional[str] = None,
+                   polarization: str = "VV") -> OceanImage:
         """Preprocess raw SAR data to calibrated, geocoded OceanImage."""
         ...
 

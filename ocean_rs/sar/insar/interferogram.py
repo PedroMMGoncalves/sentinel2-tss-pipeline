@@ -78,8 +78,8 @@ def form_interferogram(
     window_size = (coh_window_azimuth, coh_window_range)
 
     # Numerator: |<primary · conj(secondary)>|
-    cross_mean = uniform_filter(ifg.real, size=window_size) + \
-                 1j * uniform_filter(ifg.imag, size=window_size)
+    cross_mean = uniform_filter(ifg.real.astype(np.float64), size=window_size) + \
+                 1j * uniform_filter(ifg.imag.astype(np.float64), size=window_size)
     numerator = np.abs(cross_mean)
 
     # Denominator: √(<|primary|²> · <|secondary|²>)
