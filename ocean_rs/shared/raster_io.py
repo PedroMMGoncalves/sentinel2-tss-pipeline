@@ -5,10 +5,18 @@ Provides functions for reading and writing geospatial raster files.
 """
 
 import os
+import sys
 import logging
 from typing import Dict, Tuple, Optional
 
 import numpy as np
+
+# PROJ must be configured BEFORE importing osgeo.
+# Once GDAL loads proj.dll, it caches the proj.db path — setting
+# PROJ_DATA after import has no effect. This prevents conflicts
+# with PostgreSQL/PostGIS, QGIS, or other PROJ installations.
+from .proj_fix import ensure_proj_configured
+ensure_proj_configured(verbose=False)
 
 try:
     from osgeo import gdal, gdalconst
@@ -30,10 +38,6 @@ def _configure_gdal():
     global _gdal_configured
     if _gdal_configured:
         return
-    # Configure PROJ before any GDAL operation to prevent conflicts
-    # with other PROJ installations (PostgreSQL/PostGIS, QGIS, etc.)
-    from .proj_fix import ensure_proj_configured
-    ensure_proj_configured(verbose=False)
     os.environ['CPL_LOG'] = 'NUL' if os.name == 'nt' else '/dev/null'
     os.environ['PROJ_DEBUG'] = '0'
     if GDAL_AVAILABLE:

@@ -98,23 +98,25 @@ def find_proj_lib_paths() -> list:
 
 def test_proj_configuration() -> bool:
     """
-    Test PROJ functionality by creating a spatial reference.
+    Verify PROJ data files exist at the configured path.
+
+    Does NOT import osgeo — this function must run BEFORE any osgeo
+    import so that PROJ loads the correct proj.db on first use.
 
     Returns:
-        bool: True if PROJ is working correctly, False otherwise.
+        bool: True if PROJ data files are found, False otherwise.
     """
-    try:
-        from osgeo import osr
-
-        # Test PROJ functionality with WGS84
-        source_srs = osr.SpatialReference()
-        source_srs.ImportFromEPSG(4326)
-
-        return True
-
-    except Exception as e:
-        logger.warning(f"PROJ test failed: {e}")
+    proj_data = os.environ.get('PROJ_DATA', '')
+    if not proj_data:
+        logger.warning("PROJ test failed: PROJ_DATA not set")
         return False
+
+    proj_db = os.path.join(proj_data, 'proj.db')
+    if not os.path.exists(proj_db):
+        logger.warning(f"PROJ test failed: {proj_db} not found")
+        return False
+
+    return True
 
 
 def configure_proj_environment(verbose: bool = True) -> bool:
