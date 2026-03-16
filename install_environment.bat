@@ -56,7 +56,7 @@ if %errorlevel% equ 0 (
 
 REM --- Step 1: Create environment with Python 3.12 ---
 echo.
-echo [1/6] Creating ocean_rs environment with Python 3.12...
+echo [1/8] Creating ocean_rs environment with Python 3.12...
 echo       (Python 3.12 is required — newer versions break GDAL)
 echo.
 conda create -n ocean_rs python=3.12.* -c conda-forge -y
@@ -70,7 +70,7 @@ if %errorlevel% neq 0 (
 
 REM --- Step 2: Install core packages ---
 echo.
-echo [2/6] Installing core packages (numpy, GDAL, psutil)...
+echo [2/8] Installing core packages (numpy, GDAL, psutil)...
 echo.
 conda install -n ocean_rs -c conda-forge numpy gdal psutil -y
 if %errorlevel% neq 0 (
@@ -83,7 +83,7 @@ if %errorlevel% neq 0 (
 
 REM --- Step 3: Install geometry packages ---
 echo.
-echo [3/6] Installing geometry packages (shapely, fiona, geopandas)...
+echo [3/8] Installing geometry packages (shapely, fiona, geopandas)...
 echo.
 conda install -n ocean_rs -c conda-forge shapely fiona geopandas requests -y
 if %errorlevel% neq 0 (
@@ -93,9 +93,24 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-REM --- Step 4: Install Spyder IDE ---
+REM --- Step 4: Install SAR toolkit packages ---
 echo.
-echo [4/6] Installing Spyder IDE...
+echo [4/8] Installing SAR toolkit packages (scipy, h5py, numba)...
+echo       scipy  — required for InSAR co-registration
+echo       h5py   — required for NISAR/ALOS-2 HDF5 products
+echo       numba  — optional JIT acceleration for phase unwrapping
+echo.
+conda install -n ocean_rs -c conda-forge scipy h5py numba -y
+if %errorlevel% neq 0 (
+    echo.
+    echo WARNING: Some SAR packages may have failed.
+    echo You can install them later with:
+    echo   conda install -n ocean_rs -c conda-forge scipy h5py numba
+)
+
+REM --- Step 5: Install Spyder IDE ---
+echo.
+echo [5/8] Installing Spyder IDE...
 echo.
 conda install -n ocean_rs -c conda-forge spyder -y
 if %errorlevel% neq 0 (
@@ -104,26 +119,41 @@ if %errorlevel% neq 0 (
     echo You can install it later with: conda install -n ocean_rs -c conda-forge spyder
 )
 
-REM --- Step 5: Upgrade pip inside the environment ---
+REM --- Step 6: Upgrade pip inside the environment ---
 echo.
-echo [5/6] Upgrading pip...
+echo [6/8] Upgrading pip...
 echo.
 conda run -n ocean_rs python -m pip install --upgrade pip
 if %errorlevel% neq 0 (
     echo WARNING: pip upgrade failed. Continuing...
 )
 
-REM --- Step 6: Install pip-only packages ---
+REM --- Step 7: Install pip-only packages (Optical + shared) ---
 echo.
-echo [6/6] Installing pip packages (sv-ttk, asf_search, python-dotenv, tkintermapview)...
+echo [7/8] Installing pip packages (sv-ttk, python-dotenv, tkintermapview)...
 echo.
-conda run -n ocean_rs python -m pip install sv-ttk asf_search python-dotenv tkintermapview
+conda run -n ocean_rs python -m pip install sv-ttk python-dotenv tkintermapview
 if %errorlevel% neq 0 (
     echo.
     echo WARNING: Some pip packages may have failed.
     echo You can install them later with:
     echo   conda activate ocean_rs
-    echo   python -m pip install sv-ttk asf_search python-dotenv tkintermapview
+    echo   python -m pip install sv-ttk python-dotenv tkintermapview
+)
+
+REM --- Step 8: Install SAR pip-only packages ---
+echo.
+echo [8/8] Installing SAR pip packages (asf_search, snaphu)...
+echo       asf_search — required for SAR scene search and download
+echo       snaphu     — required for InSAR phase unwrapping
+echo.
+conda run -n ocean_rs python -m pip install asf_search snaphu
+if %errorlevel% neq 0 (
+    echo.
+    echo WARNING: Some SAR pip packages may have failed.
+    echo You can install them later with:
+    echo   conda activate ocean_rs
+    echo   python -m pip install asf_search snaphu
 )
 
 REM --- Verify ---
